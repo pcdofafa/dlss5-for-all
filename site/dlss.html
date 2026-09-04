@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<!--
+==========================================================================================
+ DLSS5 For All — página de download  |  PC do Fafá
+ Destino pretendido: pcdofafa.com.br/dlss   (hoje publicável em pcdofafa.com.br/live/dlss)
+
+ >>> ANTES DE PUBLICAR: preencher a `url` do array ESPELHOS, no primeiro bloco de
+     script logo abaixo. Enquanto nenhum espelho tiver url, o botão fica em "Download
+     em breve" — de propósito: com a constante vazia a página é honesta; com URL
+     inventada, não.
+
+ A SEÇÃO DE AVALIAÇÕES SAIU em 04/09/2026 (estrelas, formulário e lista de comentários),
+ porque o worker que a alimenta — o fafa-dlss-api, em site\backend\ — nunca foi para o ar:
+ na página só aparecia o título e o texto, sem campo nenhum. Saiu o HTML e o bloco de
+ JavaScript inteiro, os dois juntos: o script chamava
+ $("[data-estrelas]").addEventListener(...) direto, sem checar, então tirar só o HTML
+ deixava um TypeError que abortava o resto do script — inclusive o botão de download.
+ O CSS dela ficou no arquivo de propósito, custa alguns bytes e não aparece.
+ Para trazer de volta: site\dlss.html.bak-antes-tirar-avaliacoes tem as duas partes.
+ O que sobrou do backend é o contador de downloads, que se degrada sozinho se o worker
+ não responder.
+
+ COMO PUBLICAR (Cloudflare Worker "ecurtadorpcdofafa", KV LINKS, chave live:dlss):
+     cd C:\Users\PCDOFAFA\Documents\fafa-bot-core
+     py tools/subir_live.py "C:\Users\PCDOFAFA\Desktop\dlss for all\site\dlss.html" dlss --titulo "DLSS5 For All"
+     -> o script embute sozinho as imagens (caminho relativo imgs/) como data:base64
+        e faz o POST /live/api/criar com o Bearer do CF_WORKER_TOKEN (.env do fafa-bot-core).
+     -> resultado: https://pcdofafa.com.br/live/dlss
+
+ As imagens têm que continuar referenciadas pelo caminho relativo imgs/ no atributo src:
+ é esse padrão que o subir_live.py reconhece para embutir. Não trocar por URL externa.
+ A da barra de cima é imgs/icone-app.png — o ícone real do app, o mesmo que o instalador
+ põe no atalho da Área de Trabalho.
+==========================================================================================
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DLSS5 For All — DLSS 5 em qualquer coisa da sua tela | PC do Fafá</title>
+<meta name="description" content="Programa grátis e de código aberto que aplica DLSS 5 (Neural Rendering) em qualquer jogo, emulador ou vídeo que apareça na sua tela — sem injetar nada no processo do jogo. Precisa de uma GeForce RTX.">
+<meta name="robots" content="index,follow">
+<meta property="og:type" content="website">
+<meta property="og:title" content="DLSS5 For All — DLSS 5 em qualquer coisa da sua tela">
+<meta property="og:description" content="Aplique DLSS 5 (Neural Rendering) em jogo antigo, emulador ou vídeo. Grátis, código aberto, sem injetar nada no jogo. PC do Fafá.">
+<meta property="og:locale" content="pt_BR">
+
+<script>
+  /* ======================================================================
+     ESPELHOS DE DOWNLOAD — o único ponto a preencher.
+
+     Cole o link do Google Drive DO JEITO QUE ELE DER em Compartilhar →
+     Copiar link, ou seja assim:
+         https://drive.google.com/file/d/<ID>/view?usp=sharing
+     A página converte sozinha para o formato que baixa direto
+     (https://drive.google.com/uc?export=download&id=<ID>). Se você já colar
+     no formato uc?export=download, ela usa como está. Não precisa converter
+     na mão — esse é justamente o detalhe que quebra calado.
+
+     Comportamento conforme quantos espelhos tiverem URL preenchida:
+       nenhum  -> o botão fica "Download em breve", desabilitado
+       um      -> o botão baixa direto, sem menu nenhum
+       dois+   -> o botão abre a lista para a pessoa escolher
+
+     Para acrescentar espelho depois, basta somar um objeto neste array —
+     nada muda no HTML. O `id` é o que vai para o contador (letras minúsculas,
+     números e hífen, até 24 caracteres) e é por ele que dá para ver depois por
+     onde as pessoas baixam. `nota` é opcional e aparece em cinza ao lado.
+     ====================================================================== */
+  const ESPELHOS = [
+    { id: "drive", nome: "Google Drive", nota: "baixa direto",
+      url: "https://drive.google.com/file/d/10SbMjlMb5_dLdWnEFC_Y-N12urFy8UxX/view?usp=sharing" },
+    /* UploadNow saiu em 04/09/2026: exigia login para baixar. Um espelho que pede conta
+       não serve nem como reserva — quem cai nele por o Drive estar fora do ar bate numa
+       tela de cadastro, que é pior do que não existir a opção. */
+    /* Espelho próprio, para quando o R2 estiver de pé — é só preencher a url e
+       descomentar. Ele foi pensado para ser o PRIMEIRO da lista quando existir: é o
+       único que não depende de serviço de terceiro, não tem tela intermediária e não
+       tem limite de banda (o R2 não cobra egress). Enquanto o bucket não existe, ficar
+       fora da lista é o certo — link morto é pior que espelho a menos.
+       O id "cloudflare" já tem ícone próprio no mapa ICONES lá embaixo.
+    { id: "cloudflare", nome: "Servidor do PC do Fafá", nota: "mais rápido", url: "" },
+    { id: "github",     nome: "GitHub Releases",        nota: "",            url: "" },
+    */
+  ];
+
+  const VERSAO  = "2026.09.04";   /* aparece ao lado do botão; vazio = some */
+  const TAMANHO = "305 MB";       /* o .zip que a pessoa baixa (o .exe dentro tem 308 MB) */
+
+  /* Backend (worker fafa-dlss-api). Mesmo domínio, então não há CORS no caminho feliz.
+     Se o worker não estiver no ar, a página se degrada sozinha: o botão continua
+     funcionando, e contador, estrelas e comentários somem em vez de mostrar zero. */
+  const API = "/dlss-api";
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#000000; --bg2:#0b1017; --surface:#111827; --surface2:#17212b; --surface3:#1f2937;
+    --border:#243244; --border2:#33445c;
+    --text:#ffffff; --body:#d1d5db; --muted:#9ca3af; --faint:#6b7280;
+    --cyan:#06b6d4; --cyan-lt:#22d3ee; --cyan-dk:#0891b2;
+    --blue:#2563eb; --blue-lt:#3b82f6; --sky:#0ea5e9;
+    --red:#ef4444; --orange:#fb923c;
+    --grad:linear-gradient(135deg,#0891b2,#2563eb);
+    --grad-lt:linear-gradient(135deg,#06b6d4,#0ea5e9);
+    --radius:16px;
+    --shadow:0 20px 44px -22px rgba(0,0,0,.9);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+    background:var(--bg);color:var(--body);line-height:1.62;font-size:16px;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(900px 520px at 82% -12%, rgba(37,99,235,.16), transparent 70%),
+      radial-gradient(760px 480px at -8% 2%, rgba(6,182,212,.13), transparent 70%);
+    background-attachment:fixed;
+  }
+  img{max-width:100%;display:block}
+  a{color:var(--cyan-lt);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+  .narrow{max-width:820px}
+
+  h1,h2,h3,.ff{font-family:'Oswald','Segoe UI',sans-serif;font-weight:600;color:var(--text);letter-spacing:.01em}
+  h1{font-size:clamp(30px,5.4vw,54px);line-height:1.06;text-transform:uppercase;font-weight:700}
+  h2{font-size:clamp(22px,3.4vw,32px);text-transform:uppercase;line-height:1.15;margin-bottom:10px}
+  h3{font-size:18px;line-height:1.3;margin-bottom:6px}
+  p+p{margin-top:12px}
+  strong{color:var(--text);font-weight:600}
+  code{font-family:ui-monospace,'Cascadia Mono','Consolas',monospace;font-size:.9em}
+  code{background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:1px 6px;color:#cbe9f5}
+
+  /* ---------- topo ---------- */
+  .topbar{position:sticky;top:0;z-index:40;background:rgba(0,0,0,.78);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--border)}
+  .topbar-in{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand img{width:34px;height:34px;border-radius:9px}
+  .brand span{font-family:'Oswald',sans-serif;font-weight:600;text-transform:uppercase;
+    letter-spacing:.06em;color:var(--text);font-size:15px}
+  .topbar nav{display:flex;gap:18px;flex-wrap:wrap;font-size:14px}
+  .topbar nav a{color:var(--muted)}
+  .topbar nav a:hover{color:var(--cyan-lt);text-decoration:none}
+  @media(max-width:640px){.topbar nav{display:none}}
+
+  /* ---------- hero ---------- */
+  header.hero{padding:62px 0 54px}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-family:'Oswald',sans-serif;font-weight:600;
+    font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan-lt);
+    background:rgba(6,182,212,.11);border:1px solid rgba(6,182,212,.34);padding:6px 13px;border-radius:999px}
+  .hero h1{margin:18px 0 16px;max-width:15ch}
+  .hero h1 em{font-style:normal;background:var(--grad-lt);-webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent}
+  .lead{font-size:clamp(16px,2.1vw,19px);color:var(--body);max-width:64ch}
+  .facts{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+  .fact{font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--border);
+    padding:6px 13px;border-radius:999px}
+  .fact b{color:var(--text);font-weight:600}
+
+  /* ---------- botão ---------- */
+  .cta-row{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:30px}
+  .btn{display:inline-flex;align-items:center;gap:10px;font-family:'Oswald',sans-serif;font-weight:600;
+    text-transform:uppercase;letter-spacing:.05em;font-size:17px;color:#fff;background:var(--grad);
+    border:0;border-radius:13px;padding:15px 30px;cursor:pointer;transition:.18s;
+    box-shadow:0 14px 30px -14px rgba(37,99,235,.9)}
+  .btn:hover{filter:brightness(1.12);text-decoration:none;transform:translateY(-1px)}
+  .btn svg{width:19px;height:19px;flex:none}
+  .btn.off{background:var(--surface3);color:var(--muted);box-shadow:none;cursor:not-allowed;
+    border:1px dashed var(--border2)}
+  .btn.off:hover{filter:none;transform:none}
+  .btn-ghost{display:inline-flex;align-items:center;gap:8px;font-family:'Oswald',sans-serif;font-weight:500;
+    text-transform:uppercase;letter-spacing:.05em;font-size:15px;color:var(--body);background:var(--surface);
+    border:1px solid var(--border2);border-radius:13px;padding:14px 24px;transition:.18s}
+  .btn-ghost:hover{border-color:var(--cyan);color:var(--text);text-decoration:none}
+  .cta-meta{font-size:13.5px;color:var(--faint)}
+
+  /* linha discreta abaixo do botão: metadados · espelho do Drive · contador */
+  .cta-sub{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:14px;font-size:13.5px}
+  .cta-sub .sep{color:var(--border2)}
+  /* ---------- lista de espelhos (só aparece com 2 ou mais) ----------
+     Abre DENTRO da caixa de download, não numa janela por cima da página.
+     Uma sobreposição exigiria um X para fechar, e um X a mais é uma chance a mais
+     de a pessoa ficar presa — foi exatamente o que aconteceu quando isto era um
+     modal: a regra `.modal{display:flex}` vencia o `display:none` que o atributo
+     `hidden` herda da folha do navegador (especificidade 0,1,0 contra 0,0,0), então
+     o painel nascia aberto e o botão de fechar, que só fazia `hidden = true`, não
+     tinha efeito nenhum. Sem sobreposição o problema não existe: o painel é um bloco
+     comum na página, e `hidden` sozinho já resolve.
+     Ainda assim, a regra [hidden] abaixo fica como cinto de segurança. */
+  .espelhos-cx{margin-top:22px;padding-top:20px;border-top:1px solid var(--border);
+    text-align:left;animation:abre .18s ease-out}
+  .espelhos-cx[hidden]{display:none}
+  .espelhos-tit{font-size:13.5px;color:var(--muted);margin-bottom:14px;text-align:center}
+  @keyframes abre{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .espelho{display:flex;align-items:center;gap:13px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:13px;padding:14px 16px;margin-bottom:9px;
+    text-decoration:none;transition:.15s}
+  .espelho:hover{border-color:var(--cyan);background:var(--surface3);text-decoration:none;
+    transform:translateY(-1px)}
+  .espelho svg{width:20px;height:20px;flex:none;color:var(--cyan-lt)}
+  .espelho .nm{font-family:'Oswald',sans-serif;font-weight:600;color:var(--text);font-size:16px;
+    letter-spacing:.03em}
+  .espelho .nt{font-size:13px;color:var(--muted);margin-left:auto}
+  .contador{display:inline-flex;align-items:center;gap:7px;color:var(--body)}
+  .contador b{font-family:'Oswald',sans-serif;font-weight:600;color:var(--text);font-size:15px}
+  .contador .pt{width:7px;height:7px;border-radius:50%;background:var(--cyan);flex:none;
+    box-shadow:0 0 0 3px rgba(6,182,212,.18)}
+
+  /* ---------- avaliação ---------- */
+  .aval{display:flex;flex-wrap:wrap;align-items:center;gap:12px 26px;background:var(--surface);
+    border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px}
+  .estrelas{display:flex;gap:3px}
+  .estrela{background:none;border:0;cursor:pointer;padding:2px;line-height:1;font-size:31px;
+    color:var(--surface3);transition:.12s;border-radius:5px}
+  .estrela:hover{transform:scale(1.12)}
+  .estrela.on{color:#facc15}
+  .estrela:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .aval-num{display:flex;align-items:baseline;gap:9px}
+  .aval-num b{font-family:'Oswald',sans-serif;font-weight:700;font-size:27px;color:var(--text)}
+  .aval-num span{font-size:13.5px;color:var(--muted)}
+  .aval-msg{flex-basis:100%;margin:0;font-size:13.5px;color:var(--cyan-lt);min-height:1.2em}
+  .aval-rot{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.14em;margin-bottom:5px}
+  .indisp{color:var(--faint);font-style:italic;font-size:14.6px}
+  .opc{color:var(--faint);text-transform:none;letter-spacing:0;font-size:12.5px}
+
+  /* ---------- card de avaliação (estrelas + texto + curtida) ---------- */
+  .com-item .notas{color:#facc15;letter-spacing:2px;font-size:15px;line-height:1}
+  .com-item .notas .off{color:var(--surface3)}
+  .com-item footer{margin-top:11px}
+  .curtir{display:inline-flex;align-items:center;gap:7px;background:var(--surface2);
+    border:1px solid var(--border);border-radius:999px;padding:6px 14px;cursor:pointer;
+    font:inherit;font-size:13px;color:var(--muted);transition:.15s}
+  .curtir:hover{border-color:var(--cyan);color:var(--text)}
+  .curtir.on{color:var(--cyan-lt);border-color:rgba(6,182,212,.45);background:rgba(6,182,212,.1)}
+  .curtir svg{width:15px;height:15px;flex:none}
+  .curtir.on svg{fill:currentColor}
+
+  /* ---------- comentários ---------- */
+  .com-form{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:20px 22px;margin-bottom:24px}
+  .com-form label{display:block;font-size:13px;color:var(--muted);margin-bottom:5px}
+  .com-form input[type=text],.com-form textarea{width:100%;background:var(--bg2);color:var(--text);
+    border:1px solid var(--border2);border-radius:10px;padding:11px 13px;font:inherit;font-size:14.6px;
+    resize:vertical}
+  .com-form input:focus,.com-form textarea:focus{outline:0;border-color:var(--cyan)}
+  .com-form textarea{min-height:96px}
+  .com-linha{margin-bottom:14px}
+  .com-pe{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+  .com-conta{font-size:12.5px;color:var(--faint)}
+  .com-msg{font-size:13.5px;margin-top:12px;min-height:1.2em}
+  .com-msg.ok{color:var(--cyan-lt)}
+  .com-msg.err{color:var(--orange)}
+  .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  .com-item{background:var(--surface);border:1px solid var(--border);border-radius:13px;
+    padding:15px 18px;margin-bottom:11px}
+  .com-item header{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;
+    justify-content:space-between;margin-bottom:6px}
+  .com-item .quem{font-family:'Oswald',sans-serif;font-weight:600;color:var(--text);font-size:15px;
+    letter-spacing:.02em}
+  .com-item time{font-size:12.5px;color:var(--faint)}
+  .com-item p{font-size:14.6px;color:var(--body);white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+
+  /* ---------- convites ---------- */
+  .convites{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .convite{border-radius:var(--radius);padding:24px 26px;border:1px solid var(--border);
+    background:var(--surface);display:flex;flex-direction:column}
+  .convite.destaque{border-color:rgba(34,211,238,.34);
+    background:linear-gradient(135deg,rgba(8,145,178,.15),rgba(37,99,235,.12))}
+  .convite h3{font-size:clamp(18px,2.6vw,23px);text-transform:uppercase;margin-bottom:9px}
+  .convite p{font-size:14.6px;color:var(--body);flex:1}
+  .convite .selo{display:inline-block;font-size:12px;color:var(--cyan-lt);
+    border:1px solid rgba(6,182,212,.34);background:rgba(6,182,212,.1);border-radius:999px;
+    padding:4px 11px;margin-bottom:12px;align-self:flex-start}
+  .convite .btn,.convite .btn-ghost{margin-top:18px;align-self:flex-start;font-size:15px;padding:12px 22px}
+
+  /* ---------- seções ---------- */
+  section{padding:52px 0;border-top:1px solid var(--border)}
+  .eyebrow{font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--cyan);margin-bottom:6px}
+  .sec-lead{color:var(--muted);max-width:70ch;margin-bottom:26px}
+
+  .req{list-style:none;display:grid;gap:9px;margin-top:6px}
+  .req li{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:13px 17px;font-size:14.8px;color:var(--muted)}
+
+  /* ---------- passos ---------- */
+  .step{display:flex;gap:18px;padding:22px 0;border-bottom:1px solid var(--border)}
+  .step:last-child{border-bottom:0}
+  .step .n{flex:none;width:38px;height:38px;border-radius:11px;background:var(--grad);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-family:'Oswald',sans-serif;
+    font-weight:700;font-size:18px}
+  .step .body{flex:1;min-width:0}
+  .step p{font-size:15px;color:var(--muted)}
+  .step ul{margin:10px 0 0 18px;font-size:14.6px;color:var(--muted)}
+  .step li{margin-bottom:5px}
+
+  /* ---------- avisos ---------- */
+  .warn{border-radius:var(--radius);padding:20px 22px;border:1px solid rgba(251,146,60,.4);
+    background:rgba(251,146,60,.07);margin-top:18px}
+  .warn h3{color:var(--orange);font-size:16px;text-transform:uppercase;letter-spacing:.05em}
+  .warn p,.warn li{font-size:14.6px;color:var(--body)}
+  .warn ul{margin:10px 0 0 18px}
+  .warn li{margin-bottom:6px}
+  .note{border-radius:var(--radius);padding:18px 20px;border:1px solid var(--border);
+    background:var(--surface);margin-top:18px;font-size:14.6px;color:var(--muted)}
+
+  /* ---------- download ---------- */
+  .dlbox{background:linear-gradient(135deg,rgba(8,145,178,.16),rgba(37,99,235,.14));
+    border:1px solid rgba(34,211,238,.32);border-radius:20px;padding:34px 30px;text-align:center;
+    box-shadow:var(--shadow)}
+  .dlbox h2{margin-bottom:8px}
+  .dlbox p{color:var(--body);max-width:56ch;margin:0 auto}
+  .dlbox .cta-row{justify-content:center}
+
+  /* ---------- créditos ---------- */
+  .cred{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .cred .item{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:15px 17px}
+  .cred .item b{display:block;font-family:'Oswald',sans-serif;font-weight:600;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--text);font-size:14.5px;margin-bottom:3px}
+  .cred .item span{font-size:13.6px;color:var(--muted)}
+
+  /* ---------- rodapé ---------- */
+  footer{border-top:1px solid var(--border);padding:38px 0 56px;color:var(--faint);font-size:14px}
+  .foot-in{display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:flex-start}
+  .foot-links{display:flex;flex-wrap:wrap;gap:16px}
+  .foot-brand{display:flex;align-items:center;gap:11px}
+  .foot-brand img{width:40px;height:40px;border-radius:10px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap topbar-in">
+    <div class="brand">
+      <img src="imgs/icone-app.png" alt="DLSS5 For All">
+      <span>DLSS5 For All</span>
+    </div>
+    <nav>
+      <a href="#baixar">Baixar</a>
+      <a href="#instalar">Instalar</a>
+      <a href="#creditos">Créditos</a>
+    </nav>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">PC do Fafá · grátis e de código aberto</span>
+    <h1>DLSS 5 em <em>qualquer coisa</em> que apareça na sua tela</h1>
+    <p class="lead">
+      O <strong>DLSS5 For All</strong> pega a imagem de um jogo, de um emulador, de um vídeo ou de uma placa de
+      captura e passa o <strong>DLSS 5 (Neural Rendering)</strong> por cima — inclusive em jogo antigo que nunca
+      teve suporte a DLSS. Ele <strong>não injeta nada dentro do jogo</strong>: tudo acontece dentro do programa,
+      numa janela dele.
+    </p>
+    <div class="facts">
+      <span class="fact"><b>GeForce RTX</b> obrigatória</span>
+      <span class="fact">Sem hook, sem DLL no jogo</span>
+    </div>
+    <div class="cta-row">
+      <a class="btn" data-download href="#baixar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/>
+        </svg>
+        <span data-download-label>Baixar o DLSS5 For All</span>
+      </a>
+      <a class="btn-ghost" href="#instalar">Como instalar</a>
+    </div>
+    <div class="cta-sub">
+      <span class="cta-meta" data-download-meta></span>
+      <span class="contador" data-contador hidden><i class="pt"></i><b data-contador-num></b> downloads</span>
+    </div>
+  </div>
+</header>
+
+<section id="oque">
+  <div class="wrap narrow">
+    <div class="eyebrow">Como fica na tela</div>
+    <h2>De dois jeitos</h2>
+    <p class="sec-lead" style="margin-bottom:0">
+      Você aponta o programa para o jogo, o emulador ou o vídeo e escolhe: a imagem filtrada aparece
+      <strong>numa janela separada</strong>, boa para gravar e comparar lado a lado, ou <strong>colada em cima
+      do jogo</strong>, sempre no topo e transparente ao mouse — como se o DLSS 5 rodasse dentro dele. Serve
+      para jogo, emulador ou vídeo, desde que rode em janela ou borderless.
+    </p>
+  </div>
+</section>
+
+<section id="requisitos">
+  <div class="wrap narrow">
+    <div class="eyebrow">Requisitos</div>
+    <h2>O que você precisa ter</h2>
+    <ul class="req">
+      <li><strong>Placa GeForce RTX</strong> com driver recente — sem ela não existe DLSS.</li>
+      <li><strong>Windows 10 (1903 ou mais novo) ou 11</strong>, 64 bits.</li>
+      <li>O jogo em <strong>janela ou borderless</strong>. Tela cheia exclusiva não funciona.</li>
+      <li>Visual C++ 2015-2022 x64 — o script de instalação põe se estiver faltando.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="baixar">
+  <div class="wrap narrow">
+    <div class="dlbox">
+      <div class="eyebrow">Download</div>
+      <h2>DLSS5 For All</h2>
+      <p>Grátis e de código aberto. Depois de baixar, são dois passos de instalação.</p>
+      <div class="cta-row">
+        <a class="btn" data-download href="#baixar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/>
+          </svg>
+          <span data-download-label>Baixar o DLSS5 For All</span>
+        </a>
+      </div>
+      <div class="cta-sub" style="justify-content:center">
+        <span class="cta-meta" data-download-meta></span>
+        <span class="contador" data-contador hidden><i class="pt"></i><b data-contador-num></b> downloads</span>
+      </div>
+
+      <!-- Espelhos: abrem AQUI, dentro da caixa, e não numa janela por cima da página.
+           Só aparece com dois ou mais no array ESPELHOS; com um, o botão baixa direto. -->
+      <div class="espelhos-cx" id="espelhos" data-espelhos hidden>
+        <p class="espelhos-tit">Escolha por onde baixar — todos levam ao mesmo arquivo.
+        Se um estiver fora do ar, tente o outro.</p>
+        <div data-espelhos-lista></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="instalar">
+  <div class="wrap">
+    <div class="eyebrow">Instalação</div>
+    <h2>Dois passos, uma vez só</h2>
+
+    <div class="step">
+      <div class="n">1</div>
+      <div class="body">
+        <h3>Descompacte o arquivo baixado</h3>
+        <p>Dentro do <code>.zip</code> vem um arquivo só: <code>DLSS5ForAll-setup.exe</code>. Pode
+        descompactar em qualquer lugar, até na Área de Trabalho — essa pasta é só onde o instalador
+        fica, e não onde o programa vai ser instalado.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="n">2</div>
+      <div class="body">
+        <h3>Abra o <code>DLSS5ForAll-setup.exe</code> e vá dizendo sim</h3>
+        <p>Ele pergunta o idioma (português ou inglês) e onde instalar — pode deixar como está. Daí
+        é avançar até <strong>Instalar</strong>. O Windows vai pedir confirmação duas vezes, e nas duas
+        a resposta é sim: a tela azul do SmartScreen (logo abaixo) e o aviso de administrador.</p>
+        <p>O resto é sozinho: ele instala tudo, cria o atalho na Área de Trabalho e no Menu Iniciar,
+        e no fim já abre o programa. Não há nada para baixar depois nem arquivo para colocar na mão.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong style="color:var(--text)">O Windows avisa na primeira vez, e é normal.</strong> Na tela "O Windows
+      protegeu o computador", clique em <strong>Mais informações</strong> → <strong>Executar assim mesmo</strong>.
+      É o que o SmartScreen faz com todo programa gratuito sem certificado de assinatura.
+    </div>
+
+    <p class="sec-lead" style="margin:18px 0 0">
+      Atalhos, ajuste fino e problemas comuns estão no <strong>Leia-me</strong>, que fica no Menu Iniciar
+      junto com o atalho do programa.
+    </p>
+  </div>
+</section>
+
+<section id="creditos">
+  <div class="wrap">
+    <div class="eyebrow">Créditos</div>
+    <h2>Nada disso é só nosso</h2>
+    <div class="cred">
+      <div class="item"><b>ReShade</b><span>crosire — o motor de pós-processamento e a API de add-ons.</span></div>
+      <div class="item"><b>DLSS5-Feeder</b><span>jlrouzies-fr — fabrica os motion vectors.</span></div>
+      <div class="item"><b>LumeniteFX</b><span>umar-afzaal — fabrica o depth buffer.</span></div>
+      <div class="item"><b>RenoDX</b><span><code>renodx-dlss5.addon64</code>, que roda o Neural Rendering.</span></div>
+      <div class="item"><b>NVIDIA</b><span><code>nvngx_dlss.dll</code> vem do driver. DLSS e RTX são marcas da NVIDIA; este projeto não tem relação com ela.</span></div>
+      <div class="item"><b>DLSS5 For All</b><span>código do PC do Fafá, licença MIT.</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <div class="foot-brand">
+      <img src="imgs/logo.png" alt="PC do Fafá">
+      <div>
+        <div class="ff" style="font-size:15px;text-transform:uppercase;letter-spacing:.06em">PC do Fafá</div>
+        <div style="font-size:13px">Cupom e oferta todo dia.</div>
+      </div>
+    </div>
+    <div class="foot-links">
+      <a href="https://grupo.pcdofafa.com.br/pg" rel="noopener">Grupo de ofertas</a>
+      <a href="https://www.youtube.com/@pcdofafa" rel="noopener">Canal no YouTube</a>
+      <a href="#baixar">Baixar</a>
+    </div>
+  </div>
+  <div class="wrap" style="margin-top:22px;font-size:13px">
+    Software livre sob licença MIT. DLSS e RTX são marcas da NVIDIA Corporation; este projeto não tem relação com ela.
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var $  = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var num = function (n) { return new Intl.NumberFormat("pt-BR").format(n); };
+  var ABERTA_EM = Date.now();
+
+  /* Uma única regra vale para tudo o que vem do servidor: o texto entra por
+     textContent. Em nenhum lugar deste arquivo há innerHTML com dado de visitante —
+     é assim que comentário nenhum consegue virar HTML na página. */
+
+  // ================================================================= download
+
+  /* O link que o Google Drive dá em "Compartilhar" NÃO baixa: ele abre a página de
+     visualização, e quem chega ali tem de caçar o botão de download do Google. O que
+     baixa é a forma uc?export=download. Como quem preenche a constante vai colar o
+     link do jeito que o Drive deu, a conversão é feita aqui — depender de alguém
+     lembrar de converter na mão é o tipo de detalhe que quebra em silêncio. */
+  /* POR QUE drive.usercontent.google.com E NÃO O uc?export=download DE SEMPRE.
+     A receita antiga (drive.google.com/uc?export=download&id=…) só funciona em arquivo
+     PEQUENO. Acima de ~100 MB o Google não consegue passar antivírus e, em vez do
+     arquivo, devolve uma página "não foi possível verificar se há vírus" com um botão
+     de confirmar. Medido neste arquivo (305 MB): o uc?export=download responde 303 e
+     manda para drive.usercontent.google.com, que devolve Content-Type text/html — ou
+     seja, o botão "Baixar" entregaria uma PÁGINA, não o instalador, e o sintoma seria
+     "cliquei e não baixou nada". Com &confirm=t na usercontent a resposta vira
+     Content-Type application/octet-stream com Content-Disposition attachment
+     (filename="DLSS5ForAll-setup.zip"): baixa de verdade.
+     Um link de pasta (/drive/folders/…) não tem ID de arquivo e é devolvido intacto —
+     abrir a pasta é melhor que montar uma URL de download que não existe. */
+  function normalizarUrl(url) {
+    var u = String(url || "").trim();
+    if (!/drive\.google\.com|drive\.usercontent\.google\.com/i.test(u)) return u;  // outro espelho: passa direto
+    if (/\/drive\/folders\//i.test(u)) return u;                                   // pasta, não arquivo
+    var m = u.match(/\/file\/d\/([A-Za-z0-9_-]{10,})/) || u.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+    if (!m) return u;
+    return "https://drive.usercontent.google.com/download?id=" + m[1] + "&export=download&confirm=t";
+  }
+
+  // Só entra na lista o espelho que tem url e um id em formato válido — o mesmo
+  // formato que o servidor aceita, para o contador nunca receber lixo.
+  var espelhos = (typeof ESPELHOS !== "undefined" ? ESPELHOS : [])
+    .filter(function (e) {
+      return e && String(e.url || "").trim() !== "" && /^[a-z0-9][a-z0-9-]{0,23}$/.test(e.id || "");
+    })
+    .map(function (e) {
+      return { id: e.id, nome: e.nome || e.id, nota: e.nota || "", url: normalizarUrl(e.url) };
+    });
+
+  var elModal  = $("[data-espelhos]");
+  var elLista  = $("[data-espelhos-lista]");
+  var focoAnte = null;
+
+  /* Um desenho por espelho, em vez da mesma seta three vezes: numa lista de opções
+     iguais o olho não tem em que se apoiar, e a diferença entre "baixa na hora" e "abre
+     um site" fica só no texto cinza da direita. O traço segue o resto da página —
+     stroke currentColor, 2px, pontas arredondadas — então tudo herda a cor ciano do
+     .espelho svg e o hover continua valendo sem CSS novo.
+     Quem não estiver no mapa cai na seta de download: espelho novo nunca fica sem ícone. */
+  var ICONES = {
+    drive:      ["m12 3 9 15h-6L6 3z", "M6 3 3 18h6", "M3 18h18"],          // triângulo do Drive
+    uploadnow:  ["M7 18a4 4 0 0 1 .4-7.98 6 6 0 0 1 11.4 1.6A3.7 3.7 0 0 1 18 18z",
+                 "M12 15V9", "m9.5 11.5 2.5-2.5 2.5 2.5"],                  // nuvem com seta pra cima
+    cloudflare: ["M7 18a4 4 0 0 1 .4-7.98 6 6 0 0 1 11.4 1.6A3.7 3.7 0 0 1 18 18z"],
+    github:     ["M9 19c-4 1.5-4-2-6-2.5", "M15 21v-3.3c0-.9-.3-1.5-.7-1.9 2.4-.3 5-1.2 5-5.4 0-1.2-.4-2.2-1.1-3 .1-.3.5-1.4-.1-2.9 0 0-.9-.3-3 1.1a10 10 0 0 0-5.4 0C7.5 4.1 6.6 4.4 6.6 4.4c-.6 1.5-.2 2.6-.1 2.9-.7.8-1.1 1.8-1.1 3 0 4.2 2.6 5.1 5 5.4-.3.3-.6.8-.7 1.5V21"]
+  };
+  var ICONE_PADRAO = ["M12 3v12", "m7 11 5 5 5-5", "M4 21h16"];
+
+  function iconeEspelho(id) {
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    (ICONES[id] || ICONE_PADRAO).forEach(function (d) {
+      var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    });
+    return svg;
+  }
+
+  function montarLista() {
+    elLista.textContent = "";
+    espelhos.forEach(function (e) {
+      var a = document.createElement("a");
+      a.className = "espelho";
+      a.href = e.url;
+      a.rel = "noopener";
+      a.setAttribute("data-espelho", e.id);
+      a.appendChild(iconeEspelho(e.id));
+
+      var nm = document.createElement("span");
+      nm.className = "nm";
+      nm.textContent = e.nome;                 // nome vem da config, mas vai como texto
+      a.appendChild(nm);
+
+      if (e.nota) {
+        var nt = document.createElement("span");
+        nt.className = "nt";
+        nt.textContent = e.nota;
+        a.appendChild(nt);
+      }
+      elLista.appendChild(a);
+    });
+  }
+
+  /* O painel de espelhos abre e fecha no próprio botão, que alterna. Não há X:
+     o painel é um bloco da página, não tapa nada, e quem não quiser mais ver clica
+     de novo no botão ou simplesmente rola. Um X só faria sentido sobre conteúdo
+     coberto — e foi um X que não funcionava que quebrou isto no celular. */
+  function abrirModal() {
+    focoAnte = document.activeElement;
+    elModal.hidden = false;
+    $$("[data-download]").forEach(function (b) { b.setAttribute("aria-expanded", "true"); });
+    var primeiro = elLista.querySelector("a");
+    if (primeiro) primeiro.focus();
+  }
+  function fecharModal() {
+    elModal.hidden = true;
+    $$("[data-download]").forEach(function (b) { b.setAttribute("aria-expanded", "false"); });
+    if (focoAnte && focoAnte.focus) focoAnte.focus();
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !elModal.hidden) fecharModal();
+  });
+
+  (function montarBotoes() {
+    var botoes  = $$("[data-download]");
+    var rotulos = $$("[data-download-label]");
+    var metas   = $$("[data-download-meta]");
+
+    if (!espelhos.length) {
+      // Nenhum espelho configurado: melhor dizer "em breve" do que oferecer um link morto.
+      botoes.forEach(function (b) {
+        b.classList.add("off");
+        b.setAttribute("href", "#baixar");
+        b.setAttribute("aria-disabled", "true");
+      });
+      rotulos.forEach(function (r) { r.textContent = "Download em breve"; });
+      metas.forEach(function (m) {
+        m.textContent = "O instalador está sendo finalizado — o link entra aqui assim que sair.";
+      });
+      return;
+    }
+
+    var partes = [];
+    if (VERSAO)  partes.push("versão " + VERSAO);
+    if (TAMANHO) partes.push(TAMANHO);
+    partes.push("Windows 64 bits");
+    metas.forEach(function (m) { m.textContent = partes.join(" · "); });
+    rotulos.forEach(function (r) { r.textContent = "Baixar o DLSS5 For All"; });
+
+    if (espelhos.length === 1) {
+      // Um espelho só: o botão baixa direto. Abrir um menu de uma opção só é ruim.
+      botoes.forEach(function (b) {
+        b.setAttribute("href", espelhos[0].url);
+        b.setAttribute("rel", "noopener");
+        b.setAttribute("data-espelho", espelhos[0].id);
+        b.classList.remove("off");
+        b.removeAttribute("aria-disabled");
+      });
+    } else {
+      // Dois ou mais: o botão abre a lista, e a contagem acontece na escolha.
+      montarLista();
+      botoes.forEach(function (b) {
+        b.setAttribute("href", "#baixar");
+        // Sem aria-haspopup: não é mais um diálogo, é um painel que expande na página.
+        // Quem descreve isso para o leitor de tela é o par aria-expanded/aria-controls.
+        b.classList.remove("off");
+        b.removeAttribute("aria-disabled");
+        b.setAttribute("aria-expanded", "false");
+        b.setAttribute("aria-controls", "espelhos");
+        // Alterna: clicar de novo fecha. É o que dispensa o botão de fechar.
+        b.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          if (elModal.hidden) abrirModal(); else fecharModal();
+        });
+      });
+    }
+  })();
+
+  function mostrarContador(total) {
+    if (typeof total !== "number" || total < 0) return;
+    $$("[data-contador-num]").forEach(function (e) { e.textContent = num(total); });
+    $$("[data-contador]").forEach(function (e) { e.hidden = false; });
+  }
+
+  /* O clique NUNCA espera o servidor: o href já está no elemento e o navegador começa
+     o download na hora. A contagem vai por fora, e se falhar ninguém percebe — o que
+     não pode é o backend atrapalhar o download. */
+  function contarDownload(espelho) {
+    var corpo = JSON.stringify({ espelho: espelho });
+    fetch(API + "/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: corpo,
+      keepalive: true,
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.ok && d.downloads) mostrarContador(d.downloads.total); })
+      .catch(function () {
+        // Último recurso quando a aba está saindo: o beacon não devolve resposta,
+        // mas garante que o clique foi contado.
+        try {
+          navigator.sendBeacon(API + "/download", new Blob([corpo], { type: "application/json" }));
+        } catch (e) { /* sem contagem; o download já está acontecendo */ }
+      });
+  }
+
+  /* Conta no espelho ESCOLHIDO — nunca na abertura do menu. Serve tanto para o
+     botão direto (1 espelho) quanto para cada item da lista (2 ou mais). */
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest("[data-espelho]");
+    if (!a || a.classList.contains("off")) return;
+    contarDownload(a.getAttribute("data-espelho"));
+    if (!elModal.hidden) setTimeout(fecharModal, 150);
+  });
+
+  // ================================================================= estado inicial
+  /* Sobrou uma coisa só nesta chamada: o contador de downloads. A média e a lista de
+     avaliações saíram junto com a seção delas — se voltarem um dia, voltam aqui também.
+     Se a chamada falhar — worker fora do ar, que é o caso hoje, rede ruim, bloqueio —
+     o contador simplesmente não aparece. A regra é sempre a mesma: esconder, nunca
+     inventar. O download funciona de qualquer jeito, porque não depende disto. */
+  fetch(API + "/estado", { headers: { Accept: "application/json" } })
+    .then(function (r) { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+    .then(function (d) {
+      if (!d || !d.ok) throw new Error("resposta inválida");
+      if (d.downloads) mostrarContador(d.downloads.total);
+    })
+    .catch(function () { /* sem contador na tela, e nada mais a fazer */ });
+})();
+</script>
+
+</body>
+</html>

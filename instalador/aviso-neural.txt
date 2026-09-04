@@ -1,0 +1,19 @@
+﻿FALTAM DOIS ARQUIVOS PARA O DLSS 5 LIGAR
+
+      renodx-dlss5.addon64
+      nvngx_dlssnr.dll
+
+Sem eles o DLSS5 For All abre e mostra a imagem normalmente — mas o DLSS 5 não liga, e a
+imagem fica igual à original. É a causa número um de "instalei e não vi diferença".
+
+Eles não vêm neste pacote: são código da NVIDIA e do RenoDX, que este projeto não
+redistribui. Quem os distribui é a comunidade RenoDX, pelo instalador RHI, que baixa tudo
+sozinho:
+
+      https://github.com/RankFTW/RHI/releases
+
+Aponte o RHI para a pasta onde você acabou de instalar o DLSS5 For All.
+
+O nvngx_dlssnr.dll é um build interno da NVIDIA que vazou: use, mas não repasse adiante.
+
+Na próxima tela, deixe marcada a caixa "Abrir a página onde pegar os arquivos".

@@ -1,0 +1,78 @@
+# =====================================================================================
+#  .gitignore do DLSS5 For All  —  este arquivo é, antes de tudo, um cinto de segurança
+# =====================================================================================
+#
+#  ESTE REPOSITÓRIO É PÚBLICO. Os quatro padrões do bloco abaixo NUNCA podem entrar
+#  aqui, em commit nenhum, nem "só pra testar", nem dentro de um .zip. Cada um deles é
+#  código proprietário de terceiros que nós não temos o direito de redistribuir:
+#
+#    nvngx_dlssnr.dll     — Neural Rendering da NVIDIA. É um build INTERNO que vazou
+#                           (saiu de uma versão de NBA 2K27). Publicar isto é convite
+#                           direto a DMCA da NVIDIA / Take-Two e suspensão da conta.
+#    nvngx_dlss.dll       — DLSS da NVIDIA. Proprietário, redistribuição só sob a
+#                           licença da NVIDIA, que este projeto não tem.
+#    renodx-*.addon64     — binário compilado do RenoDX. É do projeto RenoDX, não nosso;
+#                           quem quiser tem que pegar nas releases oficiais deles.
+#    dxgi.dll             — na prática é o ReShade renomeado. Quem redistribui o ReShade
+#                           é o instalador oficial, não a gente.
+#
+#  O app em si (main.cpp, headers, shaders, scripts) é nosso e é MIT. O que ele CARREGA
+#  em tempo de execução é baixado pelo usuário, pelo setup-dlss5.ps1, de cada fonte
+#  oficial. O repositório distribui a receita, nunca os ingredientes de terceiros.
+#
+#  Se um `git status` algum dia mostrar qualquer um destes nomes: PARE, não commite,
+#  e apague o arquivo da árvore de trabalho.
+# -------------------------------------------------------------------------------------
+nvngx_*.dll
+renodx-*.addon64
+dxgi.dll
+
+# ---------------------------------------------------------------- binários em geral
+# O add-on da ponte (dlss5-bridge.addon64) e o exe são ARTEFATOS: saem do build-mingw.sh
+# e do addon/build-addon.sh. Repositório guarda fonte, release guarda binário.
+*.exe
+*.dll
+*.addon64
+*.o
+*.obj
+*.res.o
+*.lib
+*.a
+*.pdb
+
+# ---------------------------------------------------------------- pacotes
+*.zip
+*.7z
+*.rar
+*.msi
+
+# ---------------------------------------------------------------- lixo de execução
+*.log
+*.log[0-9]
+reshade-cache/
+DLSS5 Screenshots/
+
+# ---------------------------------------------------------------- cópias de segurança
+# O fluxo de trabalho daqui gera muito arquivo .bak-alguma-coisa. Nenhum deles serve
+# pra ninguém de fora, e alguns são exes de 2 MB.
+*.bak
+*.bak*
+*.antes-*
+*~
+
+# ---------------------------------------------------------------- segredos
+# Nada de credencial no repositório. O backend do site lê tudo de secrets do Cloudflare
+# (npx wrangler secret put ...), nunca de arquivo versionado.
+.env
+.env.*
+.dev.vars
+ADMIN-TOKEN.txt
+.wrangler/
+.dryrun/
+node_modules/
+
+# ---------------------------------------------------------------- editor / sistema
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

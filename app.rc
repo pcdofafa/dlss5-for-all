@@ -1,0 +1,52 @@
+// =====================================================================================
+//  app.rc - recursos do DLSS5ForAll.exe (icone + informacoes de versao)
+//
+//  Compilado por windres no build-mingw.sh. Nao precisa de header gerado: o unico
+//  recurso com id numerico e o icone, e ele e o 1 de proposito.
+// =====================================================================================
+
+// O ICONE PRINCIPAL TEM DE SER O MENOR ID NUMERICO DO ARQUIVO.
+// Nao e estilo: quando o Explorer precisa do icone de um exe, ele pega o recurso de
+// icone de menor id. Numerar este de 100, por exemplo, funcionaria dentro do app (que
+// chama por MAKEINTRESOURCE) mas poderia dar outro icone na pasta se um dia entrar um
+// segundo icone no .rc.
+1  ICON  "marca\\DLSS5ForAll.ico"
+
+#include <windows.h>
+
+// APP_VERSION do main.cpp e "1.1". Aqui o numero vai nos dois formatos que o Windows
+// pede: a tupla binaria (que ele compara para saber qual arquivo e mais novo) e a string
+// que aparece nas propriedades. Ao subir a versao, mexa nos dois - eles nao se conversam.
+#define VER_TUPLA   1,1,0,0
+#define VER_TEXTO   "1.1.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_TUPLA
+PRODUCTVERSION  VER_TUPLA
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        // 0416 = portugues do Brasil, 04b0 = Unicode. O par tem de bater com o
+        // Translation la embaixo, senao o Windows mostra a aba de detalhes vazia.
+        BLOCK "041604b0"
+        BEGIN
+            VALUE "CompanyName",      "PC do Fafa"
+            VALUE "FileDescription",  "DLSS5 For All - DLSS 5 em qualquer fonte de video"
+            VALUE "FileVersion",      VER_TEXTO
+            VALUE "InternalName",     "DLSS5ForAll"
+            VALUE "LegalCopyright",   "Codigo proprio sob licenca MIT - ver LICENSE e CREDITOS.md"
+            VALUE "OriginalFilename", "DLSS5ForAll.exe"
+            VALUE "ProductName",      "DLSS5 For All"
+            VALUE "ProductVersion",   VER_TEXTO
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0416, 1200
+    END
+END

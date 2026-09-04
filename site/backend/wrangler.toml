@@ -1,0 +1,55 @@
+# =====================================================================================
+#  fafa-dlss-api — backend da página /dlss (contador de downloads, estrelas, comentários)
+# =====================================================================================
+#
+#  Worker SEPARADO do `ecurtadorpcdofafa`, seguindo o mesmo desenho do
+#  `fafa-format-web`: rota mais específica que o `/*` do principal, então ela vence
+#  sem precisar de nenhuma alteração — nem deploy — do worker do encurtador.
+#  (Regra do repo: rota custom sempre termina em `/*`.)
+#
+#  ---------------------------------------------------------------------------------
+#  PASSO A PASSO DO DEPLOY (nada disso foi executado — está tudo pendente de ordem):
+#
+#   1. Criar o banco (uma vez) e colar o id devolvido em database_id abaixo:
+#        cd "C:\Users\PCDOFAFA\Desktop\dlss cam\site\backend"
+#        npx wrangler d1 create pcdofafa-dlss
+#
+#   2. Criar as tabelas:
+#        npx wrangler d1 execute pcdofafa-dlss --remote --file=schema.sql
+#
+#   3. Secrets (o wrangler pergunta o valor; nada fica em arquivo):
+#        npx wrangler secret put IP_SALT       # string aleatória longa, qualquer uma
+#        npx wrangler secret put ADMIN_TOKEN   # a senha da página de moderação
+#        npx wrangler secret put TG_BOT_TOKEN  # opcional (aviso no Telegram)
+#        npx wrangler secret put TG_ADMIN_CHAT # opcional (o seu chat id no Telegram)
+#
+#   4. Conferir o bundle e subir:
+#        npx wrangler deploy --dry-run --outdir .dryrun
+#        npx wrangler deploy
+#
+#  Rodar SEMPRE de dentro desta pasta: da raiz, o wrangler pega .env de outro
+#  projeto e dá erro de auth (pitfall já documentado no fafa-attribution).
+#  ---------------------------------------------------------------------------------
+
+name = "fafa-dlss-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = false
+
+# Rota mais específica que o `pcdofafa.com.br/*` do encurtador — vence sem tocar nele.
+routes = [
+  { pattern = "pcdofafa.com.br/dlss-api/*", zone_name = "pcdofafa.com.br" }
+]
+
+# Banco próprio. NÃO reaproveitar o `fafa-attribution` (36edbe7e-…): aquele é o de
+# vendas reconciliadas e não tem nada a ver com esta página.
+[[d1_databases]]
+binding = "DB"
+database_name = "pcdofafa-dlss"
+database_id = "c48bff08-8f0a-4698-8830-e8c4e026a53d"
+
+# Sem cron: não há nada agendado. A poda das linhas antigas de download é
+# oportunista, dentro do próprio request (ver podarAntigos no index.js).
+
+# Secrets NÃO vão aqui (ver passo 3 acima):
+#   IP_SALT, ADMIN_TOKEN, TG_BOT_TOKEN, TG_ADMIN_CHAT
