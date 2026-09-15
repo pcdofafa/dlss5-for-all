@@ -1,0 +1,9 @@
+=== TESTE 2: Present em swapchain flip com janela invisível ===
+adaptador A: NVIDIA GeForce RTX 4080
+swapchain FLIP_DISCARD 2 buffers, waitable, latência 1: ok
+(i) visível                      :  10247 quadros/s  (20494 quadros em 2000 ms; espera média no waitable 0.076 ms; timeouts=0; Present != S_OK: 0 vezes, último=0x00000000)
+DwmSetWindowAttribute(DWMWA_CLOAK, TRUE): hr=0x00000000
+(ii) cloaked                      :   7970 quadros/s  (15940 quadros em 2000 ms; espera média no waitable 0.097 ms; timeouts=0; Present != S_OK: 0 vezes, último=0x00000000)
+(iii) SW_HIDE                     :   7724 quadros/s  (15448 quadros em 2000 ms; espera média no waitable 0.101 ms; timeouts=0; Present != S_OK: 0 vezes, último=0x00000000)
+(iv) fora do desktop (x=-10000)   :   8013 quadros/s  (16027 quadros em 2000 ms; espera média no waitable 0.098 ms; timeouts=0; Present != S_OK: 0 vezes, último=0x00000000)
+(v) cloaked + fora do desktop     :   7672 quadros/s  (15345 quadros em 2000 ms; espera média no waitable 0.102 ms; timeouts=0; Present != S_OK: 0 vezes, último=0x00000000)

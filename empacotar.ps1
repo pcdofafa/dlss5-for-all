@@ -1,6 +1,7 @@
 # Empacota o DLSS5 For All pra distribuicao: so o que e nosso + o que o setup precisa.
 # NAO entra: nvngx_dlssnr.dll / renodx (vazados), nvngx_dlss.dll (NVIDIA), dxgi.dll e dlss5-feed (o setup baixa),
-#            lumenite_* (o setup baixa), logs, .bak, docs\, marca\, addon\ (fonte), main.cpp e cia.
+#            lumenite_* (o setup baixa), logs, .bak, docs\, addon\ (fonte), main.cpp e cia.
+#            De marca\ entram SO os dois PNGs dos selos do modo comparativo (item 1b).
 # Uso:  powershell -ExecutionPolicy Bypass -File .\empacotar.ps1        -> DLSS5ForAll-<versao>.zip ao lado
 #
 # -SomenteStaging       monta a pasta de distribuicao e PARA, sem zipar. Existe para o
@@ -87,7 +88,7 @@ public class DLSS5Recursos {
 $comoRefazer = @"
 Recompile com build-mingw.sh e confira o AVISO no comeco da saida. As duas causas que ele ja
      conhece: (1) marca\DLSS5ForAll.ico nao existe - gere com
-     'powershell -ExecutionPolicy Bypass -File .\marca\gerar-icone.ps1'; (2) windres fora do PATH -
+     'powershell -ExecutionPolicy Bypass -File .\marca\gerar-icone-capivara.ps1'; (2) windres fora do PATH -
      rode o build pelo bash do msys2, que poe C:\msys64\mingw64\bin no PATH.
 "@
 $grupos = [DLSS5Recursos]::GruposDeIcone($exe.FullName)
@@ -115,9 +116,41 @@ $raiz = @('DLSS5ForAll.exe','dlss5-bridge.addon64','README.md','LICENSE','CREDIT
           'preset-01-nucleo-afinado.ini','preset-02-grade-neutra.ini','preset-03-grade-cinema.ini',
           'preset-04-brilho-contido.ini','preset-05-nitidez.ini')
 foreach ($f in $raiz) { Copy-Item (Join-Path $Root $f) $Out -Force }
-foreach ($f in 'DLSS5_Grade.fx','DLSS5_Sharpen.fx','DLSS5_MV_Hardware.fx') { Copy-Item (Join-Path $Root "reshade-shaders\Shaders\$f") "$Out\reshade-shaders\Shaders" -Force }
+# DLSS5_Feed.fx ENTRA NESTA LISTA, e a ausencia dele era um buraco silencioso.
+#
+# Ele nao era copiado por nenhum passo automatico: as copias espalhadas pela maquina foram
+# feitas a mao, em momentos diferentes.
+#
+# O NUMERO VEM COM O ESCOPO JUNTO, porque sem escopo ele nao quer dizer nada e ja circularam
+# tres valores diferentes para a mesma pergunta. Contagem de 07/09/2026: 7 dentro desta pasta
+# de projeto, 14 em pastas que uma pessoa abre (somando as outras copias do Desktop e os
+# pacotes em Downloads), 47 se forem contados tambem os 33 caches sob AppData\Local, que
+# ninguem edita. As 14 estao em QUATRO versoes distintas, a mais velha de 31/08.
+#
+# Isso funcionou por acaso enquanto ninguem editava o arquivo -- conferido no mesmo dia: as
+# sete copias de 03/09, inclusive as dos quatro pacotes, sao IDENTICAS byte a byte ao que
+# esta no repositorio. Nada se perdeu ate aqui, e nao se perdeu porque nao havia o que
+# propagar. Mas o acaso acabou na primeira edicao que diverge, que e a de hoje, e o proximo
+# empacotamento levaria a versao velha sem avisar.
+#
+# E o modo de falha e o pior tipo: o programa CARREGA o shader velho e nao reclama de
+# nada. Quem testasse veria "compila, roda", com o codigo errado dentro.
+foreach ($f in 'DLSS5_Feed.fx','DLSS5_Grade.fx','DLSS5_Sharpen.fx','DLSS5_MV_Hardware.fx','DLSS5_HUD.fx') { Copy-Item (Join-Path $Root "reshade-shaders\Shaders\$f") "$Out\reshade-shaders\Shaders" -Force }
 Copy-Item (Join-Path $Root 'reshade-shaders\Textures\dlss5_grade_luts.png') "$Out\reshade-shaders\Textures" -Force
 Copy-Item (Join-Path $Root 'addon\include\reshade\LICENSE-ReShade.md') $Out -Force -ErrorAction SilentlyContinue
+
+# 1b. marca\ -- DUAS imagens, e so elas.
+#
+# A pasta marca\ do repositorio inteira fica de fora (icone .ico, scripts de geracao, as
+# artes em tamanho original do usuario). Estes dois PNGs sao a excecao porque o app os LE
+# em tempo de execucao: sao os selos "ORIGINAL" e "DLSS 5 FOR ALL" do modo comparativo,
+# carregados de <pasta do exe>\marca\ pelo dlss5-bridge (ver addon\rotulos_comparar.h).
+# Faltando os arquivos o modo continua funcionando e entra um letreiro de reserva escrito
+# com GDI -- feio de proposito, para a falta aparecer.
+New-Item -ItemType Directory -Force -Path "$Out\marca" | Out-Null
+foreach ($f in 'comparar-original.png','comparar-dlss5.png') {
+    Copy-Item (Join-Path $Root "marca\$f") "$Out\marca" -Force
+}
 
 # 2. ReShade.ini limpo: nada de caminho absoluto de quem empacotou
 $ini = Get-Content (Join-Path $Root 'ReShade.ini') -Encoding UTF8
@@ -163,17 +196,51 @@ $ini = $ini | ForEach-Object {
     elseif ($_ -match '^NRStyle=')          { 'NRStyle=0' }
     else { $_ }
 }
-if (-not ($ini -match '^NeuralUplift=1$')) { throw "ReShade.ini sem NeuralUplift=1 - o pacote sairia com o neural desligado" }
-# Nao basta reescrever: se a chave NAO EXISTIR no ini de quem empacotou, o ForEach acima
-# nao tem o que trocar e o pacote sai sem ela - e ai vale o padrao do add-on, que e o
-# maximo. Recusar aqui e a unica forma de perceber isso antes de publicar.
-foreach ($par in @('NRIntensity=1', 'NRLocalTone=1', 'NRLocalStructure=1', 'NRSkinStructure=-1', 'NRStyle=0')) {
-    if (-not ($ini -match ('^' + [regex]::Escape($par) + '$'))) {
-        throw "ReShade.ini sem $par - o pacote sairia com uma afinacao do neural que ninguem escolheu (ver comentario acima)"
+# ------------------------------------------------------------------ AS DUAS GERACOES DO RENODX
+# O bloco acima higieniza a geracao ANTIGA ([RenoDX.DLSS5], NRIntensity/NRStyle...). A bin\ que
+# o usuario roda hoje e a geracao NOVA ([RENODX-DLSS], DirectNeuralRendering*), e ate 11/09/2026
+# este script nao sabia que essas chaves existiam. O resultado era silencioso e ruim nas duas
+# pontas: empacotando de amd\ o pacote saia SEM DirectNeuralRenderingHookPoint - e chave ausente
+# vale Auto, que trava esta cadeia -, e empacotando da bin\ os throw da geracao antiga disparavam
+# por falta de chaves que aquele ini legitimamente nao tem.
+#
+# Agora a geracao e decidida pelo que ESTA no arquivo, e os valores vem de preset-fabrica.ps1 -
+# o mesmo que o publicar-versao.ps1 usa, para o pacote do site e o zip da atualizacao nunca
+# sairem com afinacoes diferentes.
+. (Join-Path $Root 'preset-fabrica.ps1')
+$geracao = Geracao-DoReShadeIni $ini
+if ($geracao -eq 'nenhuma') { throw "ReShade.ini nao tem nem [RENODX-DLSS] nem [RenoDX.DLSS5] - o pacote sairia sem preset do neural" }
+$presetAlvo = if ($geracao -eq 'nova') { $PresetFabricaNovo } else { $PresetFabricaAntigo }
+$r = Aplicar-Preset $ini $presetAlvo
+$ini = $r.linhas
+# Uma chave que NAO EXISTE no ini nao tem o que ser reescrito, e o pacote sairia sem ela - com
+# o padrao do add-on no lugar do nosso. Acrescentar na secao certa e melhor que recusar: o
+# empacotamento continua, e a linha em cinza diz o que foi acrescentado.
+if ($r.faltando.Count) {
+    $secao = if ($geracao -eq 'nova') { '[RENODX-DLSS-preset1]' } else { '[RenoDX.DLSS5]' }
+    $novas = New-Object System.Collections.ArrayList
+    $posto = $false
+    foreach ($l in $ini) {
+        [void]$novas.Add($l)
+        if (-not $posto -and $l.Trim() -eq $secao) { foreach ($f in $r.faltando) { [void]$novas.Add($f) }; $posto = $true }
     }
+    if (-not $posto) { [void]$novas.Add($secao); foreach ($f in $r.faltando) { [void]$novas.Add($f) } }
+    $ini = $novas.ToArray()
+    Write-Host "    ReShade.ini ($geracao): acrescentadas em $secao -> $($r.faltando -join ', ')" -ForegroundColor DarkGray
+}
+Write-Host "    ReShade.ini: geracao $geracao, preset de fabrica aplicado" -ForegroundColor DarkGray
+# O neural LIGADO continua sendo condicao de publicacao, mas so onde a chave existe: na
+# geracao nova quem liga e o DirectNeuralRenderingHookPoint=2, ja garantido acima.
+if ($geracao -eq 'antiga' -and -not ($ini -match '^NeuralUplift=1$')) {
+    throw "ReShade.ini sem NeuralUplift=1 - o pacote sairia com o neural desligado"
 }
 if ($ini -match '[A-Za-z]:\\') { throw "ReShade.ini ainda tem caminho absoluto: $($ini -match '[A-Za-z]:\\')" }
-[System.IO.File]::WriteAllLines("$Out\ReShade.ini", $ini, (New-Object System.Text.UTF8Encoding $false))
+Salvar-IniSemBom "$Out\ReShade.ini" $ini
+# BOM ou secao repetida derrubam o pacote aqui, e nao no computador de quem instalou: com BOM,
+# o WritePrivateProfileString do painel nao acha a primeira secao e cria uma SEGUNDA no fim do
+# arquivo - a leitura continua pegando a primeira, e o perfil que a pessoa escolhe nunca vale.
+$probs = Conferir-IniDoReShade "$Out\ReShade.ini"
+if ($probs.Count) { throw "ReShade.ini do pacote: $($probs -join ' | ')" }
 Copy-Item (Join-Path $Root 'FafaDLSS5.ini') $Out -Force   # preset ativo (NRIntensity, ordem das tecnicas)
 
 # 3. dlss5forall.ini de fabrica (nao a escolha de quem empacotou)

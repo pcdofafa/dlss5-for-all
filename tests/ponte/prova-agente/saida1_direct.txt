@@ -1,0 +1,81 @@
+=== TESTE 1: ponte GPU->GPU sem CPU (NVIDIA -> AMD) ===
+  ok     CreateDXGIFactory2 -> IDXGIFactory6
+  adaptador 0: NVIDIA GeForce RTX 4080  vendor=0x10DE  LUID=00000000:00013569  VRAM=16048 MB
+  adaptador 1: AMD Radeon(TM) Graphics  vendor=0x1002  LUID=00000000:000148BB  VRAM=485 MB
+  adaptador 2: Microsoft Basic Render Driver  vendor=0x1414  LUID=00000000:00014844  VRAM=0 MB (software)
+[A/NVIDIA] criando devices
+  ok     D3D11CreateDevice
+  ok     QI ID3D11Device5
+  ok     QI ID3D11DeviceContext4
+  ok     D3D12CreateDevice FL11_0
+  ok     CheckFeatureSupport D3D12_OPTIONS
+  CrossAdapterRowMajorTextureSupported=0  ResourceHeapTier=2
+  ok     CreateCommandQueue COPY
+[B/AMD] criando devices
+  ok     D3D11CreateDevice
+  ok     QI ID3D11Device5
+  ok     QI ID3D11DeviceContext4
+  ok     D3D12CreateDevice FL11_0
+  ok     CheckFeatureSupport D3D12_OPTIONS
+  CrossAdapterRowMajorTextureSupported=0  ResourceHeapTier=2
+  ok     CreateCommandQueue COPY
+  ok     CreateCommandQueue DIRECT
+  ok     CreateCommandQueue DIRECT
+Caminho (a) textura row-major cross-adapter: NÃO suportado em pelo menos um
+
+=============== 3840x2160 — caminho (b) buffer + PLACED_FOOTPRINT ===============
+[A11] texturas 3840x2160 BGRA8
+  ok     CreateTexture2D srcA11 (com padrão)
+  CreateTexture2D texA11 MiscFlags=NTHANDLE|SHARED: hr=0x00000000
+  ok     QI IDXGIResource1 texA11
+  ok     CreateSharedHandle texA11
+  ok     A12 OpenSharedHandle texA11 -> ID3D12Resource
+[A12] footprint: RowPitch=15360 total=33177600 bytes
+[A12] alocação cross: 33226752 bytes, alinhamento 65536, anel de 3 -> heap de 99680256 bytes
+  CreateHeap SHARED|SHARED_CROSS_ADAPTER (sem deny): hr=0x00000000
+  ok     A12 CreatePlacedResource cross
+  ok     A12 CreatePlacedResource cross
+  ok     A12 CreatePlacedResource cross
+  ok     A12 CreateSharedHandle heap
+  ok     B12 OpenSharedHandle heap
+  ok     B12 CreatePlacedResource cross
+  ok     B12 CreatePlacedResource cross
+  ok     B12 CreatePlacedResource cross
+[fences]
+  ok     A12 CreateFence fA SHARED
+  ok     A12 CreateSharedHandle fA
+  ok     A11 OpenSharedFence fA -> ID3D11Fence
+  ok     A12 CreateFence fX SHARED|CROSS_ADAPTER
+  ok     A12 CreateSharedHandle fX
+  ok     B12 OpenSharedHandle fX
+  ok     B12 CreateFence fB SHARED
+  ok     B12 CreateSharedHandle fB
+  ok     B11 OpenSharedFence fB -> ID3D11Fence
+[B] textura destino 3840x2160
+  B12 CreateCommittedResource SHARED flags=NONE: hr=0x00000000
+  B12 CreateSharedHandle texB12: hr=0x00000000
+  B11 OpenSharedResource1 texB12 -> ID3D11Texture2D: hr=0x80070057
+  B12 CreateCommittedResource SHARED flags=ALLOW_SIMULTANEOUS_ACCESS: hr=0x00000000
+  B12 CreateSharedHandle texB12: hr=0x00000000
+  B11 OpenSharedResource1 texB12 -> ID3D11Texture2D: hr=0x80070057
+  B12 CreateCommittedResource SHARED flags=ALLOW_RENDER_TARGET: hr=0x00000000
+  B12 CreateSharedHandle texB12: hr=0x00000000
+  B11 OpenSharedResource1 texB12 -> ID3D11Texture2D: hr=0x00000000
+  rota B12->B11 OK (flags=ALLOW_RENDER_TARGET)
+  ok     B11 CreateTexture2D staging
+  ok     listas de cópia gravadas (3 por lado)
+[quadro 1] cadeia completa + verificação
+  VERIFICAÇÃO OK: 8294400 pixels iguais ao padrão
+  VERIFICAÇÃO OK: 8294400 pixels iguais ao padrão
+  etapas (média de 35 quadros, ms): A11 escreve+signal 0.179 | A12 cópia tex->cross 1.392 | B12 cópia cross->texB 4.376 | total 5.947
+  pipeline: 300 quadros em 767.6 ms -> 390.8 quadros/s (2.559 ms/quadro)
+  VERIFICAÇÃO OK: 8294400 pixels iguais ao padrão
+
+[CPU] A11 staging -> Map -> memcpy -> B11 DYNAMIC (WRITE_DISCARD) -> CopyResource, 3840x2160
+  via CPU: 100 quadros em 326.7 ms -> 306.1 quadros/s (3.267 ms/quadro)
+
+=============== RESUMO ===============
+resolução | caminho                                | verifica   | quadros/s sustentados
+3840x2160  | (b) buffer + PLACED_FOOTPRINT          | OK         | 390.8
+3840x2160  | via CPU (staging+memcpy+dynamic)       | -          | 306.1
+fila A: DIRECT  fila B: DIRECT

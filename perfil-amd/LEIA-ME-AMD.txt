@@ -1,0 +1,246 @@
+﻿=====================================================================
+  DLSS5 FOR ALL  -  AMD EXPERIMENTAL
+=====================================================================
+  (English version: README-AMD.txt)
+
+  ISTO É EXPERIMENTAL. Pode não funcionar na sua placa, pode rodar
+  devagar e pode quebrar quando o mod lançar uma versão nova. Se
+  você quer algo que só funcione, o caminho garantido continua
+  sendo uma GeForce RTX com a pasta bin\.
+
+  Testado pelo PC do Fafa numa Radeon RX 9060 XT em 11/09/2026,
+  com o mod v0.2.18: a rede neural roda. Não foi testado em jogo,
+  só com vídeo e com a bancada.
+
+
+O QUE É ISSO
+---------------------------------------------------------------------
+O DLSS 5 (Neural Rendering) é da NVIDIA e só roda nas placas dela.
+O mod "DLSS-NR-on-AMD" (de danielblnc) faz a rede neural do DLSS 5
+rodar numa Radeon: ele entra no meio de um jogo que usa FSR e
+substitui o resultado do FSR pela imagem passada pela rede.
+
+O nosso módulo AMD faz o app se comportar como esse "jogo com FSR":
+a imagem capturada passa por um FSR 3.1 de verdade (a DLL oficial
+da AMD, licença MIT), e o mod pega dali. Tudo que você vê e usa no
+app (fonte, sobrepor, painel, F6, efeitos) é igual ao módulo NVIDIA.
+
+
+PRECISA DE
+---------------------------------------------------------------------
+- Windows 11, 64 bits
+- Driver AMD Adrenalin 26.1.1 ou mais novo (traz o runtime HIP que
+  o mod usa)
+- Radeon RX 7000 (RDNA3) ou RX 9000 (RDNA4)
+    RX 9060 XT: funciona a partir do mod v0.2.14, que trouxe os
+    kernels do chip dela (gfx1200). O instalador que acompanha esta
+    pasta é a v0.2.18, que já tem isso e foi a versão que testamos
+    nessa placa. Existe um "patch" de fórum que altera o arquivo do
+    mod para a 9060 XT: não fazemos isso nem distribuímos isso, e
+    com a v0.2.18 ele não é necessário.
+    Velocidade: o custo da rede acompanha o TAMANHO da imagem. Na
+    nossa medição de 11/09/2026, numa área de 634x669, a rede levou
+    uns 13 ms por quadro. Em 1080p cheio o autor do mod fala em uns
+    60 ms, o que dá os 15 a 20 fps que ele cita para a RX 9060 XT
+    (uns 31 fps na RX 9070 XT). Se ficar lento, baixe a Resolução
+    do DLSS no painel: o custo cai junto com a área.
+- O arquivo nvngx_dlssnr.dll versão 310.8.0.0 (o mesmo que a cadeia
+  NVIDIA usa). Ele é um build vazado da NVIDIA: NÃO vem no pacote e
+  não pode ser redistribuído. Você traz a sua cópia.
+- O instalador do mod (dlssnr_on_amd_setup.exe, v0.2.18 ou mais
+  novo). Ele NÃO vem no pacote — é de terceiro. Baixe em
+    https://github.com/danielblnc/DLSS-NR-on-AMD/releases/latest
+  e copie para esta pasta. O preparar-mod-amd confere a versão e o
+  SHA-256 do arquivo, e avisa se ele não for de uma release oficial.
+
+  AO RODAR O INSTALADOR, PRESTE ATENÇÃO NUMA COISA SÓ:
+  no prompt "Install as dxgi.dll?" responda  version
+  Ele percebe que o app carrega dxgi.dll e se oferece para tomar
+  esse nome. Aqui o dxgi.dll É O RESHADE: aceitar apaga o ReShade e
+  derruba a cadeia inteira (sem ReShade não há Feeder, sem Feeder
+  não há FSR, e sem FSR o mod não tem onde se enganchar).
+
+
+O QUE JÁ VEM NESTA PASTA (bin-amd)
+---------------------------------------------------------------------
+DLSS5ForAll.exe           o app (o mesmo da pasta bin)
+dxgi.dll                  ReShade
+dlss5-bridge.addon64      a ponte do app com o ReShade
+dlss5-feed.addon64        o Feeder na variante AMD (portador FSR)
+amd_fidelityfx_dx12.dll   FSR 3.1 oficial da AMD (MIT)
+dlssnr_on_amd.ini         a configuração do mod que testamos
+ReShade.ini, FafaDLSS5.ini, dlss5-feed.cfg, dlss5forall.ini
+                          configurações já no perfil AMD
+reshade-shaders\          os shaders
+preparar-mod-amd.cmd      confere esta pasta e diz o que falta
+LEIA-ME-AMD.txt, README-AMD.txt, LICENSE, CREDITOS.md,
+LICENSE-FidelityFX.txt
+
+Não tem (de propósito): renodx-dlss5.addon64 e nvngx_dlss.dll — em
+AMD eles não fazem nada — nem o dlssnr_on_amd_setup.exe e o
+nvngx_dlssnr.dll, que são de terceiros e você traz (passos 1 e 2).
+
+
+PASSO A PASSO (uma vez só)
+---------------------------------------------------------------------
+1. Coloque o SEU nvngx_dlssnr.dll dentro desta pasta (bin-amd).
+   Se você já usa a cadeia NVIDIA, ele está em bin\ : é só copiar.
+
+2. Baixe o dlssnr_on_amd_setup.exe na página acima e copie-o para
+   ESTA pasta (bin-amd). Ele precisa estar ao lado do nvngx_dlssnr.dll.
+
+3. Dê dois cliques no dlssnr_on_amd_setup.exe.
+   Ele lê o nvngx_dlssnr.dll, extrai os pesos da rede e grava aqui:
+       version.dll                 (o mod em si)
+       dlssnr_on_amd.ini           (as opções dele)
+       dlssnr_on_amd_weights.bin   (os pesos, uns 160 MB)
+   Ele conhece a build 310.8.0.0 de cara; qualquer outra (por
+   exemplo uma "310.8.SF.0") ele confere peça por peça e só aceita
+   se tudo bater. Se ele recusar, procure a 310.8.0.0.
+
+4. Abra o dlssnr_on_amd.ini (Bloco de Notas) e confira:
+       Inline=1
+   O instalador já grava assim. Precisa ser 1 porque a nossa janela
+   é D3D11 e o modo "async" do mod (que aplica no Present do jogo)
+   não se aplica a ela. Com Inline=0 a imagem sai sem a rede.
+   Deixe também Interop=1, UseFsrInputs=1, UseDepth=1, HipDevice=-1.
+
+5. Dê dois cliques em preparar-mod-amd.cmd. Ele confere tudo isso
+   (Windows, driver, placa, arquivos, o ini, o cfg) e diz o que falta.
+   Se estiver "TUDO NO LUGAR", feche e vá para o passo 6.
+
+6. Volte para a pasta de cima e abra o DLSS5ForAll.exe de lá. Clique
+   no botão vermelho USAR O DLSS 5 EM PLACA AMD. O resto é igual ao
+   tutorial normal (LEIA-ME.txt): fonte, sobrepor, INICIAR.
+   Tem duas placas no PC? Em "Placa de vídeo que roda o filtro"
+   escolha a Radeon. O mod só enxerga a Radeon; se o app rodar na
+   outra placa, ele não acha o quadro.
+
+Quando o mod lançar uma versão nova, é só repetir os passos 2 e 3
+nesta pasta. Nada mais muda.
+
+
+ANTIVÍRUS
+---------------------------------------------------------------------
+O instalador do mod é acusado por alguns antivírus (é um problema
+conhecido, issue 40 do projeto do mod). Ele é um programa fechado,
+sem código-fonte publicado ainda; a decisão de confiar é sua. Se
+decidir usar, adicione esta pasta às exclusões antes de rodar o
+setup, senão o antivírus apaga o version.dll na hora.
+
+
+COMO SABER SE ESTÁ FUNCIONANDO
+---------------------------------------------------------------------
+- Dentro do app, F6 liga e desliga o DLSS 5: a imagem tem que mudar.
+- O arquivo dlssnr_on_amd.log (nesta pasta) tem que ter as linhas
+      engine init ok
+      network job 1 done in ... ms
+  Se tem "network job", a rede está rodando na sua Radeon.
+- O preparar-mod-amd.cmd lê esses logs e traduz em português.
+
+Linhas do dlssnr_on_amd.log que apontam o problema:
+  "UNSUPPORTED GPU ARCHITECTURE gfx1200" ou "invalid kernel file"
+      -> RX 9060 XT com mod anterior à v0.2.14. Baixe a v0.2.14 ou
+         mais nova quando ela aparecer na página de releases e
+         repita os passos 2 e 3. Não tem outro ajuste.
+  "setup failed; idle" ou "route backbuffer" (sem "route fsr")
+      -> o mod não pegou o FSR: ele viu a tela, mas não o quadro
+         que o Feeder entrega. Confira se dlss5-feed.addon64
+         (variante AMD) e amd_fidelityfx_dx12.dll estão nesta
+         pasta e se amd_carrier=1 no dlss5-feed.cfg. Se o log
+         também disser "unsupported colour format", é o item
+         abaixo.
+  "unsupported colour format 87"
+      -> abra dlss5-feed.cfg e troque amd_color_fmt=87 por 10.
+  "FSR is not active"
+      -> faltou o dlss5-feed.addon64 (variante AMD) ou o
+         amd_fidelityfx_dx12.dll, ou amd_carrier não é 1.
+  "no HIP device matches the game's adapter"
+      -> o app está rodando na outra placa. Escolha a Radeon no
+         seletor ("Placa de vídeo que roda o filtro").
+  "d3d11 device yes (this game renders with D3D11: unsupported)"
+      sem nenhum "network job" depois
+      -> confira amd_decoy_swapchain=1 no dlss5-feed.cfg (é o que
+         esta pasta já traz). Ele cria um swapchain D3D12 escondido
+         só para o mod adotar a placa certa. Com 0, a rede NÃO roda
+         e a imagem sai como FSR puro.
+
+  o dlssnr_on_amd.log para nos "hooked IDXGI..." e não diz mais nada
+  (sem "engine init", sem "network job")
+      -> é o mesmo caso acima: amd_decoy_swapchain precisa ser 1.
+  "inline: N GPU wait timeouts so far"
+      -> não é erro: a rede está demorando mais que o teto de
+         espera. Baixe a resolução do DLSS no painel (End).
+
+Sintomas relatados por quem usa o mod (05/09/2026):
+  - Tela preta com só a interface visível no driver Adrenalin
+    26.9.1: tente o driver anterior ou a v0.2.10 do mod.
+  - O menu do mod (tecla End) não abre se o MSI Afterburner foi
+    aberto antes do app: feche o Afterburner ou abra-o depois.
+  - Imagem piscando com placa de vídeo integrada ativa: desative a
+    integrada no Gerenciador de Dispositivos e teste.
+  - Se piscar mesmo assim, no dlssnr_on_amd.ini troque Temporal=1
+    por Temporal=0 (é o que a comunidade usa na RX 9060 XT).
+
+
+AJUSTES (dlss5-feed.cfg)
+---------------------------------------------------------------------
+Quatro chaves são do módulo AMD; as outras são as mesmas do bin\ :
+  amd_carrier=1          1 força o portador FSR (deixe 1 aqui)
+  amd_color_fmt=87       formato da cor entregue ao mod
+                         87 = o do app; 10 = RGBA16F, se o mod
+                         recusar o 87
+  amd_decoy_swapchain=1  1 é o certo aqui. Com 0 o mod nunca arma
+                         o hook do FSR e a rede não roda
+  amd_srgb=-1            -1 automático; só mexa se a imagem sair
+                         lavada ou escura demais (0 ou 1)
+O overlay do ReShade (Home) regrava esse arquivo com as quatro
+chaves, mas apaga os comentários; é normal.
+
+
+DESEMPENHO
+---------------------------------------------------------------------
+O custo da rede acompanha o TAMANHO da imagem que ela recebe. É a
+única coisa que você controla, e controla muito.
+
+Medido por nós em 11/09/2026, RX 9060 XT, mod v0.2.18: numa área de
+634x669 a rede levou uns 13 ms por quadro, sem nenhum estouro de
+espera. Números do autor do mod para a tela cheia em 1080p: uns 60
+ms por quadro na RX 9060 XT (15 a 20 fps) e uns 31 fps na RX 9070
+XT. A rede é o gargalo, não o jogo. No app:
+  1. Painel (Insert) > Resolução do DLSS: 77% ou 67%. É o que mais
+     resolve: menos área, menos trabalho para a rede.
+  2. Fonte Janela em vez de Monitor.
+  3. Teto de fps do filtro em 30.
+  4. No dlssnr_on_amd.ini, InlineWaitMs=25 (o mod v0.2.18 em
+     diante). É o teto de quanto um quadro espera pela rede; ao
+     estourar, ele mostra o retoque do quadro anterior em vez de
+     segurar a imagem.
+O jogo por baixo continua na velocidade dele; o que fica lento é
+só a camada com o DLSS 5.
+
+
+LIMITES DESTA VERSÃO (por que é experimental)
+---------------------------------------------------------------------
+- Depende de um mod fechado, de terceiro, que muda toda semana.
+- O encontro com o mod numa Radeon de verdade foi confirmado uma
+  vez: RX 9060 XT, mod v0.2.18, 11/09/2026, com amd_color_fmt=87 e
+  amd_decoy_swapchain=1. Foi com vídeo na tela, NÃO em jogo.
+- Não foi medido o custo de quem tem o jogo numa placa e o filtro
+  na outra: a captura atravessa o barramento entre as duas.
+- O Feeder AMD é compilado com outro compilador e não tem a mesma
+  rede de proteção contra travamento do Feeder NVIDIA.
+- O app ainda não lê o dlssnr_on_amd.log sozinho em todas as
+  situações; quando isso acontecer, o próprio seletor vai avisar.
+
+
+CRÉDITOS DESTE MÓDULO
+---------------------------------------------------------------------
+- DLSS-NR-on-AMD: danielblnc (https://github.com/danielblnc/DLSS-NR-on-AMD)
+  Não é redistribuído aqui. Você baixa do autor.
+- FidelityFX SDK 1.1.4 (amd_fidelityfx_dx12.dll): AMD, licença MIT
+  (LICENSE-FidelityFX.txt). FSR e Radeon são marcas da AMD.
+- DLSS5-Feeder: jlrouzies-fr (MIT). A variante AMD é uma
+  modificação nossa; o mérito do Feeder é do autor original.
+- nvngx_dlssnr.dll: NVIDIA. Build interno vazado. NÃO distribua.
+Este projeto não tem relação com a AMD, a NVIDIA ou o autor do mod.

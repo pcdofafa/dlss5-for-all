@@ -43,7 +43,7 @@ Versão auditada: `main.cpp` de 03/09 02:24, `DLSS5ForAll.exe` de 03/09 00:48.
 | 25 | MÉDIO | `README.md:85`, `194` | Dois caminhos quebrados: `docssupersampling.md`, `docsatencia-nr.md` |
 | 26 | MÉDIO | seletor, primeira execução | Vem pré-selecionada a primeira janela da lista (aqui: um terminal) |
 | 27 | BAIXO | `README.md:37` | "Atalhos (só dois)" numa tabela de três |
-| 28 | BAIXO | `main.cpp:2091` | Menu da bandeja: "PC do Fafa" sem acento, contra "PC DO FAFÁ" da splash |
+| 28 | BAIXO | splash, `ofertas.ini`, painel | A marca é "PC do Fafa", sempre sem acento; splash, `ofertas.ini` e painel escreviam com acento |
 | 29 | BAIXO | fullscreen exclusivo | Está no README, mas na tela não há nenhuma mensagem quando acontece |
 | 30 | BAIXO | `main.cpp:4384`, `4699` | `DLSS5_TESTA_QUEDA` / `DLSS5_TESTA_AVISO` continuam ativos no build de release |
 
@@ -629,10 +629,14 @@ seleção, mas empurrar para o fim da lista os processos com `Windows.UI.`/`Appl
 ### 27. "Atalhos (só dois)" com três na tabela
 `README.md:37` — a tabela logo abaixo tem End, F6 e Alt+Esc. → `### Atalhos`
 
-### 28. "PC do Fafa" no menu da bandeja
-`main.cpp:2098`: `L"Grupo de ofertas - PC do Fafa"`. A splash e o `ofertas.ini` escrevem
-`PC DO FAFÁ`; o painel escreve `Grupo de ofertas — PC do Fafá` (`main.cpp` seção de ofertas).
-→ `L"Grupo de ofertas — PC do Fafá"`
+### 28. Marca escrita com acento fora do menu da bandeja
+A marca é "PC do Fafa" / "FAFA", sempre sem acento. O menu da bandeja
+(`main.cpp:2098`, `L"Grupo de ofertas - PC do Fafa"`) já está certo; quem escrevia com acento
+era a splash, o `ofertas.ini` e o painel (`main.cpp`, seção de ofertas). Os `ofertas.ini`
+foram corrigidos em 11/09/2026; faltam a splash (`splash_ofertas.h`), o painel (`main.cpp`),
+o `CompanyName` do `app.rc` e do `portable-launcher/launcher.rc`. A unificação que resta é só
+a do travessão (`—` do painel contra `-` da bandeja).
+→ `L"Grupo de ofertas — PC do Fafa"`
 
 ### 29. Fullscreen exclusivo não tem resposta na tela
 É a limitação nº 1 do README (`linha 204`), mas no app o sintoma é só `0.0 fps (alvo parado)` no

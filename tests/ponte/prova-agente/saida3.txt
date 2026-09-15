@@ -1,0 +1,21 @@
+=== TESTE 3: ReShade (dxgi.dll ao lado, sem add-ons) e os quatro tipos de device ===
+dxgi.dll carregado de: C:\Users\PCDOFAFA\AppData\Local\Temp\claude\C--Users-PCDOFAFA-Desktop-dlss5-for-all-portable-DLSS5ForAll-AMD\d813d9b6-00e8-4398-be96-48a00b926649\scratchpad\ponte\reshade\dxgi.dll
+CreateDXGIFactory2: hr=0x00000000
+(a) D3D11CreateDevice + swapchain
+  [a] D3D11CreateDevice: hr=0x00000000
+  [a] CreateSwapChainForHwnd: hr=0x00000000
+  [a] 30 Presents: 0 != S_OK (último 0x00000000)
+(b) D3D11CoreCreateDevice + swapchain
+  [b] D3D11CoreCreateDevice: hr=0x00000000
+  [b] CreateSwapChainForHwnd: hr=0x00000000
+  [b] 30 Presents: 0 != S_OK (último 0x00000000)
+(c) D3D12CreateDevice + fila + swapchain
+  [c] D3D12CreateDevice: hr=0x00000000
+  [c] CreateCommandQueue: hr=0x00000000
+  [c] CreateSwapChainForHwnd: hr=0x00000000
+  [c] 30 Presents: 0 != S_OK (último 0x00000000)
+(d) DCompositionCreateDevice2 + IDCompositionSurface 256x256 (sem swapchain)
+  [d] DCompositionCreateDevice2: hr=0x00000000
+  [d] CreateSurface: hr=0x00000000
+  [d] 30 BeginDraw/EndDraw/Commit: 0 problemas
+fim

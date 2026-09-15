@@ -1,0 +1,1839 @@
+diff --git a/external/reshade/include/reshade_api.hpp b/external/reshade/include/reshade_api.hpp
+index ae8d386..ce5ffcc 100644
+--- a/external/reshade/include/reshade_api.hpp
++++ b/external/reshade/include/reshade_api.hpp
+@@ -58,7 +58,18 @@ namespace reshade::api
+ 		/// Gets the back buffer resource at the specified <paramref name="index"/> in the swap chain associated with this effect runtime.
+ 		/// </summary>
+ 		/// <param name="index">Index of the back buffer. This has to be between zero and the value returned by <see cref="get_back_buffer_count"/>.</param>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void get_back_buffer_msvc_slot_() = 0;   // ocupa o slot; chamado so pelo thunk abaixo (ver reshade_api_resource.hpp)
++		resource get_back_buffer(uint32_t index)
++		{
++			typedef void *(*fn)(void *, resource *, uint32_t);
++			resource out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&effect_runtime::get_back_buffer_msvc_slot_)))(this, &out, index);
++			return out;
++		}
++#else
+ 		virtual resource get_back_buffer(uint32_t index) = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Gets the number of back buffer resources in the swap chain associated with this effect runtime.
+@@ -178,7 +189,18 @@ namespace reshade::api
+ 		/// <param name="effect_name">File name of the effect file the variable is declared in, or <see langword="nullptr"/> to search in all loaded effects.</param>
+ 		/// <param name="variable_name">Name of the uniform variable declaration to find.</param>
+ 		/// <returns>Opaque handle to the uniform variable, or zero in case it was not found.</returns>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void find_uniform_variable_msvc_slot_() const = 0;
++		effect_uniform_variable find_uniform_variable(const char *effect_name, const char *variable_name) const
++		{
++			typedef void *(*fn)(const void *, effect_uniform_variable *, const char *, const char *);
++			effect_uniform_variable out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&effect_runtime::find_uniform_variable_msvc_slot_)))(this, &out, effect_name, variable_name);
++			return out;
++		}
++#else
+ 		virtual effect_uniform_variable find_uniform_variable(const char *effect_name, const char *variable_name) const = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Gets information about the data type of a uniform <paramref name="variable"/>.
+@@ -422,7 +444,18 @@ namespace reshade::api
+ 		/// <param name="effect_name">File name of the effect file the variable is declared in, or <see langword="nullptr"/> to search in all loaded effects.</param>
+ 		/// <param name="variable_name">Name of the texture variable declaration to find.</param>
+ 		/// <returns>Opaque handle to the texture variable, or zero in case it was not found.</returns>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void find_texture_variable_msvc_slot_() const = 0;
++		effect_texture_variable find_texture_variable(const char *effect_name, const char *variable_name) const
++		{
++			typedef void *(*fn)(const void *, effect_texture_variable *, const char *, const char *);
++			effect_texture_variable out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&effect_runtime::find_texture_variable_msvc_slot_)))(this, &out, effect_name, variable_name);
++			return out;
++		}
++#else
+ 		virtual effect_texture_variable find_texture_variable(const char *effect_name, const char *variable_name) const = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Gets the name of a texture <paramref name="variable"/>.
+@@ -546,7 +579,18 @@ namespace reshade::api
+ 		/// <param name="effect_name">File name of the effect file the technique is declared in, or <see langword="nullptr"/> to search in all loaded effects.</param>
+ 		/// <param name="technique_name">Name of the technique to find.</param>
+ 		/// <returns>Opaque handle to the technique, or zero in case it was not found.</returns>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void find_technique_msvc_slot_() = 0;
++		effect_technique find_technique(const char *effect_name, const char *technique_name)
++		{
++			typedef void *(*fn)(void *, effect_technique *, const char *, const char *);
++			effect_technique out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&effect_runtime::find_technique_msvc_slot_)))(this, &out, effect_name, technique_name);
++			return out;
++		}
++#else
+ 		virtual effect_technique find_technique(const char *effect_name, const char *technique_name) = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Gets the name of a <paramref name="technique"/>.
+diff --git a/external/reshade/include/reshade_api_device.hpp b/external/reshade/include/reshade_api_device.hpp
+index 4f65ddc..dc9b40d 100644
+--- a/external/reshade/include/reshade_api_device.hpp
++++ b/external/reshade/include/reshade_api_device.hpp
+@@ -371,7 +371,18 @@ namespace reshade::api
+ 		/// <summary>
+ 		/// Gets the description of the specified resource.
+ 		/// </summary>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void get_resource_desc_msvc_slot_() const = 0;   // ocupa o slot; chamado so pelo thunk (ver reshade_api_resource.hpp)
++		resource_desc get_resource_desc(resource resource) const
++		{
++			typedef void *(*fn)(const void *, resource_desc *, uint64_t);
++			resource_desc out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&device::get_resource_desc_msvc_slot_)))(this, &out, resource.handle);
++			return out;
++		}
++#else
+ 		virtual resource_desc get_resource_desc(resource resource) const = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Creates a new resource view for the specified <paramref name="resource"/>.
+@@ -393,11 +404,33 @@ namespace reshade::api
+ 		/// <remarks>
+ 		/// Resource views may be created without a resource in D3D12, which is used to initialize a null descriptor (reading zeroes, writes are discarded). This may therefore return zero for such views.
+ 		/// </remarks>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void get_resource_from_view_msvc_slot_() const = 0;
++		resource get_resource_from_view(resource_view view) const
++		{
++			typedef void *(*fn)(const void *, resource *, uint64_t);
++			resource out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&device::get_resource_from_view_msvc_slot_)))(this, &out, view.handle);
++			return out;
++		}
++#else
+ 		virtual resource get_resource_from_view(resource_view view) const = 0;
++#endif
+ 		/// <summary>
+ 		/// Gets the description of the specified resource view.
+ 		/// </summary>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void get_resource_view_desc_msvc_slot_() const = 0;
++		resource_view_desc get_resource_view_desc(resource_view view) const
++		{
++			typedef void *(*fn)(const void *, resource_view_desc *, uint64_t);
++			resource_view_desc out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&device::get_resource_view_desc_msvc_slot_)))(this, &out, view.handle);
++			return out;
++		}
++#else
+ 		virtual resource_view_desc get_resource_view_desc(resource_view view) const = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Maps the memory of a buffer resource into application address space.
+@@ -1343,7 +1376,18 @@ namespace reshade::api
+ 		/// Gets the back buffer resource at the specified <paramref name="index"/> in this swap chain.
+ 		/// </summary>
+ 		/// <param name="index">Index of the back buffer. This has to be between zero and the value returned by <see cref="get_back_buffer_count"/>.</param>
++#ifdef RESHADE_MINGW_ABI_SHIM
++		virtual void get_back_buffer_msvc_slot_() = 0;
++		resource get_back_buffer(uint32_t index)
++		{
++			typedef void *(*fn)(void *, resource *, uint32_t);
++			resource out = {};
++			reinterpret_cast<fn>(mingw_abi::entry(this, mingw_abi::slot(&swapchain::get_back_buffer_msvc_slot_)))(this, &out, index);
++			return out;
++		}
++#else
+ 		virtual resource get_back_buffer(uint32_t index) = 0;
++#endif
+ 
+ 		/// <summary>
+ 		/// Gets the number of back buffer resources in this swap chain.
+diff --git a/external/reshade/include/reshade_api_resource.hpp b/external/reshade/include/reshade_api_resource.hpp
+index 9e2b37e..b737c47 100644
+--- a/external/reshade/include/reshade_api_resource.hpp
++++ b/external/reshade/include/reshade_api_resource.hpp
+@@ -13,6 +13,31 @@
+ 	constexpr bool operator==(name lhs, name rhs) { return lhs.handle == rhs.handle; } \
+ 	constexpr bool operator==(name lhs, uint64_t rhs) { return lhs.handle == rhs; }
+ 
++// ---- shim de ABI MinGW <-> MSVC (variante AMD do DLSS5-Feeder; so com g++) -----------
++// O MSVC devolve QUALQUER struct de uma funcao-membro por ponteiro oculto em RDX (this em
++// RCX). O g++ devolve structs de 8 bytes em RAX e, quando usa ponteiro oculto, poe-no em
++// RCX, ANTES do this. Chamar find_technique() do ReShade (MSVC) a partir do g++ escreve o
++// handle em cima do primeiro argumento: violacao de acesso (confirmado por desmontagem no
++// dxgi.dll 6.8.0.2155 e pelo crash em "runtime init: find_technique"). Os oito metodos
++// virtuais da API que devolvem struct por valor sao portanto chamados por thunk com a
++// convencao do MSVC (this, sret, args...); o slot vem do ponteiro-para-membro (ABI Itanium
++// do g++: ptr = 1 + offset do slot na vtable). Parametros struct de 8 bytes continuam em
++// registrador nas duas ABIs, entao os demais metodos ficam como estao.
++#if defined(__GNUC__) && !defined(__clang__)
++#include <cstdint>
++#include <cstddef>
++#define RESHADE_MINGW_ABI_SHIM 1
++namespace reshade { namespace api { namespace mingw_abi {
++	template <typename M> inline int slot(M pmf)
++	{
++		union { M m; struct { uintptr_t ptr; ptrdiff_t adj; } r; } u;
++		u.m = pmf;
++		return static_cast<int>((u.r.ptr - 1) / sizeof(void *));
++	}
++	inline void *entry(const void *self, int index) { return (*reinterpret_cast<void *const *const *>(self))[index]; }
++} } }
++#endif
++
+ #define RESHADE_DEFINE_ENUM_FLAG_OPERATORS(type) \
+ 	constexpr type operator~(type a) { return static_cast<type>(~static_cast<uint32_t>(a)); } \
+ 	inline type &operator&=(type &a, type b) { return reinterpret_cast<type &>(reinterpret_cast<uint32_t &>(a) &= static_cast<uint32_t>(b)); } \
+diff --git a/src/dlss5-feed.cpp b/src/dlss5-feed.cpp
+index 00fac69..c36c016 100644
+--- a/src/dlss5-feed.cpp
++++ b/src/dlss5-feed.cpp
+@@ -57,6 +57,9 @@
+ #include "feed_gl.h"   // raw-OpenGL interop for the OpenGL transport (see PLAN-OPENGL)
+ #include "feed_dfc.h"  // Deep Fried Chicken interop ABI 1 (producer side)
+ #include "feed_fsr1.h" // AMD FSR 1 EASU + RCAS: the optional expand-back for work_resolution < 100%
++#ifdef FEED_AMD_VARIANT
++#include "feed_seh_shim.h"   // variante AMD (MinGW): __try/__except emulado com VEH + longjmp
++#endif
+ 
+ #define FEED_VERSION "0.12.0"
+ 
+@@ -864,9 +867,46 @@ struct Cfg
+                            // of a stable image on a static scene. Parse-only, not written back.
+     int   jitter_phases;   // diagnostic for work_upscale=2: Halton sequence length, 0 = auto
+                            // (8 * (native/work)^2, NVIDIA's guidance). Parse-only.
++    // Variante AMD (FEED_AMD_VARIANT; ver src-amd/feed_amd.h). Campos sempre presentes
++    // para a struct nao mudar de forma; so sao lidos/gravados na variante.
++    int   amd_carrier;     // -1 auto (VendorId 0x1002), 0 nunca, 1 forcar o portador FSR (teste numa RTX)
++    int   amd_color_fmt;   // formato DXGI do buffer de cor do portador: 0 = o do backbuffer, 87 BGRA8, 28 RGBA8, 10 RGBA16F
++    int   amd_srgb;        // -1 auto (SDR => ligado), 0/1: flags NON_LINEAR_COLORSPACE do FSR
++    int   amd_decoy_swapchain; // 1 = swapchain D3D12 isca numa janela oculta, apresentado antes do 1o Present do jogo
++    // Spike do Neural Rendering (ver NeuralRenderingSpike, abaixo). 1 = logo depois que o
++    // feature de SuperSampling fica pronto, tenta criar UMA vez o feature NGX Reserved18
++    // (o DLSS-NR, que hoje so o add-on de terceiros cria), loga o codigo de retorno e
++    // solta. Nao avalia nada e nao guarda handle: e uma pergunta, nao um caminho. So de
++    // diagnostico, entao nao entra no cfg padrao -- so vale se estiver escrita la.
++    int   nr_spike;
++    // Quantas avaliacoes encadeadas do Neural Rendering por quadro, 1..10. O passe
++    // n+1 consome a saida do passe n; a preparacao da fonte e a composicao do
++    // resultado acontecem uma vez so. Mudar o valor zera o historico temporal.
++    int   nr_passes;
++    // Protecao do HUD. Quem faz o trabalho sao os shaders (DLSS5_Feed.fx marca a interface
++    // e guarda a cor de entrada; DLSS5_HUD.fx recola essa cor por cima da saida da rede);
++    // estas duas chaves existem porque o estado deles mora no PRESET do ReShade, e uma
++    // sessao de teste precisa liga-los sem editar preset nem abrir o overlay.
++    //
++    // -1 = NAO INTERFERE (padrao): quem manda e o preset, e o binario se comporta como o de
++    // antes desta chave existir. 0 = forca desligado. 1 = forca ligado (a marca no
++    // DLSS5_Feed.fx E a recolagem no DLSS5_HUD.fx, que sozinhas nao fazem nada uma sem a
++    // outra -- por isso uma chave so).
++    int   hud_restore;
++    // Forca da recolagem em porcento, 0..100. -1 = nao interfere (o preset manda).
++    int   hud_restore_strength;
+ };
+ 
+-static Cfg g_cfg = { 1, 2, -1, -1, -1, 0, 180, 0, 3, 60, 0, 100, 0, 0.3f, 2000, 1, 0, 0, 0, 0, 1.0f, 1.0f, 50, 1, 0 };
++static Cfg g_cfg = { 1, 2, -1, -1, -1, 0, 180, 0, 3, 60, 0, 100, 0, 0.3f, 2000, 1, 0, 0, 0, 0, 1.0f, 1.0f, 50, 1, 0, -1, 87, -1, 0, 0, 1, -1, -1 };
++// Uma tentativa por valor de nr_spike: CfgReload rearma isto quando a chave muda.
++static bool      g_nr_spike_done = false;
++// As chaves hud_restore precisam ser escritas nos uniforms do preset. Escrever a cada
++// quadro seria briga permanente com o overlay do ReShade (a pessoa nao conseguiria mexer
++// no controle); escrever so quando a chave muda ou quando os handles sao (re)resolvidos
++// deixa o preset mandar no resto do tempo, que e o que o -1 promete.
++static bool      g_hud_push = false;
++// O proximo evaluate do NR zera o historico (troca de nr_passes, rebuild, 1o quadro).
++static bool      g_nr_reset_history = true;
+ static int       g_work_resolution_ui = 100;
+ static int       g_pending_work_resolution = 0;
+ static ULONGLONG g_work_resolution_apply_after = 0;
+@@ -906,12 +946,18 @@ static void CfgWriteDefault()
+             "sync_home=%d\n"
+             "mv_scale_x=%.3f\n"
+             "mv_scale_y=%.3f\n"
+-            "stall_log_ms=%d\n",
++            "stall_log_ms=%d\n"
++            "hud_restore=-1\n"
++            "hud_restore_strength=-1\n",
+             g_cfg.enabled, g_cfg.mode, g_cfg.hdr, g_cfg.depth_inverted, g_cfg.flags, g_cfg.reset_every,
+             g_cfg.warmup_rebuild, g_cfg.rebuild, g_cfg.log_frames, g_cfg.create_delay, g_cfg.preset,
+             g_cfg.work_resolution, g_cfg.work_upscale, g_cfg.work_sharpness,
+             g_cfg.gpu_timeout_ms, g_cfg.buffer_home, g_cfg.async_home,
+             g_cfg.sync_home, g_cfg.mv_scale_x, g_cfg.mv_scale_y, g_cfg.stall_log_ms);
++#ifdef FEED_AMD_VARIANT
++    fprintf(f, "amd_carrier=%d\namd_color_fmt=%d\namd_srgb=%d\namd_decoy_swapchain=%d\n",
++            g_cfg.amd_carrier, g_cfg.amd_color_fmt, g_cfg.amd_srgb, g_cfg.amd_decoy_swapchain);
++#endif
+     fclose(f);
+     Log("[feed] wrote default config to %s", path);
+ }
+@@ -957,23 +1003,56 @@ static bool CfgReload()
+         else if (_stricmp(key, "stall_log_ms")   == 0) next.stall_log_ms   = iv;
+         else if (_stricmp(key, "jitter_sign")    == 0) next.jitter_sign    = iv;
+         else if (_stricmp(key, "jitter_phases")  == 0) next.jitter_phases  = iv;
++        else if (_stricmp(key, "nr_spike")       == 0) next.nr_spike       = iv;
++        else if (_stricmp(key, "nr_passes")      == 0) next.nr_passes      = iv;
++        else if (_stricmp(key, "hud_restore")    == 0) next.hud_restore    = iv;
++        else if (_stricmp(key, "hud_restore_strength") == 0) next.hud_restore_strength = iv;
++#ifdef FEED_AMD_VARIANT
++        else if (_stricmp(key, "amd_carrier")    == 0) next.amd_carrier    = iv;
++        else if (_stricmp(key, "amd_color_fmt")  == 0) next.amd_color_fmt  = iv;
++        else if (_stricmp(key, "amd_srgb")       == 0) next.amd_srgb       = iv;
++        else if (_stricmp(key, "amd_decoy_swapchain") == 0) next.amd_decoy_swapchain = iv;
++#endif
+     }
+     fclose(f);
++#ifdef FEED_AMD_VARIANT
++    if (next.amd_carrier < -1 || next.amd_carrier > 1) next.amd_carrier = g_cfg.amd_carrier;
++    if (next.amd_color_fmt != 0 && next.amd_color_fmt != 10 && next.amd_color_fmt != 28 && next.amd_color_fmt != 87) next.amd_color_fmt = g_cfg.amd_color_fmt;
++    if (next.amd_srgb < -1 || next.amd_srgb > 1) next.amd_srgb = g_cfg.amd_srgb;
++    if (next.amd_decoy_swapchain < 0 || next.amd_decoy_swapchain > 1) next.amd_decoy_swapchain = g_cfg.amd_decoy_swapchain;
++#endif
+     if (next.mode < 0 || next.mode > 2) next.mode = g_cfg.mode;
+     if (next.work_resolution < 50 || next.work_resolution > 100) next.work_resolution = g_cfg.work_resolution;
+     if (next.work_upscale < 0 || next.work_upscale > 2) next.work_upscale = g_cfg.work_upscale;
+     if (next.work_sharpness < 0.0f || next.work_sharpness > 1.0f) next.work_sharpness = g_cfg.work_sharpness;
+     if (next.jitter_sign != 1 && next.jitter_sign != -1) next.jitter_sign = g_cfg.jitter_sign;
+     if (next.jitter_phases < 0 || next.jitter_phases > 128) next.jitter_phases = g_cfg.jitter_phases;
++    if (next.nr_spike < 0 || next.nr_spike > 1) next.nr_spike = g_cfg.nr_spike;
++    if (next.nr_passes < 1 || next.nr_passes > 10) next.nr_passes = g_cfg.nr_passes;
++    if (next.hud_restore < -1 || next.hud_restore > 1) next.hud_restore = g_cfg.hud_restore;
++    if (next.hud_restore_strength < -1 || next.hud_restore_strength > 100) next.hud_restore_strength = g_cfg.hud_restore_strength;
++    // Uma chave que mudou so vale se for reescrita nos uniforms do preset; sem isto ela
++    // seria lida do disco e ignorada ate a proxima resolucao de handles.
++    if (next.hud_restore != g_cfg.hud_restore || next.hud_restore_strength != g_cfg.hud_restore_strength)
++        g_hud_push = true;
+     // 0 would mean "give up instantly"; an unbounded wait would hang the game on a
+     // genuinely dead GPU. Clamp to something a contended machine can still live with.
+     if (next.gpu_timeout_ms < 100 || next.gpu_timeout_ms > 60000) next.gpu_timeout_ms = g_cfg.gpu_timeout_ms;
+     if (next.stall_log_ms < 0 || next.stall_log_ms > 10000) next.stall_log_ms = g_cfg.stall_log_ms;
+ 
+-    const bool rebuild = next.hdr != g_cfg.hdr || next.depth_inverted != g_cfg.depth_inverted ||
+-                         next.flags != g_cfg.flags || next.rebuild != g_cfg.rebuild ||
+-                         next.preset != g_cfg.preset || next.buffer_home != g_cfg.buffer_home ||
+-                         next.async_home != g_cfg.async_home;
++    bool rebuild = next.hdr != g_cfg.hdr || next.depth_inverted != g_cfg.depth_inverted ||
++                   next.flags != g_cfg.flags || next.rebuild != g_cfg.rebuild ||
++                   next.preset != g_cfg.preset || next.buffer_home != g_cfg.buffer_home ||
++                   next.async_home != g_cfg.async_home || next.nr_spike != g_cfg.nr_spike;
++    // A tentativa do spike acontece dentro do create; rearmar aqui e o que faz a chave
++    // valer no jogo em andamento (o rebuild acima e quem provoca o create seguinte).
++    if (next.nr_spike != g_cfg.nr_spike) g_nr_spike_done = false;
++    // Outra profundidade de cascata, outro historico temporal.
++    if (next.nr_passes != g_cfg.nr_passes) g_nr_reset_history = true;
++#ifdef FEED_AMD_VARIANT
++    // amd_carrier e amd_decoy_swapchain so valem na proxima sessao (reinicio do jogo).
++    rebuild = rebuild || next.amd_color_fmt != g_cfg.amd_color_fmt || next.amd_srgb != g_cfg.amd_srgb;
++#endif
+     const bool changed = rebuild || memcmp(&next, &g_cfg, sizeof(Cfg)) != 0;
+     if (!changed) return false;
+     g_cfg = next;
+@@ -1005,6 +1084,14 @@ static void CfgSave()
+             g_cfg.work_resolution, g_cfg.work_upscale, g_cfg.work_sharpness,
+             g_cfg.gpu_timeout_ms, g_cfg.buffer_home, g_cfg.async_home,
+             g_cfg.sync_home, g_cfg.mv_scale_x, g_cfg.mv_scale_y, g_cfg.stall_log_ms);
++    // Reescrita a partir do overlay apaga o arquivo inteiro; sem esta linha uma chave de
++    // diagnostico posta a mao sumiria no meio da sessao de teste.
++    fprintf(f, "nr_spike=%d\nnr_passes=%d\nhud_restore=%d\nhud_restore_strength=%d\n",
++            g_cfg.nr_spike, g_cfg.nr_passes, g_cfg.hud_restore, g_cfg.hud_restore_strength);
++#ifdef FEED_AMD_VARIANT
++    fprintf(f, "amd_carrier=%d\namd_color_fmt=%d\namd_srgb=%d\namd_decoy_swapchain=%d\n",
++            g_cfg.amd_carrier, g_cfg.amd_color_fmt, g_cfg.amd_srgb, g_cfg.amd_decoy_swapchain);
++#endif
+     fclose(f);
+ }
+ 
+@@ -1035,6 +1122,11 @@ static const char *kSlotName[SLOT_COUNT] = { "Color", "Output", "Depth", "MV", "
+ 
+ static const char *kEffectFile     = "DLSS5_Feed.fx";
+ static const char *kTechnique      = "DLSS5_Feed";
++// O efeito que recola o HUD original por cima da saida da rede. Roda ABAIXO da tecnica
++// DLSS5_Feed na lista, que e onde a saida da rede ja esta no backbuffer -- o add-on dispara
++// o DLSS depois que a tecnica terminou de desenhar. Opcional: sem ele a chave hud_restore
++// do cfg nao tem onde escrever e a cadeia roda exatamente como antes.
++static const char *kHudEffectFile  = "DLSS5_HUD.fx";
+ // Known motion-vector providers, keyed by the DLSS5_MV_PROVIDER value DLSS5_Feed.fx
+ // was compiled with (0 texMotionVectors, 1 Launchpad, 2 VORT, 3 LumeniteFX Kernel,
+ // 4 LumeniteFX QuantMotion). Name checks only, for the status line and a mismatch
+@@ -1128,6 +1220,13 @@ struct Feed
+     reshade::api::effect_texture_variable  depth_var;
+     reshade::api::effect_texture_variable  mask_var;      // DLSS5_Mask; handle 0 with an older shader
+     bool                                   mask_ok;       // this frame: DLSS5_Mask present, right size/format, copied
++    // Protecao do HUD: uniforms de DOIS efeitos, porque o trabalho e dividido entre eles --
++    // o Feed marca a interface e guarda a cor de entrada, o HUD recola essa cor por cima da
++    // saida da rede. Handle 0 com um shader antigo ou com o DLSS5_HUD.fx ausente, e ai a
++    // chave hud_restore do cfg simplesmente nao tem onde escrever.
++    reshade::api::effect_uniform_variable  hud_mask_var;     // DLSS5_Feed.fx / HUD_MASK_ENABLE
++    reshade::api::effect_uniform_variable  hud_restore_var;  // DLSS5_HUD.fx  / HUD_RESTORE_ENABLE
++    reshade::api::effect_uniform_variable  hud_strength_var; // DLSS5_HUD.fx  / HUD_RESTORE_STRENGTH
+     bool                                   depth_reversed;
+     bool                                   handles_ok;
+     bool                                   missing_reported;
+@@ -1578,6 +1677,10 @@ static void DrainGpu()
+     for (int i = 0; i < Feed::kFrames; ++i) g.alloc_fence[i] = 0;
+ }
+ 
++#ifdef FEED_AMD_VARIANT
++#include "feed_amd.h"   // modo portador FSR + swapchain-isca (precisa de g, g_cfg, Log, DrainGpu e dos helpers de formato acima)
++#endif
++
+ // NGX can access-violate inside its own code or inside the DLSS 5 add-on (a leaked, closed-source
+ // snippet), especially across a resolution or device change. SEH keeps that from taking the game
+ // down -- it becomes a graceful disable instead. These wrappers hold no C++ objects, so __try is
+@@ -1606,6 +1709,19 @@ static void PublishDfcInterop()
+ static NVSDK_NGX_Result SafeNgxInit12(const wchar_t *data_path, ID3D12Device *dev, DWORD *code)
+ {
+     *code = 0;
++#ifdef FEED_AMD_VARIANT
++    // MinGW: sem __try. A guarda (feed_seh_shim.h) volta para ca com o codigo da falha.
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return NVSDK_NGX_Result_Fail; }
++    {
++        NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(0x1000000ULL, data_path, dev, nullptr, NVSDK_NGX_Version_API);
++        if (NVSDK_NGX_FAILED(r))
++            r = NVSDK_NGX_D3D12_Init_with_ProjectID("a0f57b54-1daf-4934-90ae-c4035c19df04", NVSDK_NGX_ENGINE_TYPE_CUSTOM,
++                                                    "1.0", data_path, dev, nullptr, NVSDK_NGX_Version_API);
++        FeedGuardDisarm(&guard);
++        return r;
++    }
++#else
+     __try
+     {
+         NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init(0x1000000ULL, data_path, dev, nullptr, NVSDK_NGX_Version_API);
+@@ -1615,6 +1731,7 @@ static NVSDK_NGX_Result SafeNgxInit12(const wchar_t *data_path, ID3D12Device *de
+         return r;
+     }
+     __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return NVSDK_NGX_Result_Fail; }
++#endif
+ }
+ 
+ // CPU ticks spent inside the last NGX call. The neural consumer's detour runs INSIDE these
+@@ -1624,8 +1741,16 @@ static LONGLONG g_last_create_ticks;
+ 
+ static NVSDK_NGX_Result CreateDLSSGuarded(NVSDK_NGX_DLSS_Create_Params *cp, DWORD *code)
+ {
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = NGX_D3D12_CREATE_DLSS_EXT(g.list, 1, 1, &g.feature, g.params, cp);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
+     __try { return NGX_D3D12_CREATE_DLSS_EXT(g.list, 1, 1, &g.feature, g.params, cp); }
+     __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
+ }
+ 
+ static NVSDK_NGX_Result SafeCreateDLSS(NVSDK_NGX_DLSS_Create_Params *cp, DWORD *code)
+@@ -1653,6 +1778,9 @@ static NVSDK_NGX_Result SafeCreateDLSS(NVSDK_NGX_DLSS_Create_Params *cp, DWORD *
+ static bool WarmupRebuildDue(UINT64 n)
+ {
+     if (g.warmup_done) return false;
++#ifdef FEED_AMD_VARIANT
++    if (g_amd.active) return false;   // o warm-up existe por causa dos hooks NGX do add-on; o portador FSR nao tem isso
++#endif
+     if (g_chicken_present)
+     {
+         if (!g_chicken_created_unarmed) return false;   // Chicken saw the create
+@@ -1673,8 +1801,16 @@ static bool WarmupRebuildDue(UINT64 n)
+ 
+ static NVSDK_NGX_Result EvaluateDLSSGuarded(NVSDK_NGX_D3D12_DLSS_Eval_Params *ep, DWORD *code)
+ {
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = NGX_D3D12_EVALUATE_DLSS_EXT(g.list, g.feature, g.params, ep);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
+     __try { return NGX_D3D12_EVALUATE_DLSS_EXT(g.list, g.feature, g.params, ep); }
+     __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
+ }
+ 
+ static NVSDK_NGX_Result SafeEvaluateDLSS(NVSDK_NGX_D3D12_DLSS_Eval_Params *ep, DWORD *code)
+@@ -1691,7 +1827,14 @@ static NVSDK_NGX_Result SafeEvaluateDLSS(NVSDK_NGX_D3D12_DLSS_Eval_Params *ep, D
+ 
+ static void CloseListGuarded()
+ {
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) return;
++    g.list->Close();
++    FeedGuardDisarm(&guard);
++#else
+     __try { g.list->Close(); } __except (EXCEPTION_EXECUTE_HANDLER) {}
++#endif
+ }
+ 
+ // NGX crashed while recording into our list: it may hold half-written commands, and
+@@ -2030,8 +2173,15 @@ static void GuideProbeShutdown()
+ static void SafeReleaseFeature(NVSDK_NGX_Handle *f)
+ {
+     if (f == nullptr) return;
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { Log("[feed] ReleaseFeature raised exception 0x%08X (ignored)", guard.code); return; }
++    NVSDK_NGX_D3D12_ReleaseFeature(f);
++    FeedGuardDisarm(&guard);
++#else
+     __try { NVSDK_NGX_D3D12_ReleaseFeature(f); }
+     __except (EXCEPTION_EXECUTE_HANDLER) { Log("[feed] ReleaseFeature raised exception 0x%08X (ignored)", GetExceptionCode()); }
++#endif
+ }
+ 
+ static void Barrier(ID3D12Resource *res, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_STATES to)
+@@ -2120,6 +2270,9 @@ static void ReleaseFrameResources()
+         SafeRelease(g.tex12[i]);
+         if (g.shared[i] != nullptr) { CloseHandle(g.shared[i]); g.shared[i] = nullptr; }
+     }
++#ifdef FEED_AMD_VARIANT
++    AmdDestroyContext();   // o contexto FSR guarda historico no tamanho do build: rebuild = destruir e recriar
++#endif
+     if (g.feature != nullptr)
+     {
+         Breadcrumb("releasing the DLSS feature");
+@@ -2289,6 +2442,7 @@ static bool MakeBlitShaders()
+ }
+ 
+ static bool CreateDlssFeature(UINT w, UINT h, bool inverted, bool *crashed);
++static void NrShutdown();   // Neural Rendering: solta feature, mapa, texturas e snippet
+ static bool PickSrQuality(UINT w, UINT h, UINT out_w, UINT out_h);
+ 
+ // A failed create with two NGX module copies loaded is nearly always the game-local
+@@ -2309,6 +2463,7 @@ static bool ReinitNgx()
+ {
+     Log("[feed] re-initialising NGX after repeated feature-create failures");
+     if (g.params != nullptr) { NVSDK_NGX_D3D12_DestroyParameters(g.params); g.params = nullptr; }
++    NrShutdown();
+     if (g.ngx_inited && g.dev12 != nullptr) { NVSDK_NGX_D3D12_Shutdown1(g.dev12); g.ngx_inited = false; }
+ 
+     wchar_t data_path[MAX_PATH] = {};
+@@ -2342,7 +2497,11 @@ static bool OnCreateFeatureFailed(bool crashed)
+                             : "creating the DLSS feature keeps failing (see dlss5-feed.log)");
+         return false;
+     }
+-    if (g.create_fail_count == 2 && !ReinitNgx())
++    if (g.create_fail_count == 2 &&
++#ifdef FEED_AMD_VARIANT
++        !g_amd.active &&   // portador FSR: nao ha NGX para re-inicializar
++#endif
++        !ReinitNgx())
+     {
+         FeedDisable("NGX would not re-initialise after a failed feature create");
+         return false;
+@@ -2402,6 +2561,9 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
+     g.output_fmt = ResolveOutputFormat(g.color_fmt, g.dev12);
+     g.hdr        = g_cfg.hdr >= 0 ? g_cfg.hdr != 0 : IsHdrFormat(g.color_fmt);
+     const bool inverted = g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed;
++#ifdef FEED_AMD_VARIANT
++    if (g.color_fmt != DXGI_FORMAT_UNKNOWN) AmdApplyColorFormat(bb_fmt);   // amd_color_fmt (depois de g.hdr, que segue o backbuffer)
++#endif
+ 
+     if (g.color_fmt == DXGI_FORMAT_UNKNOWN)
+     {
+@@ -2448,7 +2610,11 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
+     { Log("[feed] output SRV creation failed"); ReleaseFrameResources(); return false; }
+ 
+     // Work resolution below 100%: a native-size, SRV-able copy of the frame to downsample from.
+-    if (backbuffer_w != w || backbuffer_h != h)
++    bool need_stage = backbuffer_w != w || backbuffer_h != h;
++#ifdef FEED_AMD_VARIANT
++    if (g_amd.active && g_amd.color_convert) need_stage = true;   // a cor muda de formato: passa pelo blit, precisa da copia SRV
++#endif
++    if (need_stage)
+     {
+         D3D11_TEXTURE2D_DESC sd = {};
+         sd.Width      = backbuffer_w;
+@@ -2463,7 +2629,7 @@ static bool BuildResources(UINT w, UINT h, UINT backbuffer_w, UINT backbuffer_h,
+         { Log("[feed] work-resolution staging texture failed (%ux%u %s)", backbuffer_w, backbuffer_h, FormatName(bb_fmt)); ReleaseFrameResources(); return false; }
+ 
+         D3D11_SHADER_RESOURCE_VIEW_DESC ss = {};
+-        ss.Format              = g.color_fmt;   // typed view, in case the backbuffer is TYPELESS
++        ss.Format              = TypedColorFormat(bb_fmt);   // typed view, in case the backbuffer is TYPELESS (== g.color_fmt, except under amd_color_fmt)
+         ss.ViewDimension       = D3D11_SRV_DIMENSION_TEXTURE2D;
+         ss.Texture2D.MipLevels = 1;
+         if (FAILED(g.dev11->CreateShaderResourceView(g.color_stage, &ss, &g.color_stage_srv)))
+@@ -2556,9 +2722,912 @@ static bool PickSrQuality(UINT w, UINT h, UINT out_w, UINT out_h)
+     return false;
+ }
+ 
++// ---------------------------------------------------------------------------
++// Spike do Neural Rendering (nr_spike=1 no dlss5-feed.cfg; desligado por padrao)
++//
++// Pergunta unica: o NOSSO processo consegue criar o feature NGX Reserved18 -- o
++// DLSS-NR, o passe neural que hoje so o add-on de terceiros cria? Cria uma vez,
++// loga o codigo de retorno e solta. Nao avalia, nao guarda o handle, nao entra
++// no caminho do quadro.
++//
++// A receita abaixo nao vem de header nenhum: os nomes "DLSSNR.*" nao existem no
++// SDK publico da NVIDIA. Ela foi lida do proprio renodx-dlss.addon64 desta pasta
++// (a rotina de create em 0x180077e5f..0x180078088), que e a unica implementacao
++// que comprovadamente funciona nesta maquina. Ordem, tipo e valor de cada Set
++// batem com o que ele faz -- inclusive dois detalhes que so o desmontado conta:
++//
++//  - o log dele diz "performance=6", mas o que ele passa em PerfQualityValue e
++//    esse numero MENOS UM (mov r8d,[perf]; dec r8d), ou seja 5, que e
++//    NVSDK_NGX_PerfQuality_Value_DLAA. O "6" e a contagem 1-based da interface
++//    dele, nao um valor de NGX (o enum publico vai ate 5);
++//  - "DLSSNRComputeScalingRatioCallback" nao e um numero: e um PONTEIRO DE
++//    FUNCAO guardado no mapa de parametros. O NGX o chama passando o proprio
++//    mapa e espera que ele grave DLSSNR.ScalingRatio. O add-on grava a razao
++//    tambem direto, antes do create; fazemos os dois, igual a ele.
++//
++// Tudo 1:1 (mesma largura e altura em cada par de dimensoes, Upscaling=0): o
++// passe neural roda DEPOIS do SuperSampling, sobre a imagem ja reconstruida.
++//
++// A PRIMEIRA tentativa deste spike chamou o CreateFeature do _nvngx.dll do driver
++// e levou 0xBAD0000C (OutOfDate = "requires a newer version of the driver OR
++// FEATURE LIBRARY"). O desmonte explica: o add-on de terceiros NAO usa o NGX do
++// driver para o passe neural. Ele monta a coisa em duas metades:
++//
++//   snippet          nvngx_dlssnr.dll carregado com LoadLibraryW; a tabela de
++//                    GetProcAddress em 0x180027b43.. resolve NELE os cinco
++//                    exports de ciclo de vida (Init_Ext, CreateFeature,
++//                    EvaluateFeature, ReleaseFeature, Shutdown1). O DLL exporta
++//                    mesmo a API NGX inteira -- e uma runtime autocontida, nao
++//                    um pacote de pesos. Se faltar um export ele da FreeLibrary
++//                    e desiste ("snippet is missing a required lifecycle export").
++//   parameter        _nvngx.dll do driver, de onde vem SO o objeto de parametros
++//   provider         (AllocateParameters/DestroyParameters, resolvidos em
++//                    0x180043fe1..0x18004400d). O snippet nao exporta esses.
++//
++// Ou seja: mapa de parametros do DRIVER, CreateFeature do SNIPPET. E antes disso
++// um Init_Ext no ponteiro do SNIPPET (0x18007624a..0x18007628a):
++//
++//     Init_Ext(0x0876232C, <diretorio do nvngx_dlssnr.dll>, device, 0x15, nullptr)
++//
++// com o diretorio derivado do caminho do proprio snippet (parent_path em
++// 0x18003d720) e o ultimo argumento -- que nesta sobrecarga do header e um
++// NVSDK_NGX_Parameter*, nao um FeatureCommonInfo* -- em NULL. Nao ha PathListInfo
++// nenhum. Isso e uma sessao NGX separada da do feed: modulos distintos, estados
++// distintos, o unico objeto compartilhado e o mapa de parametros.
++// ---------------------------------------------------------------------------
++
++// A segunda tentativa deste spike -- ja com o snippet anexado -- levou 0xBAD00002
++// (PlatformError) no Init_Ext, com e sem o add-on de terceiros na pasta. O desmonte
++// mostra que falta um passo INTEIRO antes: a funcao em 0x180043020, chamada em
++// 0x180076239, imediatamente antes do Init_Ext. Ela faz duas coisas:
++//
++//   1. prepara um diretorio de dados: GetTempPath2W (com fallback para GetTempPathW
++//      em 0x18013080a), confere que e diretorio (GetFileAttributesW & 0x10), anexa
++//      os componentes L"RenoDX" e L"dlssnr" (0x1802067c8/0x1802067d6) e cria a
++//      arvore componente a componente. Se falhar, loga "could not prepare NGX
++//      application-data directory ({})" e RETORNA FALSO -- o Init_Ext nem acontece.
++//   2. inicializa o NGX core DO DRIVER nesse diretorio (0x18004364b..0x180043679):
++//
++//        provider!NVSDK_NGX_D3D12_Init(0x0876232C, <temp>\RenoDX\dlssnr, device, 0x15)
++//
++//      quatro argumentos, nao cinco. O header tem as duas familias: a de cinco
++//      (com NVSDK_NGX_FeatureCommonInfo*) e, sob NGX_SNIPPET_BUILD, a de quatro,
++//      com a versao direto no 4o lugar. Quem fala com snippet usa a de quatro --
++//      o nome da macro diz isso -- e e a que o _nvngx.dll implementa de fato.
++//      Sucesso vira "backend-owned NVIDIA NGX core initialization succeeded".
++//
++// O feed ja inicializa o NGX do driver, mas com AppId 0x1000000 e o data path dele.
++// O snippet nao encontra uma sessao de core que case com o AppId e o diretorio que
++// lhe passamos, e responde PlatformError. Entao a sequencia completa e:
++//
++//     attach do snippet -> preparar o diretorio -> Init do CORE do driver
++//     -> Init_Ext do SNIPPET -> AllocateParameters do driver -> CreateFeature do snippet
++//
++// A minha chamada do Init_Ext ja estava certa (r9d=0x15, quinto argumento NULL na
++// pilha, exatamente como ele): o que faltava eram os dois passos acima.
++// ---------------------------------------------------------------------------
++
++// AppId que o add-on passa NAS DUAS inicializacoes -- a do core e a do snippet
++// (literais em 0x18004366e e 0x180076278). Nao e um valor documentado; e o que
++// comprovadamente funciona nesta maquina, e o snippet parece exigir que o core
++// tenha sido inicializado com o MESMO.
++static const unsigned long long kNrApplicationId = 0x0876232CULL;
++static const wchar_t           *kNrSnippetName   = L"nvngx_dlssnr.dll";
++
++// Os dois componentes do diretorio de dados, sob o %TEMP%. Sao deliberadamente os
++// mesmos que o add-on de terceiros usa: o principio que vem acertando neste spike e
++// "identico ao que funciona". Se o Init_Ext ainda recusar, este e o primeiro
++// parametro a variar -- e o mais barato de testar.
++static const wchar_t *kNrDataSubdir[] = { L"RenoDX", L"dlssnr" };
++
++#ifdef FEED_AMD_VARIANT
++extern "C" HMODULE NgxForwardModule();   // src-amd/ngx_forward.cpp
++#endif
++
++// O NGX core do driver. Na variante AMD o forwarder ja o resolveu (e sabe achar o
++// _nvngx.dll pelo registro); fora dela, o feed linka a lib estatica da NVIDIA e o
++// modulo ja esta no processo quando esta funcao roda.
++static HMODULE NrDriverCore()
++{
++#ifdef FEED_AMD_VARIANT
++    if (HMODULE m = NgxForwardModule()) return m;
++#endif
++    HMODULE m = GetModuleHandleW(L"_nvngx.dll");
++    if (m == nullptr) m = GetModuleHandleW(L"nvngx.dll");
++    return m;
++}
++
++// %TEMP%\RenoDX\dlssnr, criado se preciso. Mesma receita da funcao 0x180043020.
++static bool NrPrepareDataDir(wchar_t *out, size_t chars)
++{
++    wchar_t base[MAX_PATH] = {};
++    const DWORD n = GetTempPathW(MAX_PATH, base);
++    if (n == 0 || n >= MAX_PATH) { Log("[feed] nr_spike: GetTempPathW failed (error %lu)", GetLastError()); return false; }
++    // O TEMP vem com barra no fim; o parent_path que o add-on monta nao tem.
++    size_t len = wcslen(base);
++    while (len > 0 && (base[len - 1] == L'\\' || base[len - 1] == L'/')) base[--len] = L'\0';
++    if (len == 0) { Log("[feed] nr_spike: GetTempPathW returned a root-only path"); return false; }
++    if (wcsncpy_s(out, chars, base, _TRUNCATE) != 0) return false;
++    for (const wchar_t *part : kNrDataSubdir)
++    {
++        if (wcscat_s(out, chars, L"\\") != 0 || wcscat_s(out, chars, part) != 0)
++        { Log("[feed] nr_spike: the NGX application-data path does not fit in MAX_PATH"); return false; }
++        if (!CreateDirectoryW(out, nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
++        { Log("[feed] nr_spike: could not prepare the NGX application-data directory %ls (error %lu)", out, GetLastError()); return false; }
++    }
++    const DWORD attr = GetFileAttributesW(out);
++    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY) == 0)
++    { Log("[feed] nr_spike: %ls is not a directory", out); return false; }
++    return true;
++}
++
++// ---------------------------------------------------------------------------
++// Por que o NR corre no device do feed, e nao num device proprio.
++//
++// A sessao do NGX e POR DEVICE: o header e explicito ("most NGX SDK functions
++// require the NGX SDK to be initialized for the corresponding graphics API and
++// device") e o Shutdown1 so aceita um device para desambiguar. A conclusao obvia
++// seria dar ao NR um ID3D12Device proprio, no mesmo adaptador, para isolar a
++// sessao dele da do Super Resolution. Isso chegou a ser implementado -- e nao
++// funciona, porque a premissa e falsa:
++//
++//   O RUNTIME D3D12 RECICLA O DEVICE POR ADAPTADOR. D3D12CreateDevice com o mesmo
++//   adaptador e o mesmo feature level devolve S_OK e o MESMO OBJETO, so com o
++//   refcount incrementado -- inclusive quando o IDXGIAdapter1 e outro objeto,
++//   vindo de EnumAdapterByLuid. A identidade COM (QueryInterface de IUnknown)
++//   confirma. Medido nesta maquina por tests/nr_device_probe.cpp, que existe
++//   para alguem reconferir isto sem precisar do jogo.
++//
++// Ou seja: um "device privado" nao isolaria nada -- a sessao NGX seria a mesma --
++// e ainda soltaria, no teardown, uma referencia do device do SR. O codigo que
++// fazia isso foi REMOVIDO em vez de desligado: codigo que finge criar um device e
++// na verdade mexe no refcount alheio engana quem le depois.
++//
++// O NR entao vive no g.dev12, com o desenho endurecido: nenhum Init no core do
++// driver (o snippet e autocontido -- ver o passo 2 em NeuralRenderingSpike),
++// nenhum Shutdown1 do core NUNCA, e o spoof de identidade cobrindo o ciclo
++// inteiro. O unico Shutdown1 que damos e o do SNIPPET, que e outro modulo com
++// outra tabela de instancias e nao alcanca a sessao do Super Resolution.
++//
++// A sessao do NGX e POR DEVICE, nao por chamador nem por ApplicationId. O header
++// e explicito: "Most NGX SDK functions require the NGX SDK to be initialized for
++// the corresponding graphics API and device", e o Shutdown1 so aceita um device
++// para desambiguar ("if a device is provided, shuts down the instance
++// corresponding to the specified device; if nullptr is provided, ALL instances
++// are shut down"). Se a sessao fosse por chamador, o Shutdown1 precisaria de outro
++// identificador -- e nao tem.
++//
++// Consequencia: os dois Init que faziamos no g.dev12 nao abriam duas sessoes. Eles
++// RECONFIGURAVAM a mesma instancia -- trocando ApplicationId e data path por baixo
++// de um feature de SuperSampling vivo e em uso. Por isso o spike, mesmo "isolado",
++// alcancava o SR.
++//
++// Entao o NR ganha o seu proprio device, no MESMO adaptador (mesma LUID: o passe
++// neural precisa enxergar os mesmos recursos), com fila, allocator, lista e fence
++// proprios. Nada abaixo toca no g.dev12, e o Shutdown1 daqui so pode derrubar a
++// instancia deste device. nullptr nunca e passado a Shutdown1 -- derrubaria o NGX
++// do processo inteiro, SR incluido.
++// ---------------------------------------------------------------------------
++// Cronometragem das etapas. Tudo em CPU (QueryPerformanceCounter); o tempo do
++// create inclui a espera da fence, entao cobre o trabalho de GPU tambem.
++static LARGE_INTEGER g_nr_qpc_freq;
++static double NrMs(LONGLONG ticks)
++{
++    if (g_nr_qpc_freq.QuadPart == 0) QueryPerformanceFrequency(&g_nr_qpc_freq);
++    return g_nr_qpc_freq.QuadPart != 0
++         ? static_cast<double>(ticks) * 1000.0 / static_cast<double>(g_nr_qpc_freq.QuadPart)
++         : 0.0;
++}
++static LONGLONG NrNow()
++{
++    LARGE_INTEGER t;
++    QueryPerformanceCounter(&t);
++    return t.QuadPart;
++}
++
++
++// Todo o NR corre no device e na lista do feed -- as texturas de Color, Depth, MV
++// e Output ja estao la, o que na fase de avaliacao dispensa recurso compartilhado
++// e sincronizacao entre filas.
++static bool NrBeginCommands() { return BeginCommands(); }
++static void NrAbortCommands() { AbortCommands(); }
++
++static void NrEndCommandsAndWait()
++{
++    const UINT64 v = EndCommands();
++    if (g.fence12->GetCompletedValue() < v)
++    {
++        ResetEvent(g.fence_event);   // como em BeginCommands: nunca confiar num sinal antigo
++        g.fence12->SetEventOnCompletion(v, g.fence_event);
++        if (WaitForSingleObject(g.fence_event, 4000) != WAIT_OBJECT_0 || g.fence12->GetCompletedValue() < v)
++            Log("[feed] nr_spike: the create did not complete within 4 s (continuing)");
++    }
++}
++
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrInitExt)(unsigned long long, const wchar_t *, ID3D12Device *,
++                                                     NVSDK_NGX_Version, const NVSDK_NGX_Parameter *);
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrCreate)(ID3D12GraphicsCommandList *, NVSDK_NGX_Feature,
++                                                    NVSDK_NGX_Parameter *, NVSDK_NGX_Handle **);
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrRelease)(NVSDK_NGX_Handle *);
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrShutdown1)(ID3D12Device *);
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrEvaluate)(ID3D12GraphicsCommandList *, const NVSDK_NGX_Handle *,
++                                                      const NVSDK_NGX_Parameter *, void *);
++
++// ---------------------------------------------------------------------------
++// Estado do Neural Rendering, PERSISTENTE entre quadros.
++//
++// Ate aqui o spike criava e soltava a feature na mesma chamada, so para responder
++// se ela criava. Para avaliar por quadro ela tem de viver: handle, mapa de
++// parametros e as duas texturas da cascata sobrevivem entre quadros e so morrem em
++// NrShutdown (rebuild da feature de SR, ou teardown da sessao).
++//
++// As duas texturas sao um ping-pong: o passe 1 le o OUTPUT do SuperSampling e
++// escreve em tex[0]; o passe 2 le tex[0] e escreve em tex[1], e assim por diante.
++// No fim o resultado do ultimo passe volta por copia para o SLOT_OUTPUT, que e de
++// onde o caminho ja existente leva o quadro para casa. E o contrato que o add-on
++// de terceiros descreve: os passes adicionais consomem a saida do anterior, e a
++// preparacao da fonte e a composicao do resultado acontecem uma vez so.
++// ---------------------------------------------------------------------------
++static NVSDK_NGX_Handle    *g_nr_feature;
++static NVSDK_NGX_Parameter *g_nr_params;
++static ID3D12Resource      *g_nr_tex[2];
++static UINT                 g_nr_w, g_nr_h;
++static bool                 g_nr_live;      // feature criada e texturas prontas
++static bool                 g_nr_failed;    // desligado apos falha; nao tenta de novo
++static LONGLONG             g_nr_win_ticks; // custo acumulado na janela de 600 quadros
++static UINT64               g_nr_win_frames;
++static UINT64               g_nr_win_passes;
++
++// Os cinco exports de ciclo de vida que o add-on de terceiros exige do snippet.
++// EvaluateFeature nao e usado aqui -- este spike so cria e solta --, mas e
++// resolvido junto porque a sua ausencia significa que o DLL nao serve, e e
++// melhor descobrir isso agora que na proxima etapa.
++enum { NR_INIT_EXT = 0, NR_CREATE, NR_EVALUATE, NR_RELEASE, NR_SHUTDOWN1, NR_EXPORT_COUNT };
++static const char *const kNrExports[NR_EXPORT_COUNT] = {
++    "NVSDK_NGX_D3D12_Init_Ext",
++    "NVSDK_NGX_D3D12_CreateFeature",
++    "NVSDK_NGX_D3D12_EvaluateFeature",
++    "NVSDK_NGX_D3D12_ReleaseFeature",
++    "NVSDK_NGX_D3D12_Shutdown1",
++};
++
++static HMODULE g_nr_snippet;                  // HMODULE do nvngx_dlssnr.dll enquanto o spike roda
++static bool    g_nr_snippet_was_loaded;       // ja estava no processo antes de nos (ver NrDetachSnippet)
++static FARPROC g_nr_fn[NR_EXPORT_COUNT];
++
++// ---------------------------------------------------------------------------
++// Verificacao de identidade do chamador, e como o add-on de terceiros a satisfaz.
++//
++// O 0xBAD00002 (PlatformError) do Init_Ext veio de DENTRO do snippet, nao do core:
++// desmontando o nvngx_dlssnr.dll (export Init_Ext em 0x180015df0) ve-se que a
++// primeira coisa que ele faz e descobrir QUEM o chamou e recusar se nao for "o
++// runtime do NGX":
++//
++//   GetModuleHandleExA(FROM_ADDRESS|UNCHANGED_REFCOUNT, <return address>, &hCaller)
++//       -> falha  => 0xBAD00002 + "Error: Unable to determine calling module"
++//   GetModuleFileNameW(hCaller, buf, 0x104)
++//   wcsstr(buf, L"nvngx.dll")                              (a busca em 0x18007ee40)
++//       -> nao acha => 0xBAD00002 + "Error: Not called from NGX runtime - %S"
++//
++// O return address, quando somos nos que chamamos, cai no NOSSO add-on
++// (dlss5-feed-amd.addon64), cujo nome nao contem "nvngx.dll". Dai o PlatformError,
++// com e sem o concorrente na pasta -- e por isso independe dele.
++//
++// O add-on de terceiros contorna isso exatamente como abaixo (rotina em
++// 0x18002ab60: varre a IAT procurando o slot de GetModuleFileNameW, faz
++// VirtualProtect e troca por um trampolim seu que, para o modulo dele, devolve
++// "nvngx.dll"). Fazemos o minimo equivalente: enquanto o snippet esta anexado,
++// interceptamos SO a entrada GetModuleFileNameW da IAT DELE (nao a de nenhum outro
++// modulo, nao um hook global) e, quando ele pergunta o nome do NOSSO modulo,
++// respondemos com o caminho do _nvngx.dll do core do driver -- cujo nome de arquivo
++// contem "nvngx.dll", que e o que a verificacao exige. Isto e interoperabilidade
++// com uma runtime que o usuario ja tem instalada, restrita a este spike; nenhum
++// outro chamador de GetModuleFileNameW no processo e afetado.
++// ---------------------------------------------------------------------------
++typedef DWORD (WINAPI *PFN_GetModuleFileNameW)(HMODULE, LPWSTR, DWORD);
++static PFN_GetModuleFileNameW g_nr_real_gmfnw;   // valor original do slot (pode ser o trampolim do concorrente)
++static void                 **g_nr_gmfnw_slot;   // endereco do slot na IAT do snippet
++
++static DWORD WINAPI NrGetModuleFileNameW_Thunk(HMODULE h, LPWSTR buf, DWORD n)
++{
++    // Somente a pergunta "quem me chamou?" e respondida de forma diferente, e so
++    // quando a resposta seria o nosso proprio modulo. Qualquer outra vai intacta.
++    if (h == g_self && g_nr_real_gmfnw != nullptr)
++    {
++        const HMODULE core = NrDriverCore();
++        DWORD wrote = 0;
++        if (core != nullptr) wrote = g_nr_real_gmfnw(core, buf, n);
++        if (wrote != 0 && wrote < n) return wrote;   // caminho do _nvngx.dll -> contem "nvngx.dll"
++    }
++    return g_nr_real_gmfnw != nullptr ? g_nr_real_gmfnw(h, buf, n)
++                                      : GetModuleFileNameW(h, buf, n);
++}
++
++// Acha o slot da IAT de 'mod' que resolve 'func' (de qualquer DLL importada:
++// GetModuleFileNameW pode vir de kernel32 ou de um api-set, entao casa so pelo
++// nome da funcao). Devolve o endereco do ponteiro, para reescrita.
++static void **NrFindIatSlot(HMODULE mod, const char *func)
++{
++    BYTE *base = reinterpret_cast<BYTE *>(mod);
++    const IMAGE_DOS_HEADER *dos = reinterpret_cast<IMAGE_DOS_HEADER *>(base);
++    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return nullptr;
++    const IMAGE_NT_HEADERS *nt = reinterpret_cast<IMAGE_NT_HEADERS *>(base + dos->e_lfanew);
++    if (nt->Signature != IMAGE_NT_SIGNATURE) return nullptr;
++    const IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
++    if (dir.VirtualAddress == 0) return nullptr;
++    for (const IMAGE_IMPORT_DESCRIPTOR *imp = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR *>(base + dir.VirtualAddress);
++         imp->Name != 0; ++imp)
++    {
++        if (imp->OriginalFirstThunk == 0) continue;   // sem ILT nao da para ler os nomes
++        const IMAGE_THUNK_DATA *oft = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->OriginalFirstThunk);
++        IMAGE_THUNK_DATA       *ft  = reinterpret_cast<IMAGE_THUNK_DATA *>(base + imp->FirstThunk);
++        for (; oft->u1.AddressOfData != 0; ++oft, ++ft)
++        {
++            if (oft->u1.Ordinal & IMAGE_ORDINAL_FLAG64) continue;
++            const IMAGE_IMPORT_BY_NAME *ibn = reinterpret_cast<IMAGE_IMPORT_BY_NAME *>(base + oft->u1.AddressOfData);
++            if (strcmp(reinterpret_cast<const char *>(ibn->Name), func) == 0)
++                return reinterpret_cast<void **>(&ft->u1.Function);
++        }
++    }
++    return nullptr;
++}
++
++static void NrInstallCallerSpoof()
++{
++    g_nr_gmfnw_slot = NrFindIatSlot(g_nr_snippet, "GetModuleFileNameW");
++    if (g_nr_gmfnw_slot == nullptr)
++    { Log("[feed] nr_spike: could not find the snippet's GetModuleFileNameW import; the caller-identity check will fail"); return; }
++    DWORD prot = 0;
++    if (!VirtualProtect(g_nr_gmfnw_slot, sizeof(void *), PAGE_READWRITE, &prot))
++    { Log("[feed] nr_spike: VirtualProtect on the IAT slot failed (error %lu)", GetLastError()); g_nr_gmfnw_slot = nullptr; return; }
++    g_nr_real_gmfnw = reinterpret_cast<PFN_GetModuleFileNameW>(*g_nr_gmfnw_slot);
++    *g_nr_gmfnw_slot = reinterpret_cast<void *>(&NrGetModuleFileNameW_Thunk);
++    VirtualProtect(g_nr_gmfnw_slot, sizeof(void *), prot, &prot);
++}
++
++static void NrRemoveCallerSpoof()
++{
++    if (g_nr_gmfnw_slot == nullptr) return;
++    DWORD prot = 0;
++    if (VirtualProtect(g_nr_gmfnw_slot, sizeof(void *), PAGE_READWRITE, &prot))
++    {
++        *g_nr_gmfnw_slot = reinterpret_cast<void *>(g_nr_real_gmfnw);   // devolve o valor original (real ou o do concorrente)
++        VirtualProtect(g_nr_gmfnw_slot, sizeof(void *), prot, &prot);
++    }
++    g_nr_gmfnw_slot = nullptr;
++    g_nr_real_gmfnw = nullptr;
++}
++
++// O callback do mapa. Copia do que o add-on de terceiros faz: razao 1:1, e
++// InvalidParameter se o NGX chamar sem mapa.
++static NVSDK_NGX_Result NrScalingRatioCallback(NVSDK_NGX_Parameter *p)
++{
++    if (p == nullptr) return NVSDK_NGX_Result_FAIL_InvalidParameter;
++    p->Set("DLSSNR.ScalingRatio", 1.0f);
++    return NVSDK_NGX_Result_Success;
++}
++
++// Carrega o nvngx_dlssnr.dll e resolve os cinco exports. Procura ao lado do
++// executavel do jogo primeiro -- e de onde o add-on de terceiros o pega e onde o
++// NGX espera encontra-lo -- e depois ao lado do add-on, que e onde o pacote deste
++// projeto costuma deixar o arquivo. 'dir' recebe o diretorio escolhido: e ele que
++// vai como InApplicationDataPath do Init_Ext, sem barra no fim, como o parent_path
++// que o add-on calcula.
++static bool NrAttachSnippet(wchar_t *dir, size_t dir_chars)
++{
++    wchar_t path[MAX_PATH] = {};
++    for (int from_addon = 0; from_addon < 2 && g_nr_snippet == nullptr; ++from_addon)
++    {
++        if (GetModuleFileNameW(from_addon ? g_self : nullptr, path, MAX_PATH) == 0) continue;
++        wchar_t *slash = wcsrchr(path, L'\\');
++        if (slash == nullptr) continue;
++        *slash = L'\0';
++        if (wcslen(path) + 1 + wcslen(kNrSnippetName) >= MAX_PATH) continue;
++        wcsncpy_s(dir, dir_chars, path, _TRUNCATE);
++        wcscat_s(path, MAX_PATH, L"\\");
++        wcscat_s(path, MAX_PATH, kNrSnippetName);
++        if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) continue;
++        // Antes de carregar: alguem ja o tem no processo? Se sim, o LoadLibraryW
++        // abaixo devolve o MESMO HMODULE e so incrementa o refcount -- e o
++        // Shutdown1 do teardown passaria por cima da sessao desse alguem.
++        g_nr_snippet_was_loaded = GetModuleHandleW(kNrSnippetName) != nullptr;
++        g_nr_snippet = LoadLibraryW(path);
++        if (g_nr_snippet == nullptr)
++        { Log("[feed] nr_spike: LoadLibraryW failed for %ls (error %lu)", path, GetLastError()); continue; }
++        Log("[feed] nr_spike: attached snippet %ls%s", path,
++            g_nr_snippet_was_loaded ? " (already in the process -- another add-on owns a session on it)" : "");
++    }
++    if (g_nr_snippet == nullptr)
++    { Log("[feed] nr_spike: %ls not found next to the game executable or next to the add-on", kNrSnippetName); return false; }
++
++    bool complete = true;
++    for (int i = 0; i < NR_EXPORT_COUNT; ++i)
++    {
++        g_nr_fn[i] = GetProcAddress(g_nr_snippet, kNrExports[i]);
++        if (g_nr_fn[i] != nullptr) continue;
++        Log("[feed] nr_spike: the snippet is missing a required lifecycle export: %s", kNrExports[i]);
++        complete = false;
++    }
++    if (complete) NrInstallCallerSpoof();   // o snippet checa a identidade do chamador em Init_Ext (e talvez adiante)
++    return complete;
++}
++
++// A sobrecarga de QUATRO argumentos do Init do core -- a do NGX_SNIPPET_BUILD.
++// Resolvida a mao no modulo do driver de proposito: o forwarder do projeto repassa
++// a assinatura publica, de cinco.
++typedef NVSDK_NGX_Result (NVSDK_CONV *PFN_NrCoreInit)(unsigned long long, const wchar_t *,
++                                                      ID3D12Device *, NVSDK_NGX_Version);
++
++// Mesma guarda de CreateDLSSGuarded: um access violation dentro do NGX vira log,
++// nao queda do jogo. Sem objetos C++ nos blocos protegidos, como manda o /EHsc.
++static NVSDK_NGX_Result NrCoreInitGuarded(PFN_NrCoreInit fn, const wchar_t *dir, DWORD *code)
++{
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = fn(kNrApplicationId, dir, g.dev12, NVSDK_NGX_Version_API);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
++    __try { return fn(kNrApplicationId, dir, g.dev12, NVSDK_NGX_Version_API); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
++}
++
++static NVSDK_NGX_Result NrInitExtGuarded(const wchar_t *dir, DWORD *code)
++{
++    const PFN_NrInitExt fn = reinterpret_cast<PFN_NrInitExt>(g_nr_fn[NR_INIT_EXT]);
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = fn(kNrApplicationId, dir, g.dev12, NVSDK_NGX_Version_API, nullptr);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
++    __try { return fn(kNrApplicationId, dir, g.dev12, NVSDK_NGX_Version_API, nullptr); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
++}
++
++static NVSDK_NGX_Result CreateNrGuarded(NVSDK_NGX_Parameter *p, NVSDK_NGX_Handle **out, DWORD *code)
++{
++    const PFN_NrCreate fn = reinterpret_cast<PFN_NrCreate>(g_nr_fn[NR_CREATE]);
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = fn(g.list, NVSDK_NGX_Feature_Reserved18, p, out);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
++    __try { return fn(g.list, NVSDK_NGX_Feature_Reserved18, p, out); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
++}
++
++static void NrReleaseGuarded(NVSDK_NGX_Handle *f)
++{
++    const PFN_NrRelease fn = reinterpret_cast<PFN_NrRelease>(g_nr_fn[NR_RELEASE]);
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { Log("[feed] nr_spike: snippet ReleaseFeature raised exception 0x%08X (ignored)", guard.code); return; }
++    fn(f);
++    FeedGuardDisarm(&guard);
++#else
++    __try { fn(f); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { Log("[feed] nr_spike: snippet ReleaseFeature raised exception 0x%08X (ignored)", GetExceptionCode()); }
++#endif
++}
++
++static NVSDK_NGX_Result NrShutdownGuarded(DWORD *code)
++{
++    const PFN_NrShutdown1 fn = reinterpret_cast<PFN_NrShutdown1>(g_nr_fn[NR_SHUTDOWN1]);
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = fn(g.dev12);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
++    __try { return fn(g.dev12); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
++}
++
++// Desfaz o attach. 'session' diz se o nosso Init_Ext chegou a passar.
++//
++// Sobre o Shutdown1, que agora e chamado com o NOSSO device: pela definicao da
++// API ele derruba apenas a instancia daquele device, e o add-on de terceiros tem
++// o device dele -- ou seja, estruturalmente ja nao ha como um alcancar o outro, e
++// a guarda abaixo deixou de ser necessaria por esse motivo. Mantenho-a mesmo
++// assim, por uma duvida menor que nao consigo resolver lendo o binario: o contrato
++// "por device" e da API publica do NGX, e nada garante que o snippet conte
++// instancias em vez de desmontar estado global no primeiro Shutdown1 que receber.
++// Enquanto o modulo for compartilhado com outro dono, o custo de nao desligar e
++// uma instancia nossa viva ate o fim do processo; o custo de desligar errado seria
++// derrubar o Neural Rendering dele no meio do quadro. No teste limpo -- sem o
++// concorrente na pasta, que e o cenario de referencia -- o Shutdown1 roda normal.
++//
++// nullptr NUNCA e passado ao Shutdown1: isso derrubaria todas as instancias do
++// processo, a do Super Resolution junto.
++//
++// O FreeLibrary e sempre seguro: e contado por referencia e so casa o nosso
++// LoadLibraryW. Quando ninguem mais tem o modulo, o refcount chega a zero e o
++// descarregamento acontece depois do Shutdown1, na ordem certa.
++static void NrDetachSnippet(bool session);   // definida abaixo
++
++static NVSDK_NGX_Result NrEvaluateGuarded(DWORD *code)
++{
++    const PFN_NrEvaluate fn = reinterpret_cast<PFN_NrEvaluate>(g_nr_fn[NR_EVALUATE]);
++#ifdef FEED_AMD_VARIANT
++    FeedGuard guard;
++    if (FEED_GUARD_ARM(guard)) { *code = guard.code; return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++    const NVSDK_NGX_Result r = fn(g.list, g_nr_feature, g_nr_params, nullptr);
++    FeedGuardDisarm(&guard);
++    return r;
++#else
++    __try { return fn(g.list, g_nr_feature, g_nr_params, nullptr); }
++    __except (EXCEPTION_EXECUTE_HANDLER) { *code = GetExceptionCode(); return static_cast<NVSDK_NGX_Result>(0x7FFFFFFF); }
++#endif
++}
++
++// Solta tudo do NR. Chamada no rebuild da feature de SR e no teardown da sessao.
++// O Shutdown1 e o FreeLibrary vao por NrDetachSnippet, que ja cuida do spoof.
++static void NrShutdown()
++{
++    if (g_nr_feature != nullptr) { NrReleaseGuarded(g_nr_feature); g_nr_feature = nullptr; }
++    if (g_nr_params  != nullptr) { NVSDK_NGX_D3D12_DestroyParameters(g_nr_params); g_nr_params = nullptr; }
++    SafeRelease(g_nr_tex[0]);
++    SafeRelease(g_nr_tex[1]);
++    const bool had = g_nr_live;
++    g_nr_live = false;
++    g_nr_w = g_nr_h = 0;
++    NrDetachSnippet(had);
++    g_nr_reset_history = true;
++}
++
++// As duas texturas da cascata, no tamanho de saida. Formato: o mesmo do SLOT_OUTPUT
++// do feed, para o passe 1 consumir exatamente o que o SuperSampling produziu sem
++// conversao pelo caminho. UAV porque a rede escreve nelas -- e o flag 0x4 que o
++// add-on de terceiros usa no private output dele.
++static bool NrCreateTextures(UINT w, UINT h)
++{
++    D3D12_HEAP_PROPERTIES hp = {};
++    hp.Type = D3D12_HEAP_TYPE_DEFAULT;
++    D3D12_RESOURCE_DESC rd = {};
++    rd.Dimension        = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
++    rd.Width            = w;
++    rd.Height           = h;
++    rd.DepthOrArraySize = 1;
++    rd.MipLevels        = 1;
++    rd.Format           = g.output_fmt;
++    rd.SampleDesc.Count = 1;
++    rd.Layout           = D3D12_TEXTURE_LAYOUT_UNKNOWN;
++    rd.Flags            = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
++    for (int i = 0; i < 2; ++i)
++    {
++        const HRESULT hr = g.dev12->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON,
++                                                            nullptr, __uuidof(ID3D12Resource),
++                                                            reinterpret_cast<void **>(&g_nr_tex[i]));
++        if (FAILED(hr) || g_nr_tex[i] == nullptr)
++        { Log("[feed] nr: cascade texture %d (%ux%u %s) failed 0x%08X", i, w, h, FormatName(g.output_fmt), hr); return false; }
++    }
++    return true;
++}
++
++// Os parametros que nao mudam de um quadro para o outro. Mesma ordem e mesmos tipos
++// da rotina de avaliacao do add-on de terceiros (0x180076840..0x180076dd9).
++static void NrSetStaticParams(UINT w, UINT h)
++{
++    NVSDK_NGX_Parameter *p = g_nr_params;
++    p->Set("DLSSNR.Width",         w);
++    p->Set("DLSSNR.Height",        h);
++    p->Set("DLSSNR.InputWidth",    w);
++    p->Set("DLSSNR.InputHeight",   h);
++    p->Set("DLSSNR.OutputWidth",   w);
++    p->Set("DLSSNR.OutputHeight",  h);
++    p->Set("DLSSNR.Output.Width",  w);
++    p->Set("DLSSNR.Output.Height", h);
++    p->Set("DLSSNR.Enabled",   1);
++    // Controles de estilo nos defaults do binario (o add-on parte de 1 em todos).
++    p->Set("DLSSNR.Intensity",                1.0f);
++    p->Set("DLSSNR.LocalToneStrength",        1.0f);
++    p->Set("DLSSNR.LocalStructureStrength",   1.0f);
++    p->Set("DLSSNR.GlobalToneStrength",       1.0f);
++    p->Set("DLSSNR.SkinStructureStrength",    1.0f);
++    p->Set("DLSSNR.UseAutoMask",   0);
++    p->Set("DLSSNR.Style",         0u);
++    p->Set("DLSSNR.UICorrection",  0);
++    p->Set("DLSS.Indicator.Invert.X.Axis", 0);
++    p->Set("DLSS.Indicator.Invert.Y.Axis", 0);
++}
++
++static void NrDetachSnippet(bool session)
++{
++    if (g_nr_snippet == nullptr) return;
++    // O Shutdown1 tambem passa pela verificacao de identidade do chamador -- e o
++    // 0xBAD00002 que ele devolvia era o MESMO erro do Init_Ext, nao um capricho do
++    // snippet. Por isso o spoof so sai depois: todo o ciclo que fala com o snippet
++    // (Init_Ext, CreateFeature, ReleaseFeature, Shutdown1) tem de acontecer sob ele.
++    // Com o Shutdown1 falhando, a instancia ficava aberta e o FreeLibrary logo
++    // abaixo descarregava o modulo por baixo dela.
++    if (session)
++    {
++        if (g_nr_snippet_was_loaded)
++            Log("[feed] nr_spike: skipping the snippet Shutdown1 -- another add-on holds a session on the same module");
++        else
++        {
++            DWORD scode = 0;
++            const NVSDK_NGX_Result rs = NrShutdownGuarded(&scode);
++            if (scode != 0) Log("[feed] nr_spike: snippet Shutdown1 raised exception 0x%08X (ignored)", scode);
++            else            Log("[feed] nr_spike: snippet Shutdown1 -> 0x%08X (%s)", rs, NgxResultName(rs));
++        }
++    }
++    NrRemoveCallerSpoof();   // restaura a IAT do snippet, ja com tudo dito e feito
++    FreeLibrary(g_nr_snippet);
++    g_nr_snippet            = nullptr;
++    g_nr_snippet_was_loaded = false;
++    for (int i = 0; i < NR_EXPORT_COUNT; ++i) g_nr_fn[i] = nullptr;
++}
++
++// Monta o Neural Rendering para o tamanho de saida dado, uma vez. w/h sao o tamanho
++// de SAIDA do feature de SuperSampling: o passe neural roda depois dele, sobre a
++// imagem ja reconstruida. Mapa de parametros proprio: g.params carrega o estado do
++// SR e as chaves do Chicken, e nada disto pode encostar nele.
++static void NrEnsure(UINT w, UINT h)
++{
++    if (g_cfg.nr_spike == 0 || g_nr_failed) return;
++    if (g_nr_live && g_nr_w == w && g_nr_h == h) return;
++    if (g_nr_live) NrShutdown();   // mudou de tamanho: refaz
++    g_nr_failed = true;            // so volta a false quando tudo der certo
++
++    const unsigned int preset  = 1;   // DLSSNR.Hint.Render.Preset: o que o log do add-on mostra
++    const int          quality = static_cast<int>(NVSDK_NGX_PerfQuality_Value_DLAA);
++
++    const LONGLONG t_begin = NrNow();
++    if (g.dev12 == nullptr || g.list == nullptr) { Log("[feed] nr_spike: no D3D12 device or command list"); return; }
++
++    wchar_t dir[MAX_PATH] = {};
++    if (!NrAttachSnippet(dir, MAX_PATH)) { NrDetachSnippet(false); return; }
++    const LONGLONG t_attach = NrNow();
++
++    // Passos 1 e 2 -- o diretorio de dados e o Init do NGX core do driver -- nao
++    // existem mais, e isso esta MEDIDO, nao suposto.
++    //
++    // O Init do core entrou no spike na mesma rodada em que o PlatformError ainda
++    // estava de pe, e o PlatformError vinha da verificacao de identidade do
++    // chamador, nao do core: quem destravou o Init_Ext foi o spoof de
++    // GetModuleFileNameW. O snippet e autocontido --
++    //   - o nvngx_dlssnr.dll importa exatamente VERSION, ADVAPI32, USER32 e
++    //     KERNEL32; nada de nvngx.dll/_nvngx.dll;
++    //   - a unica ocorrencia da string L"nvngx.dll" nele e a agulha da propria
++    //     verificacao de identidade; ele nunca carrega nem resolve nada no core
++    // -- e o run sem o Init confirmou: Init_Ext, CreateFeature e Shutdown1 todos
++    // Success, com o Super Resolution intacto a 60 fps.
++    //
++    // O ganho nao e so uma chamada a menos: sem esse Init, o spike nao toca a
++    // sessao NGX do SR em ponto nenhum. O mapa de parametros continua vindo do
++    // core, mas quem o inicializou foi o feed.
++    //
++    // NrPrepareDataDir e NrCoreInitGuarded seguem definidas, sem chamador, como
++    // registro do caminho que o add-on de terceiros usa -- e caso um dia um
++    // snippet diferente volte a exigi-lo.
++    const LONGLONG t_core = NrNow();
++
++    // Passo 3: a sessao do snippet, separada da do core: outro modulo, outro estado.
++    DWORD icode = 0;
++    Breadcrumb("initialising the Neural Rendering snippet (nr_spike)");
++    const NVSDK_NGX_Result ri = NrInitExtGuarded(dir, &icode);
++    if (icode != 0)
++    {
++        Log("[feed] nr_spike: snippet Init_Ext raised exception 0x%08X (caught)", icode);
++        NrDetachSnippet(false);
++        return;
++    }
++    Log("[feed] nr_spike: snippet Init_Ext(app=0x%08llX, %ls, sdk=0x%X) -> 0x%08X (%s)",
++        kNrApplicationId, dir, static_cast<unsigned>(NVSDK_NGX_Version_API), ri, NgxResultName(ri));
++    if (NVSDK_NGX_FAILED(ri)) { NrDetachSnippet(false); return; }
++    const LONGLONG t_initext = NrNow();
++
++    // O mapa vem do DRIVER (o snippet nao exporta AllocateParameters), exatamente
++    // como o add-on de terceiros faz. E o unico objeto que atravessa a fronteira
++    // entre as duas metades.
++    NVSDK_NGX_Parameter *p = nullptr;
++    NVSDK_NGX_Result r = NVSDK_NGX_D3D12_AllocateParameters(&p);
++    if (NVSDK_NGX_FAILED(r) || p == nullptr)
++    {
++        Log("[feed] nr_spike: AllocateParameters failed 0x%08X (%s)", r, NgxResultName(r));
++        NrDetachSnippet(true);
++        return;
++    }
++
++    // Genericos do NGX (headers publicos).
++    p->Set(NVSDK_NGX_Parameter_CreationNodeMask,   1u);
++    p->Set(NVSDK_NGX_Parameter_VisibilityNodeMask, 1u);
++    p->Set(NVSDK_NGX_Parameter_Width,     w);
++    p->Set(NVSDK_NGX_Parameter_Height,    h);
++    p->Set(NVSDK_NGX_Parameter_OutWidth,  w);
++    p->Set(NVSDK_NGX_Parameter_OutHeight, h);
++    // Os quatro pares de dimensoes do DLSS-NR, todos com o mesmo tamanho.
++    p->Set("DLSSNR.Width",         w);
++    p->Set("DLSSNR.Height",        h);
++    p->Set("DLSSNR.InputWidth",    w);
++    p->Set("DLSSNR.InputHeight",   h);
++    p->Set("DLSSNR.OutputWidth",   w);
++    p->Set("DLSSNR.OutputHeight",  h);
++    p->Set("DLSSNR.Output.Width",  w);
++    p->Set("DLSSNR.Output.Height", h);
++    p->Set("DLSSNR.Hint.Render.Preset", preset);
++    p->Set(NVSDK_NGX_Parameter_PerfQualityValue, quality);
++    p->Set("DLSSNRComputeScalingRatioCallback", reinterpret_cast<void *>(&NrScalingRatioCallback));
++    p->Set("DLSSNR.ScalingRatio", 1.0f);
++    p->Set("DLSSNR.Scale",        1.0f);
++    p->Set("DLSSNR.Upscaling",    0);
++
++    if (!NrBeginCommands())
++    {
++        Log("[feed] nr_spike: could not start a command list");
++        NVSDK_NGX_D3D12_DestroyParameters(p);
++        NrDetachSnippet(true);
++        return;
++    }
++
++    Breadcrumb("creating the Neural Rendering feature (nr_spike)");
++    NVSDK_NGX_Handle *feature = nullptr;
++    DWORD ccode = 0;
++    r = CreateNrGuarded(p, &feature, &ccode);
++    if (ccode != 0)
++    {
++        NrAbortCommands();   // trabalho NGX pela metade nunca pode chegar na GPU
++        Log("[feed] nr_spike: CreateFeature(Reserved18) raised exception 0x%08X (caught; nothing was submitted)", ccode);
++        NVSDK_NGX_D3D12_DestroyParameters(p);
++        NrDetachSnippet(true);
++        return;
++    }
++    NrEndCommandsAndWait();
++    const LONGLONG t_create = NrNow();
++    if (NVSDK_NGX_FAILED(r) || feature == nullptr)
++    {
++        Log("[feed] nr: CreateFeature(Reserved18) failed 0x%08X (%s), handle=%p, size=%ux%u perfquality=%d preset=%u",
++            r, NgxResultName(r), static_cast<void *>(feature), w, h, quality, preset);
++        NVSDK_NGX_D3D12_DestroyParameters(p);
++        NrDetachSnippet(true);
++        return;
++    }
++    Log("[feed] nr: CreateFeature(Reserved18) succeeded: handle=%p size=%ux%u perfquality=%d preset=%u",
++        static_cast<void *>(feature), w, h, quality, preset);
++
++    // As texturas da cascata. Se falharem, desmonta tudo -- meia montagem nao serve.
++    if (!NrCreateTextures(w, h))
++    {
++        NrReleaseGuarded(feature);
++        SafeRelease(g_nr_tex[0]);
++        SafeRelease(g_nr_tex[1]);
++        NVSDK_NGX_D3D12_DestroyParameters(p);
++        NrDetachSnippet(true);
++        return;
++    }
++
++    // A partir daqui o NR esta de pe e o estado sobrevive ao retorno.
++    g_nr_feature       = feature;
++    g_nr_params        = p;
++    g_nr_w             = w;
++    g_nr_h             = h;
++    g_nr_live          = true;
++    g_nr_failed        = false;
++    g_nr_reset_history = true;
++    NrSetStaticParams(w, h);
++    const LONGLONG t_end = NrNow();
++    Log("[feed] nr: ready at %ux%u %s, %d pass%s per frame | setup ms: attach=%.2f init_ext=%.2f create=%.2f total=%.2f",
++        w, h, FormatName(g.output_fmt), g_cfg.nr_passes, g_cfg.nr_passes == 1 ? "" : "es",
++        NrMs(t_attach - t_begin), NrMs(t_initext - t_core), NrMs(t_create - t_initext), NrMs(t_end - t_begin));
++}
++
++
++// Avaliacao do Neural Rendering, uma vez por quadro, com nr_passes avaliacoes
++// encadeadas. Roda DENTRO do bloco BeginCommands/EndCommands do feed, logo depois do
++// evaluate do SuperSampling, na mesma command list -- mesmo device, sem recurso
++// compartilhado e sem sincronizacao entre filas.
++//
++// Contrato de estados. Na entrada, o SLOT_OUTPUT esta em UNORDERED_ACCESS (foi onde
++// o NGX do SR escreveu) e e isso que o caminho de volta espera encontrar na saida.
++// Entao: viramos o SLOT_OUTPUT para leitura, rodamos a cascata nas nossas texturas,
++// copiamos o resultado de volta e devolvemos o SLOT_OUTPUT a UNORDERED_ACCESS.
++//
++// Se qualquer coisa falhar, o NR se desliga (g_nr_failed) e a funcao volta sem tocar
++// no quadro: o SLOT_OUTPUT continua com a imagem do SuperSampling e o feed entrega o
++// quadro normalmente. O jogo nunca para por causa disto.
++static void NrEvaluateFrame(bool depth_inverted)
++{
++    if (!g_nr_live || g_cfg.nr_spike == 0) return;
++    const int passes = g_cfg.nr_passes < 1 ? 1 : (g_cfg.nr_passes > 10 ? 10 : g_cfg.nr_passes);
++    const LONGLONG t0 = NrNow();
++
++    NVSDK_NGX_Parameter *p = g_nr_params;
++    // Guias e jitter: exatamente o que o caminho do SR ja passa ao DLSS. O feed nao
++    // jittera (as texturas sao do tamanho de saida) e as escalas de MV sao as do cfg.
++    p->Set("DLSSNR.JitterOffsetX", 0.0f);
++    p->Set("DLSSNR.JitterOffsetY", 0.0f);
++    p->Set("DLSSNR.MVecScaleX",    g_cfg.mv_scale_x);
++    p->Set("DLSSNR.MVecScaleY",    g_cfg.mv_scale_y);
++    p->Set("DLSSNR.DepthInverted", depth_inverted ? 1 : 0);
++    p->Set("DLSSNR.MVec",  g.tex12[SLOT_MV]);
++    p->Set("DLSSNR.Depth", g.tex12[SLOT_DEPTH]);
++
++    // O SLOT_OUTPUT vira fonte do primeiro passe.
++    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                                  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++    Barrier(g_nr_tex[0], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++
++    ID3D12Resource *src = g.tex12[SLOT_OUTPUT];
++    int dst_i = 0;
++    bool ok = true;
++    for (int i = 0; i < passes && ok; ++i)
++    {
++        if (i > 0)
++        {
++            // O destino do passe anterior vira a fonte deste; o outro vira destino.
++            Barrier(src,             D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
++                                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++            Barrier(g_nr_tex[dst_i], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                                     D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++        }
++        p->Set("DLSSNR.Color",  src);
++        p->Set("DLSSNR.Output", g_nr_tex[dst_i]);
++        // O Reset vale para o quadro, nao para o passe: so o primeiro o carrega.
++        p->Set("DLSSNR.Reset", (i == 0 && g_nr_reset_history) ? 1 : 0);
++
++        DWORD ecode = 0;
++        const NVSDK_NGX_Result re = NrEvaluateGuarded(&ecode);
++        if (ecode != 0)
++        {
++            Log("[feed] nr: evaluate raised exception 0x%08X on pass %d (caught); neural rendering off, the frame still ships",
++                ecode, i + 1);
++            ok = false;
++        }
++        else if (NVSDK_NGX_FAILED(re))
++        {
++            Log("[feed] nr: evaluate failed 0x%08X (%s) on pass %d; neural rendering off, the frame still ships",
++                re, NgxResultName(re), i + 1);
++            ok = false;
++        }
++        if (!ok) break;
++        src   = g_nr_tex[dst_i];
++        dst_i = 1 - dst_i;
++        ++g_nr_win_passes;
++    }
++    g_nr_reset_history = false;
++
++    if (!ok)
++    {
++        // Devolve o SLOT_OUTPUT ao estado que o caminho de volta espera e desiste.
++        // A imagem que segue e a do SuperSampling, intacta.
++        Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
++                                      D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++        g_nr_live   = false;
++        g_nr_failed = true;
++        return;
++    }
++
++    // Composicao: o resultado do ultimo passe volta para o SLOT_OUTPUT.
++    Barrier(src,                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
++    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
++    g.list->CopyResource(g.tex12[SLOT_OUTPUT], src);
++    Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
++    Barrier(src,                  D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON);
++    // A textura que sobrou como destino nao usado volta ao estado neutro.
++    if (passes > 1)
++        Barrier(g_nr_tex[dst_i], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++
++    g_nr_win_ticks += NrNow() - t0;
++    ++g_nr_win_frames;
++}
++
+ static bool CreateDlssFeature(UINT w, UINT h, bool inverted, bool *crashed)
+ {
+     if (crashed != nullptr) *crashed = false;
++#ifdef FEED_AMD_VARIANT
++    if (g_amd.active) return AmdCreateContext(w, h, inverted, crashed);   // portador FSR: contexto 1:1 no lugar do feature NGX
++#endif
+     int flags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
+     if (inverted) flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
+     if (g.hdr)    flags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
+@@ -2643,6 +3712,8 @@ static bool CreateDlssFeature(UINT w, UINT h, bool inverted, bool *crashed)
+     g.need_reset        = true;
+     g.frame_ready       = true;
+     g.create_fail_count = 0;
++    // Com nr_spike=0 (padrao) isto e um teste e um return: o caminho normal fica intacto.
++    NrEnsure(target_w, target_h);
+     return true;
+ }
+ 
+@@ -2666,10 +3737,12 @@ static bool InitSession(ID3D11Device *dev11, ID3D11DeviceContext *ctx)
+         dxgi_dev->GetAdapter(&adapter);
+         dxgi_dev->Release();
+     }
++    UINT vendor_id = 0;
+     if (adapter != nullptr)
+     {
+         DXGI_ADAPTER_DESC ad = {};
+         adapter->GetDesc(&ad);
++        vendor_id = ad.VendorId;
+         Log("[feed] adapter: %ls  vram=%llu MB", ad.Description, (unsigned long long)(ad.DedicatedVideoMemory >> 20));
+     }
+ 
+@@ -2688,7 +3761,21 @@ static bool InitSession(ID3D11Device *dev11, ID3D11DeviceContext *ctx)
+         GetModuleFileNameW(g_self, data_path, MAX_PATH);
+         if (wchar_t *s = wcsrchr(data_path, L'\\')) *(s + 1) = L'\0';
+ 
++#ifdef FEED_AMD_VARIANT
++        // Ramificacao A do PLANO-AMD: numa Radeon (ou com amd_carrier=1) o bloco NGX inteiro
++        // e pulado; a DLL do FSR e carregada agora e o contexto nasce em CreateDlssFeature.
++        if (AmdCarrierWanted(vendor_id))
++        {
++            Breadcrumb("starting the FSR carrier");
++            if (!AmdCarrierStart(vendor_id)) { Log("[amd] carrier: erro: could not start; the feed stays off for this run"); goto fail; }
++        }
++        else
++#endif
++        {
+         Breadcrumb("initialising NGX on D3D12");
++#ifdef FEED_AMD_VARIANT
++        Log("[amd] ngx forwarder: %s", NgxForwardDescribe());
++#endif
+         DWORD ngx_code = 0;
+         NVSDK_NGX_Result r = SafeNgxInit12(data_path, g.dev12, &ngx_code);
+         if (ngx_code != 0)
+@@ -2719,6 +3806,7 @@ static bool InitSession(ID3D11Device *dev11, ID3D11DeviceContext *ctx)
+ 
+         r = NVSDK_NGX_D3D12_AllocateParameters(&g.params);
+         if (NVSDK_NGX_FAILED(r) || g.params == nullptr) { Log("[feed] AllocateParameters failed 0x%08X", r); goto fail; }
++        }   // fim do bloco NGX (pulado inteiro pelo portador FSR)
+ 
+         D3D12_COMMAND_QUEUE_DESC qd = {};
+         qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+@@ -2780,7 +3868,12 @@ fail:
+ static void ShutdownSession()
+ {
+     ReleaseFrameResources();
++#ifdef FEED_AMD_VARIANT
++    AmdDecoyDestroy();     // a isca vive na fila do Feeder: sai antes da fila
++    g_amd.active = false;  // a proxima InitSession decide de novo
++#endif
+     if (g.params != nullptr) { if (!g_ngx_dying) NVSDK_NGX_D3D12_DestroyParameters(g.params); g.params = nullptr; }
++    NrShutdown();   // antes do NGX do feed: a feature do NR e do snippet, nao do core
+     if (g.ngx_inited && g.dev12 != nullptr) { if (!g_ngx_dying) NVSDK_NGX_D3D12_Shutdown1(g.dev12); g.ngx_inited = false; }
+     SafeRelease(g.blit_vs);
+     SafeRelease(g.blit_ps);
+@@ -3667,14 +4760,18 @@ static bool CopyOrResampleInputs(ID3D11DeviceContext *ctx,
+     // on it fails), and `DLSS5_ColorInput : COLOR` is a semantic texture with no resource
+     // of its own, so get_texture_binding() returns a null view for it. So copy the frame
+     // into a texture we own and sample that. One native-resolution copy, only below 100%.
+-    if (source_w != g.width || source_h != g.height)
++    bool resample = source_w != g.width || source_h != g.height;
++#ifdef FEED_AMD_VARIANT
++    if (g_amd.active && g_amd.color_convert) resample = true;   // formato do portador != backbuffer: CopyResource nao serve, o blit converte
++#endif
++    if (resample)
+     {
+         if (g.color_stage == nullptr || g.color_stage_srv == nullptr) return false;
+         ctx->CopyResource(g.color_stage, color);
+         color_srv = g.color_stage_srv;
+     }
+ 
+-    if (source_w == g.width && source_h == g.height)
++    if (!resample)
+     {
+         ctx->CopyResource(g.tex11[SLOT_COLOR], color);
+         ctx->CopyResource(g.tex11[SLOT_DEPTH], depth);
+@@ -3952,6 +5049,17 @@ static void TimingTick(LONGLONG entry, LONGLONG exit)
+     const double span_ms = 1000.0 * double(exit - g.span_start) / double(g.qpf);
+     const double cpu_ms  = 1000.0 * double(g.cpu_ticks) / double(g.qpf);
+     const double n       = double(g.timed_frames);
++    if (g_nr_win_frames != 0)
++    {
++        Log("[feed] nr: 600 frames: %.2f ms/frame of neural rendering over %llu frames, %.1f passes/frame "
++            "(%.2f ms/pass) | nr_passes=%d",
++            NrMs(g_nr_win_ticks) / static_cast<double>(g_nr_win_frames),
++            static_cast<unsigned long long>(g_nr_win_frames),
++            static_cast<double>(g_nr_win_passes) / static_cast<double>(g_nr_win_frames),
++            g_nr_win_passes != 0 ? NrMs(g_nr_win_ticks) / static_cast<double>(g_nr_win_passes) : 0.0,
++            g_cfg.nr_passes);
++        g_nr_win_ticks = 0; g_nr_win_frames = 0; g_nr_win_passes = 0;
++    }
+     Log("[feed] 600 frames: feed CPU %.2f ms/frame | frame interval %.2f ms (%.1f fps) | feed is %.0f%% of the frame "
+         "| worst frame %.1f ms (feed %.2f, evaluate %.2f) | stalls %llu",
+         cpu_ms / n, span_ms / n, 1000.0 / (span_ms / n), 100.0 * cpu_ms / span_ms,
+@@ -4622,6 +5730,10 @@ static void FeedFrameVk(reshade::api::effect_runtime *rt, reshade::api::command_
+                     Barrier(g.tex12[SLOT_DEPTH],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                     Barrier(g.tex12[SLOT_MV],     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                     if (g.mask_ok) Barrier(g.tex12[SLOT_MASK], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++                    // O passe neural roda aqui: depois do SuperSampling, com o SLOT_OUTPUT ainda
++                    // em UNORDERED_ACCESS, e devolve o SLOT_OUTPUT nesse mesmo estado. Se o
++                    // evaluate do SR falhou, o quadro vai ser descartado de qualquer forma.
++                    if (!NVSDK_NGX_FAILED(re)) NrEvaluateFrame(g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed);
+                     Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+                     EndCommands();
+                     if (NVSDK_NGX_FAILED(re))
+@@ -4999,6 +6111,10 @@ static void FeedFrameGl(reshade::api::effect_runtime *rt, reshade::api::command_
+                     Barrier(g.tex12[SLOT_DEPTH],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                     Barrier(g.tex12[SLOT_MV],     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                     if (g.mask_ok) Barrier(g.tex12[SLOT_MASK], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++                    // O passe neural roda aqui: depois do SuperSampling, com o SLOT_OUTPUT ainda
++                    // em UNORDERED_ACCESS, e devolve o SLOT_OUTPUT nesse mesmo estado. Se o
++                    // evaluate do SR falhou, o quadro vai ser descartado de qualquer forma.
++                    if (!NVSDK_NGX_FAILED(re)) NrEvaluateFrame(g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed);
+                     Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+                     EndCommands();
+                     if (NVSDK_NGX_FAILED(re))
+@@ -5226,6 +6342,19 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
+                 const int reset = (g.need_reset || g_cfg.reset_every) ? 1 : 0;
+                 g.need_reset = false;
+ 
++                NVSDK_NGX_Result re = NVSDK_NGX_Result_Success;
++                DWORD ecode = 0;
++#ifdef FEED_AMD_VARIANT
++                if (g_amd.active)
++                {
++                    // Ramificacao C: ffxDispatch no lugar do evaluate NGX, mesmas texturas,
++                    // mesmas barreiras (antes e depois), mesmo copy-back.
++                    Breadcrumb("running the FSR carrier dispatch");
++                    if (!AmdDispatch(reset)) re = NVSDK_NGX_Result_Fail;
++                }
++                else
++#endif
++                {
+                 NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
+                 ep.Feature.pInColor  = g.tex12[SLOT_COLOR];
+                 ep.Feature.pInOutput = g.tex12[SLOT_OUTPUT];
+@@ -5246,8 +6375,8 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
+                 ep.InExposureScale   = 1.0f;
+ 
+                 Breadcrumb("running the D3D12 evaluate");
+-                DWORD ecode = 0;
+-                NVSDK_NGX_Result re = SafeEvaluateDLSS(&ep, &ecode);
++                re = SafeEvaluateDLSS(&ep, &ecode);
++                }
+ 
+                 if (ecode != 0)
+                 {
+@@ -5263,6 +6392,10 @@ static void FeedFrame11(reshade::api::effect_runtime *rt, reshade::api::command_
+                 Barrier(g.tex12[SLOT_DEPTH],  D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                 Barrier(g.tex12[SLOT_MV],     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
+                 if (g.mask_ok) Barrier(g.tex12[SLOT_MASK], D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++                // O passe neural roda aqui: depois do SuperSampling, com o SLOT_OUTPUT ainda
++                // em UNORDERED_ACCESS, e devolve o SLOT_OUTPUT nesse mesmo estado. Se o
++                    // evaluate do SR falhou, o quadro vai ser descartado de qualquer forma.
++                if (!NVSDK_NGX_FAILED(re)) NrEvaluateFrame(g_cfg.depth_inverted >= 0 ? g_cfg.depth_inverted != 0 : g.depth_reversed);
+                 Barrier(g.tex12[SLOT_OUTPUT], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+                 const UINT64 v_out = EndCommands();
+ 
+@@ -5386,13 +6519,17 @@ static RuntimeSlot *TrackRuntime(reshade::api::effect_runtime *rt)
+         s->rt = rt;
+         // Identity, for the log: the game's swapchain and Smooth Motion's proxy are only
+         // distinguishable by their window class and device.
++        Breadcrumb("runtime init: get_device");
+         reshade::api::device *dev = rt->get_device();
+         s->dev = dev != nullptr ? reinterpret_cast<void *>(dev->get_native()) : nullptr;
++        Breadcrumb("runtime init: get_hwnd");
+         HWND hwnd = static_cast<HWND>(rt->get_hwnd());
++        Breadcrumb("runtime init: window class");
+         if (hwnd != nullptr && !GetClassNameA(hwnd, s->wclass, sizeof(s->wclass))) s->wclass[0] = '\0';
+         if (hwnd == nullptr) strcpy_s(s->wclass, "(no window)");
+         s->proxy = strstr(s->wclass, "NvPresent") != nullptr;
+     }
++    Breadcrumb("runtime init: find_technique");
+     s->technique = rt->find_technique(kEffectFile, kTechnique);
+     return s;
+ }
+@@ -5405,15 +6542,24 @@ static void UntrackRuntime(reshade::api::effect_runtime *rt)
+ 
+ static void ResolveHandles(reshade::api::effect_runtime *rt)
+ {
++    Breadcrumb("resolving handles: find_texture_variable");
+     g.technique = rt->find_technique(kEffectFile, kTechnique);
+     g.color_var = rt->find_texture_variable(kEffectFile, "DLSS5_ColorInput");
+     g.mv_var    = rt->find_texture_variable(kEffectFile, "DLSS5_MV");
+     g.depth_var = rt->find_texture_variable(kEffectFile, "DLSS5_Depth");
+     g.mask_var  = rt->find_texture_variable(kEffectFile, "DLSS5_Mask");
++    // Protecao do HUD: o efeito da recolagem e outro arquivo, e pode simplesmente nao estar
++    // na lista. Handles resolvidos aqui, valores empurrados abaixo (ver g_hud_push).
++    g.hud_mask_var     = rt->find_uniform_variable(kEffectFile,  "HUD_MASK_ENABLE");
++    g.hud_restore_var  = rt->find_uniform_variable(kHudEffectFile, "HUD_RESTORE_ENABLE");
++    g.hud_strength_var = rt->find_uniform_variable(kHudEffectFile, "HUD_RESTORE_STRENGTH");
++    g_hud_push = true;   // efeitos recarregados: os uniforms voltaram ao que o preset diz
+     // Which provider is DLSS5_Feed.fx compiled for, and is a matching provider technique
+     // present and enabled? Purely informational, plus a warning when the two disagree
+     // (the classic "enabled Launchpad but the shader still reads texMotionVectors").
++    Breadcrumb("resolving handles: preprocessor definitions");
+     const int mode = ReadMvProviderMode(rt);
++    Breadcrumb("resolving handles: provider techniques");
+     g.launchpad = {};
+     const char *provider = "none";
+     const char *provider_file = nullptr;
+@@ -5432,9 +6578,11 @@ static void ResolveHandles(reshade::api::effect_runtime *rt)
+         }
+         else if (on && other.handle == 0) { other = t; other_tech = p.tech; other_mode = p.mode; }
+     }
++    Breadcrumb("resolving handles: provider compile check");
+     char compile_error[512] = {};
+     const bool provider_broken = provider_file != nullptr && ProviderCompileError(provider_file, compile_error, sizeof(compile_error));
+ 
++    Breadcrumb("resolving handles: depth definition");
+     char v[16] = {};
+     g.depth_reversed = true;  // ReShade.fxh's own default when the definition is absent
+     if (rt->get_preprocessor_definition("RESHADE_DEPTH_INPUT_IS_REVERSED", v))
+@@ -5455,6 +6603,7 @@ static void ResolveHandles(reshade::api::effect_runtime *rt)
+     if (signature == last_signature && rt == last_rt) return;
+     last_signature = signature;
+     last_rt = rt;
++    Breadcrumb("resolving handles: status/log");
+ 
+     _snprintf_s(g_mv_status, sizeof(g_mv_status), _TRUNCATE, "DLSS5_MV_PROVIDER=%d (%s) -> %s (%s)",
+                 mode, kMvModeName[mode], provider,
+@@ -5503,6 +6652,9 @@ static void ResolveHandles(reshade::api::effect_runtime *rt)
+ 
+ static void OnInitEffectRuntime(reshade::api::effect_runtime *rt)
+ {
++#ifdef FEED_AMD_VARIANT
++    if (g_amd.decoy_creating) { g_amd.decoy_rt = rt; return; }   // o runtime que o ReShade cria sobre a swapchain-isca: nunca e alimentado
++#endif
+     RuntimeSlot *slot = TrackRuntime(rt);
+     static int inits = 0;
+     if (++inits <= 8)
+@@ -5534,16 +6686,25 @@ static void OnInitEffectRuntime(reshade::api::effect_runtime *rt)
+             (void *)rt, (void *)g.runtime, slot->technique.handle ? ", both have DLSS5_Feed.fx" : "");
+     // The driver injects NvPresent64.dll around swapchain creation, which can be after
+     // this add-on attached -- so this is the re-check DllMain's first look cannot be.
++    Breadcrumb("runtime init: smooth motion check");
+     DetectSmoothMotion();
+     // Not in DllMain: this LoadLibrary()s, which under the loader lock can deadlock.
++    Breadcrumb("runtime init: d3dcompiler check");
+     DetectStaleD3DCompiler();
++    Breadcrumb("runtime init: done");
+     // Either way the add-on may be re-patching its NGX hooks right now: hold any upcoming
+     // feature create for a fresh grace period.
+     g.create_grace = 0;
++#ifdef FEED_AMD_VARIANT
++    AmdDecoyOnRuntimeInit(rt);   // amd_decoy_swapchain=1: sessao D3D12 + isca antes do primeiro Present do jogo
++#endif
+ }
+ 
+ static void OnDestroyEffectRuntime(reshade::api::effect_runtime *rt)
+ {
++#ifdef FEED_AMD_VARIANT
++    if (rt != nullptr && rt == g_amd.decoy_rt) { g_amd.decoy_rt = nullptr; return; }
++#endif
+     UntrackRuntime(rt);
+     if (rt != g.runtime) return;
+     static int destroys = 0;
+@@ -5580,10 +6741,47 @@ static void OnReloadedEffects(reshade::api::effect_runtime *rt)
+     }
+ }
+ 
++// Empurra hud_restore / hud_restore_strength para os uniforms dos dois shaders.
++//
++// SO QUANDO g_hud_push ESTA ARMADO -- na mudanca da chave e na (re)resolucao dos handles.
++// Escrever a cada quadro tomaria o controle da pessoa: ela mexeria no slider do overlay e
++// veria o valor voltar sozinho no quadro seguinte.
++//
++// hud_restore = -1 nao escreve nada, e e o padrao: quem manda e o preset, e o binario se
++// comporta exatamente como antes desta chave existir.
++//
++// UMA CHAVE PARA OS DOIS EFEITOS de proposito: a marca no DLSS5_Feed.fx sem a recolagem no
++// DLSS5_HUD.fx so muda o vies da rede (pouco), e a recolagem sem a marca nao tem o que
++// recolar (nada). Ligar meio caminho seria uma medicao que nao responde nada.
++static void HudPushUniforms(reshade::api::effect_runtime *rt)
++{
++    if (!g_hud_push) return;
++    g_hud_push = false;
++    if (g_cfg.hud_restore >= 0)
++    {
++        const bool on = g_cfg.hud_restore != 0;
++        if (g.hud_mask_var.handle != 0)    rt->set_uniform_value_bool(g.hud_mask_var, &on, 1);
++        if (g.hud_restore_var.handle != 0) rt->set_uniform_value_bool(g.hud_restore_var, &on, 1);
++        Log("[feed] hud_restore=%d applied (HUD_MASK_ENABLE %s, HUD_RESTORE_ENABLE %s)",
++            g_cfg.hud_restore,
++            g.hud_mask_var.handle    != 0 ? (on ? "on" : "off") : "MISSING (old DLSS5_Feed.fx)",
++            g.hud_restore_var.handle != 0 ? (on ? "on" : "off") : "MISSING (DLSS5_HUD.fx not in the list)");
++    }
++    if (g_cfg.hud_restore_strength >= 0 && g.hud_strength_var.handle != 0)
++    {
++        const float s = static_cast<float>(g_cfg.hud_restore_strength) / 100.0f;
++        rt->set_uniform_value_float(g.hud_strength_var, &s, 1);
++        Log("[feed] hud_restore_strength=%d applied (HUD_RESTORE_STRENGTH=%.2f)", g_cfg.hud_restore_strength, s);
++    }
++}
++
+ static void OnRenderTechnique(reshade::api::effect_runtime *rt, reshade::api::effect_technique technique,
+                               reshade::api::command_list *cl, reshade::api::resource_view rtv,
+                               reshade::api::resource_view /*rtv_srgb*/)
+ {
++#ifdef FEED_AMD_VARIANT
++    if (rt != nullptr && rt == g_amd.decoy_rt) return;   // efeitos do ReShade rodando na isca de 32x32: nao e o jogo
++#endif
+     if (rt != g.runtime)
+     {
+         // Another runtime is rendering DLSS5_Feed. Adopt it -- unless the bound runtime
+@@ -5611,6 +6809,7 @@ static void OnRenderTechnique(reshade::api::effect_runtime *rt, reshade::api::ef
+     }
+     if (g.technique.handle == 0 || technique.handle != g.technique.handle) return;
+     g_bound_last_render = GetTickCount64();
++    HudPushUniforms(rt);
+     FeedFrame(rt, cl, rtv);
+ }
+ 
+@@ -5674,6 +6873,9 @@ static void DrawOverlay(reshade::api::effect_runtime *rt)
+     if (g.disabled && g_disable_why[0])
+         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.3f, 1.0f), "Stopped: %s", g_disable_why);
+     ImGui::Text("Feature: %s", g.frame_ready ? "ready" : "not built");
++#ifdef FEED_AMD_VARIANT
++    ImGui::Text("AMD carrier: %s", g_amd.active ? g_amd.status : (g.session_ready ? "off (NGX path)" : "not decided (session not open)"));
++#endif
+     if (g.frames_done > 0) ImGui::Text("Frames delivered: %llu", static_cast<unsigned long long>(g.frames_done));
+     ImGui::Text("DLSS 5 add-on: %s%s (%s)", g_renodx_gen[0] != '\0' ? "" : "v",
+                 g_renodx_gen[0] != '\0' ? g_renodx_gen : g_renodx_ver,
+@@ -5863,6 +7065,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
+         }
+         CfgWriteDefault();
+         CfgReload();
++#ifdef FEED_AMD_VARIANT
++        AmdLogVariant();
++#endif
+         DetectRenodxAddon();
+         DetectToolkitAddon();
+         DetectChickenAddon(g_cfg.warmup_rebuild);   // after DetectRenodxAddon: it needs g_renodx_present
+diff --git a/src/feed_vk_hook.h b/src/feed_vk_hook.h
+index 76125f6..e5ca635 100644
+--- a/src/feed_vk_hook.h
++++ b/src/feed_vk_hook.h
+@@ -257,7 +257,7 @@ static bool FeedVkHookInstall()
+         Log("[feed] vkCreateDevice hook: vulkan-1.dll is not loaded in this process (?)");
+         return false;
+     }
+-    void *target = GetProcAddress(lib, "vkCreateDevice");
++    void *target = reinterpret_cast<void *>(GetProcAddress(lib, "vkCreateDevice"));   // FARPROC -> void*: explicito para o g++
+     if (target == nullptr)
+     {
+         Log("[feed] vkCreateDevice hook: vulkan-1.dll exports no vkCreateDevice (?)");
+@@ -287,7 +287,7 @@ static bool FeedVkHookInstall()
+ 
+     // vkQueuePresentKHR: counting only, and strictly optional -- a game that cannot
+     // be hooked here still feeds fine, it just gets no pacer detection.
+-    if (void *ptarget = GetProcAddress(lib, "vkQueuePresentKHR"))
++    if (void *ptarget = reinterpret_cast<void *>(GetProcAddress(lib, "vkQueuePresentKHR")))
+     {
+         MH_STATUS ps = MH_CreateHook(ptarget, reinterpret_cast<void *>(&FeedVkHookQueuePresent),
+                                      reinterpret_cast<void **>(&g_vk_present_orig));

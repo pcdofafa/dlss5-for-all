@@ -1,0 +1,47 @@
+// Recursos do launcher portable: o MESMO icone do app (marca\DLSS5ForAll.ico) e um
+// VERSIONINFO para as propriedades do arquivo nao saírem vazias.
+//
+// Este arquivo e UTF-8. O windres, sem que ninguem diga nada, le o .rc na pagina de codigo
+// ANSI da maquina - e ai o "a" com acento de "PC do Fafa" viraria dois caracteres estranhos
+// nas Propriedades do arquivo e na tela do SmartScreen. As duas linhas de defesa: este
+// pragma e o --codepage=65001 no build-launcher.sh. Precisa das duas: o pragma vale para
+// este arquivo mesmo que alguem compile a mao, e a opcao vale mesmo que o pragma se perca.
+#pragma code_page(65001)
+1  ICON  "../marca/DLSS5ForAll.ico"
+// Manifesto (Common Controls 6): sem ele nao existe TaskDialogIndirect, a caixa padrao do
+// Windows usada no aviso de versao nova (atualizacao.h). 24 = RT_MANIFEST, 1 = do processo.
+1  24    "launcher.manifest"
+
+#include <windows.h>
+
+#define VER_TUPLA   1,2,0,0
+#define VER_TEXTO   "1.2.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_TUPLA
+PRODUCTVERSION  VER_TUPLA
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041604b0"
+        BEGIN
+            VALUE "CompanyName",      "PC do Fafa"
+            VALUE "FileDescription",  "DLSS5 For All (portable) - abre bin\\DLSS5ForAll.exe"
+            VALUE "FileVersion",      VER_TEXTO
+            VALUE "InternalName",     "DLSS5ForAll-portable"
+            VALUE "LegalCopyright",   "Codigo proprio sob licenca MIT - ver LICENSE e CREDITOS.md"
+            VALUE "OriginalFilename", "DLSS5ForAll.exe"
+            VALUE "ProductName",      "DLSS5 For All"
+            VALUE "ProductVersion",   VER_TEXTO
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0416, 1200
+    END
+END

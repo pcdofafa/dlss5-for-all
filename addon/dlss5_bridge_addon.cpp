@@ -91,6 +91,11 @@
 #include <cstdio>
 #include <cstring>
 
+#include "shared_frame.h"   // publica a saida ja com efeitos numa textura compartilhada
+#include "mistura_guiada.h" // reinjeta o detalhe do nativo na saida da rede (desligada por padrao)
+#include "comparar_lado_a_lado.h" // metade esquerda original / direita com DLSS 5 (desligado por padrao)
+#include "ponteiro_desenhado.h"   // a seta do modo Ponteiro, desenhada DEPOIS da rede
+
 extern "C" __declspec(dllexport) const char *NAME        = "DLSS 5 Bridge";
 extern "C" __declspec(dllexport) const char *DESCRIPTION =
     "Ponte de controle do DLSS5 For All: deixa o painel do app trocar LUT, "
@@ -107,6 +112,39 @@ namespace
     constexpr const char *kGradeTechnique = "DLSS5_Grade";
 
     SRWLOCK g_lock = SRWLOCK_INIT;
+
+    /* Saida compartilhada (ver shared_frame.h). O nome chega pela thread da UI
+       do app e e consumido na thread de render, dentro do finish_effects -- por
+       isso passa pelo mesmo SRWLOCK das outras filas, com uma flag atomica para
+       o caminho comum (todo frame) nao pegar o lock a toa. */
+    dlss5_shared::Producer g_shared;
+    wchar_t          g_shared_name[64] = { 0 };
+    std::atomic<int> g_shared_want{ 0 };
+
+    /* MISTURA GUIADA (ver mistura_guiada.h). DESLIGADA POR PADRAO: quem nao
+       ligar nao paga nada e nao ve diferenca nenhuma -- os dois eventos saem
+       na primeira linha quando `ligada` e falso.
+
+       O estado vem do dlss5forall.ini ao lado do executavel (o do exeDir; a
+       arvore tem oito arquivos com esse nome e este e o que o app usa):
+
+           [mistura]
+           ligada=0        0/1, pode mudar com o jogo rodando
+           eps=0.0001      o botao que decide se o serrilhado volta
+
+       Relido a cada ~1 s dentro do on_present, que e onde o add-on ja faz o
+       trabalho fora da iteracao de efeitos. Reler todo quadro seria um
+       GetPrivateProfileString por quadro por uma chave que muda uma vez por
+       sessao; um segundo de atraso e imperceptivel para quem esta comparando
+       na tela e nao aparece no custo. */
+    dlss5_mistura::Mistura g_mistura;
+    ULONGLONG              g_mistura_ultimo_ini = 0;
+
+    /* MODO COMPARATIVO (ver comparar_lado_a_lado.h). Desligado por padrao; a
+       chave e [comparar] ligado=1 no dlss5forall.ini, lida na mesma passada de
+       um segundo da mistura. */
+    dlss5_comparar::Comparador g_comparar;
+    dlss5_ponteiro::Ponteiro    g_ponteiro;
 
     /* Duas filas, porque os dois tipos de comando so podem ser aplicados em
        momentos diferentes do frame -- ver o comentario de on_present. */
@@ -275,6 +313,25 @@ namespace
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN,
                                 L"renodx-dlss5.addon64", &renodx) || renodx == nullptr)
         {
+            /* O add-on novo (renodx-dlss.addon64, sem o "5") nao tem hotkey: nao
+               importa USER32!GetAsyncKeyState, nao tem chave de tecla e ignora o
+               F6. Nao ha IAT onde se pendurar, e nao ha o que consertar aqui -- a
+               alternancia dele e o DirectNeuralRenderingHookPoint do ReShade.ini,
+               que o proprio app grava e o add-on rele em tempo real.
+
+               A distincao importa no log: por meses esta funcao anunciou "RenoDX
+               nao carregado" com o RenoDX carregadissimo, so com outro nome de
+               arquivo -- e quem lesse o ReShade.log procuraria o add-on errado. */
+            HMODULE novo = nullptr;
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN,
+                                   L"renodx-dlss.addon64", &novo) && novo != nullptr)
+            {
+                if (explicar)
+                    log_info("[DLSS 5 Bridge] RenoDX novo (renodx-dlss.addon64): sem hotkey "
+                             "para enganchar; a alternancia do Neural Rendering vai pelo "
+                             "DirectNeuralRenderingHookPoint do ReShade.ini, pelo app.");
+                return;
+            }
             if (explicar)
                 log_info("[DLSS 5 Bridge] RenoDX nao carregado: alternancia do "
                          "Neural Rendering indisponivel pela ponte.");
@@ -436,6 +493,64 @@ namespace
         return out;
     }
 
+    /* ------------------------------------------------------------------
+       LIGAR E DESLIGAR TECNICA NAO PODE ENCHER O LOG.
+
+       Medido em 11/09/2026, sessao real do usuario com o Resident Evil
+       Requiem: o ReShade.log chegou a 2,8 MB em tres minutos, e 8.526
+       daquelas linhas eram estas quatro aqui ("tecnica X -> ligada" /
+       "-> desligada"). Nao e defeito de logica: no modo "quadro
+       sintetizado" o app SUPRIME a cadeia no quadro pulado e a devolve no
+       seguinte, entao a troca acontece de verdade ~50 vezes por segundo.
+       A linha esta certa; o que esta errado e imprimi-la toda vez.
+
+       (Para dimensionar: o add-on de terceiro RenoDX DLSS despejou 21.074
+       linhas na mesma sessao, uma por present. Essa nao e nossa e nao da
+       para calar daqui - mas a nossa da, e fica.)
+
+       O criterio: as primeiras trocas saem inteiras, porque sao elas que
+       provam que o mecanismo subiu. Passado isso, o log vira um resumo a
+       cada 30 s, que diz a mesma coisa sem crescer sem limite.
+       ------------------------------------------------------------------ */
+    constexpr int      kTrocasDetalhadas = 12;
+    constexpr uint64_t kResumoMs         = 30000;
+    unsigned g_trocas_total   = 0;   /* thread de render, sem concorrencia */
+    unsigned g_trocas_resumo  = 0;
+    uint64_t g_trocas_desde   = 0;
+
+    void log_troca_de_tecnica(const char *nome, bool ligada)
+    {
+        const uint64_t agora = GetTickCount64();
+        if (g_trocas_desde == 0)
+            g_trocas_desde = agora;
+
+        if (g_trocas_total < kTrocasDetalhadas)
+        {
+            g_trocas_total++;
+            char line[192];
+            snprintf(line, sizeof(line), "[DLSS 5 Bridge] tecnica '%s' -> %s%s",
+                     nome, ligada ? "ligada" : "desligada",
+                     g_trocas_total == kTrocasDetalhadas
+                         ? "  (daqui em diante so um resumo a cada 30 s)" : "");
+            log_info(line);
+            return;
+        }
+
+        g_trocas_total++;
+        g_trocas_resumo++;
+        if (agora - g_trocas_desde < kResumoMs)
+            return;
+
+        char line[192];
+        snprintf(line, sizeof(line),
+                 "[DLSS 5 Bridge] tecnicas ligadas/desligadas %u vezes nos ultimos %.0f s"
+                 " (o quadro sintetizado suprime e devolve a cadeia a cada quadro)",
+                 g_trocas_resumo, (double)(agora - g_trocas_desde) / 1000.0);
+        log_info(line);
+        g_trocas_resumo = 0;
+        g_trocas_desde  = agora;
+    }
+
     void apply(reshade::api::effect_runtime *runtime, const DLSS5BridgeCommand &c)
     {
         using namespace reshade::api;
@@ -455,11 +570,7 @@ namespace
             if (runtime->get_technique_state(tech) != want)
             {
                 runtime->set_technique_state(tech, want);
-
-                char line[192];
-                snprintf(line, sizeof(line), "[DLSS 5 Bridge] tecnica '%s' -> %s",
-                         c.name, want ? "ligada" : "desligada");
-                log_info(line);
+                log_troca_de_tecnica(c.name, want);
             }
             g_applied.fetch_add(1, std::memory_order_relaxed);
             return;
@@ -531,11 +642,102 @@ namespace
         BRIDGE_TRACE("refresh: fim");
     }
 
+    /* Le [mistura] do dlss5forall.ini do exeDir. Barato e sem alocar: duas
+       chaves curtas. Devolve tudo para a classe, que decide sozinha se precisa
+       recriar recursos. */
+    void mistura_reler_ini()
+    {
+        wchar_t exe[MAX_PATH] = { 0 };
+        if (GetModuleFileNameW(nullptr, exe, MAX_PATH) == 0) return;
+        wchar_t *barra = wcsrchr(exe, L'\\');
+        if (barra == nullptr) return;
+        *(barra + 1) = L'\0';
+        wchar_t ini[MAX_PATH];
+        _snwprintf(ini, MAX_PATH, L"%sdlss5forall.ini", exe);
+        ini[MAX_PATH - 1] = L'\0';
+
+        const bool ligada = GetPrivateProfileIntW(L"mistura", L"ligada", 0, ini) != 0;
+        wchar_t buf[32] = { 0 };
+        GetPrivateProfileStringW(L"mistura", L"eps", L"0.0001", buf, 32, ini);
+        const float eps = (float)_wtof(buf);
+
+        /* A resolucao de trabalho da rede, para a linha de log dizer contra o
+           que a economia esta sendo contada.
+
+           A PRIMEIRA VERSAO LIA SO O dlss5-feed.cfg E MOSTRAVA SEMPRE 100. O
+           app nem sempre grava a chave la (o cfg que eu inspecionei tinha
+           enabled, mode, hdr e nenhum work_resolution), e ausencia virava o
+           padrao em silencio -- o log dizia "wr=100" numa rodada que estava a
+           58, que e a etiqueta errada em cima do numero certo, de novo.
+
+           Agora a fonte primaria e o [cadeia] do ini, que e onde a escolha da
+           pessoa mora, e o cfg entra so como reserva. */
+        /* SECAO [ultima], nao [cadeia]. O comentario do main.cpp diz "[cadeia]
+           work_resolution no dlss5forall.ini", mas o IniGet que le a chave
+           (main.cpp:2380) usa GetPrivateProfileStringW com a secao L"ultima".
+           Escrever em [cadeia] nao tem efeito nenhum -- e o app segue com o
+           valor automatico registrando "escolha do ini", o que faz parecer que
+           obedeceu. Custou-me duas matrizes comparando duas rodadas iguais. */
+        int wr = GetPrivateProfileIntW(L"ultima", L"work_resolution", 0, ini);
+        if (wr < 25 || wr > 100) {
+            wchar_t cfg[MAX_PATH];
+            _snwprintf(cfg, MAX_PATH, L"%sdlss5-feed.cfg", exe);
+            cfg[MAX_PATH - 1] = L'\0';
+            FILE *f = _wfopen(cfg, L"rb");
+            if (f != nullptr)
+            {
+                char linha[256];
+                while (fgets(linha, sizeof(linha), f) != nullptr)
+                {
+                    const char *p = strstr(linha, "work_resolution");
+                    if (p == nullptr) continue;
+                    const char *eq = strchr(p, '=');
+                    if (eq != nullptr) { wr = atoi(eq + 1); break; }
+                }
+                fclose(f);
+            }
+        }
+
+        g_mistura.configurar(ligada, eps, wr);
+        if (!ligada) g_mistura.desligar();
+
+        /* O modo comparativo vem na mesma leitura: e o mesmo ini e o mesmo
+           ritmo de um segundo, e abrir o arquivo duas vezes por segundo para
+           ler duas chaves nao se justifica. */
+        const bool comp = GetPrivateProfileIntW(L"comparar", L"ligado", 0, ini) != 0;
+        const int  divi = (int)GetPrivateProfileIntW(L"comparar", L"divisor", 50, ini);
+        const bool rot  = GetPrivateProfileIntW(L"comparar", L"rotulos", 1, ini) != 0;
+        const int  rotH = (int)GetPrivateProfileIntW(L"comparar", L"rotulo_altura", 9, ini);
+        /* atraso: quantos quadros o lado esquerdo recua para casar com o
+           direito. ZERO e o valor MEDIDO -- a bateria de 45 fotos em
+           comparar_lado_a_lado.h mostra que compensar PIORA. A chave existe
+           para uma cadeia que de fato defase. */
+        const int  atr  = (int)GetPrivateProfileIntW(L"comparar", L"atraso", 0, ini);
+        /* `exe` ja vem com a barra final: as artes das marcas estao em
+           <exeDir>\marca\comparar-original.png e comparar-dlss5.png. */
+        /* O ATALHO, escrito pelo app em [comparar] atalho (ele e quem tem o mapa
+           de teclas, e a pessoa pode trocar). Vai para o cabecalho: este modo
+           nao tem entrada no painel, entao a tecla e o unico caminho de volta -
+           quem liga sem querer precisa ver como desligar sem adivinhar. */
+        wchar_t atalho[64] = L"";
+        GetPrivateProfileStringW(L"comparar", L"atalho", L"", atalho, 64, ini);
+        g_comparar.configurar(comp, divi, rot, rotH, atr, exe, atalho);
+    }
+
     void on_begin_effects(reshade::api::effect_runtime *runtime,
                           reshade::api::command_list *,
-                          reshade::api::resource_view,
+                          reshade::api::resource_view rtv,
                           reshade::api::resource_view)
     {
+        /* PRIMEIRA COISA DO QUADRO: aqui o back buffer ainda e o NATIVO, antes
+           de qualquer tecnica. Se a mistura estiver desligada isto sai na
+           primeira linha e o caminho de hoje segue intocado. */
+        g_mistura.capturar_nativo(reinterpret_cast<void *>(rtv.handle), log_info);
+        /* O comparativo guarda o MESMO instante: aqui o back buffer ainda e a
+           imagem original, sem nenhuma tecnica e sem o Neural Rendering (que
+           roda dentro do EvaluateFeature do DLSS5_Feed, uma tecnica). */
+        g_comparar.capturar_original(reinterpret_cast<void *>(rtv.handle), log_info);
+
         /* Copia fila e estado sob o lock e solta antes de tocar no ReShade:
            chamar a API com um SRWLOCK na mao seria pedir para um evento
            reentrante travar tudo. */
@@ -606,6 +808,20 @@ namespace
        para quem clica num botao. */
     void on_present(reshade::api::effect_runtime *runtime)
     {
+        /* O liga/desliga AO VIVO da mistura. Fica aqui, e nao nos eventos de
+           efeito, porque este e o ponto que ja roda uma vez por quadro fora da
+           iteracao de render_effects -- mexer em recursos de dentro dela
+           derruba o processo, como o comentario do on_present ja documenta
+           para as tecnicas. Uma leitura por segundo, nao por quadro. */
+        {
+            const ULONGLONG agora = GetTickCount64();
+            if (agora - g_mistura_ultimo_ini > 1000)
+            {
+                g_mistura_ultimo_ini = agora;
+                mistura_reler_ini();
+            }
+        }
+
         /* O ReShade carrega os add-ons numa varredura so, e a ordem alfabetica
            nao garante que o RenoDX ja esteja no lugar quando o nosso DllMain
            roda. No primeiro present todos ja estao carregados.
@@ -737,6 +953,49 @@ namespace
         refresh_status(runtime);
     }
 
+    /* DEPOIS de todos os efeitos, e antes de o quadro virar imagem apresentada:
+       o unico ponto em que a saida final da camada existe e ainda esta viva.
+       Ver o cabecalho do shared_frame.h para o porque de nao dar para pegar o
+       back buffer pela API do ReShade com o MinGW.
+
+       `rtv` (e nao `rtv_srgb`) porque os dois apontam para o MESMO recurso, e e
+       o recurso que copiamos: a variante sRGB so muda como o shader le. */
+    void on_finish_effects(reshade::api::effect_runtime *, reshade::api::command_list *,
+                           reshade::api::resource_view rtv, reshade::api::resource_view)
+    {
+        if (g_shared_want.load(std::memory_order_acquire) != 0)
+        {
+            wchar_t nome[64];
+            AcquireSRWLockExclusive(&g_lock);
+            wcsncpy(nome, g_shared_name, 64); nome[63] = L'\0';
+            g_shared_want.store(0, std::memory_order_relaxed);
+            ReleaseSRWLockExclusive(&g_lock);
+            g_shared.enable(nome, log_info);
+        }
+        /* A MISTURA VEM ANTES DE PUBLICAR, e a ordem importa: a camada de cima
+           tem de receber a mesma imagem que a tela recebe. Publicar primeiro
+           mandaria para o 2x a saida sem mistura, e as duas camadas ficariam
+           mostrando coisas diferentes -- um defeito que so apareceria no 2x e
+           que ninguem ligaria a este arquivo. */
+        g_mistura.aplicar(reinterpret_cast<void *>(rtv.handle), log_info);
+
+        /* O COMPARATIVO VEM DEPOIS DA MISTURA E ANTES DE PUBLICAR, e a ordem e
+           deliberada: a metade esquerda tem de ser a imagem ORIGINAL, sem
+           mistura nenhuma (a mistura e parte do que se quer comparar), e a
+           camada de cima (o 2x) e quem grava tem de receber a tela dividida,
+           que e o que a pessoa esta vendo. */
+        g_comparar.aplicar(reinterpret_cast<void *>(rtv.handle), log_info);
+
+        /* A SETA POR ULTIMO, depois ate do comparativo: ela e a unica coisa
+           aqui que NAO faz parte da imagem -- e informacao de controle. Se
+           fosse antes, o comparativo a copiaria para dentro de uma das
+           metades e ela apareceria duplicada numa e sumida na outra. */
+        g_ponteiro.aplicar(reinterpret_cast<void *>(rtv.handle), log_info);
+
+        if (!g_shared.enabled()) return;
+        g_shared.publish(reinterpret_cast<void *>(rtv.handle));
+    }
+
     void on_init_runtime(reshade::api::effect_runtime *runtime)
     {
         g_runtime.store(runtime, std::memory_order_release);
@@ -813,14 +1072,94 @@ extern "C" __declspec(dllexport) int DLSS5Bridge_SetExternalMV(void *srv)
     return 1;
 }
 
+/* Liga a saida compartilhada: a camada de cima passa a receber a nossa imagem
+   por uma textura de video em vez de capturar a nossa janela pelo compositor.
+   `name` vazio (ou nulo) desliga e libera tudo. O app chama isto por
+   GetProcAddress, como ja faz com DLSS5Bridge_SetExternalMV: um .addon64 velho
+   simplesmente nao tem o export, e a camada de cima segue pelo compositor.
+
+   Devolve 1 quando o pedido foi aceito. Aceito nao quer dizer publicando: a
+   textura so nasce no primeiro finish_effects, e se o formato nao for SDR de 8
+   bits o produtor se desliga sozinho com uma linha no log. Quem sabe se esta
+   valendo e o consumidor, pelo cabecalho na memoria compartilhada. */
+extern "C" __declspec(dllexport) int DLSS5Bridge_SetSharedOutput(const wchar_t *name)
+{
+    AcquireSRWLockExclusive(&g_lock);
+    g_shared_name[0] = L'\0';
+    if (name != nullptr) { wcsncpy(g_shared_name, name, 63); g_shared_name[63] = L'\0'; }
+    g_shared_want.store(1, std::memory_order_release);
+    ReleaseSRWLockExclusive(&g_lock);
+    return 1;
+}
+
+/* Quantos quadros ja foram publicados e quantos foram pulados porque a camada
+   de cima estava com a textura na mao. O app loga isso de vez em quando: dois
+   numeros que dizem, sem adivinhacao, se o transporte esta 1 para 1. */
+extern "C" __declspec(dllexport) int DLSS5Bridge_SharedStats(uint64_t *frames, uint64_t *skipped)
+{
+    if (frames  != nullptr) *frames  = g_shared.frames();
+    if (skipped != nullptr) *skipped = g_shared.pulados();
+    return g_shared.enabled() ? 1 : 0;
+}
+
+/* O modo EFETIVO do transporte, para o painel poder dizer o que esta valendo.
+   Devolve 1 = mutex (o de sempre), 2 = rotacao, 0 = nao esta publicando.
+   Serve para o caso em que a pessoa escolheu o experimental, ele nao nasceu e o
+   programa caiu para o de sempre: sem isto ela acha que escolheu e pegou. */
+extern "C" __declspec(dllexport) int DLSS5Bridge_SharedModo(uint32_t *slots)
+{
+    if (slots != nullptr) *slots = g_shared.slots();
+    return g_shared.enabled() ? (int)g_shared.modo() : 0;
+}
+
 extern "C" __declspec(dllexport) int DLSS5Bridge_Submit(const DLSS5BridgeCommand *cmd)
 {
     if (cmd == nullptr || cmd->struct_size != sizeof(DLSS5BridgeCommand))
         return 0;
-    if (cmd->type < DLSS5_BRIDGE_CMD_UNIFORM_INT || cmd->type > DLSS5_BRIDGE_CMD_NR_TOGGLE)
+    if (cmd->type < DLSS5_BRIDGE_CMD_UNIFORM_INT || cmd->type > DLSS5_BRIDGE_CMD_SET_CONFIG_FLOAT)
         return 0;
     if (cmd->name[0] == '\0')
         return 0;
+
+    /* Gravar config NAO passa pela fila de efeitos: nao depende de
+       effect_runtime nem de shader compilado, e o valor precisa valer AGORA --
+       enfileirar so atrasaria o unico caminho que o add-on novo do RenoDX tem
+       para ser ligado. Tambem nao entra no estado desejado que o reload
+       reaplica: config e valor de uma vez, nao algo a reafirmar por frame. */
+    if (cmd->type == DLSS5_BRIDGE_CMD_SET_CONFIG_INT)
+    {
+        if (cmd->effect[0] == '\0')
+            return 0;
+        char secao[DLSS5_BRIDGE_NAME_MAX], chave[DLSS5_BRIDGE_NAME_MAX];
+        memcpy(secao, cmd->effect, sizeof(secao)); secao[DLSS5_BRIDGE_NAME_MAX - 1] = '\0';
+        memcpy(chave, cmd->name,   sizeof(chave)); chave[DLSS5_BRIDGE_NAME_MAX - 1] = '\0';
+        reshade::set_config_value<int>(nullptr, secao, chave, cmd->ivalue[0]);
+        char line[192];
+        snprintf(line, sizeof(line), "[DLSS 5 Bridge] config [%s] %s = %d",
+                 secao, chave, (int)cmd->ivalue[0]);
+        log_info(line);
+        g_applied.fetch_add(1, std::memory_order_relaxed);
+        return 1;
+    }
+
+    /* O gemeo float do de cima. O set_config_value do ReShade e um template
+       tipado: gravar 0.55 pelo caminho <int> guardaria 0, e o ajuste de imagem
+       do RenoDX (Intensity, tons, estrutura) e todo float de 0 a 1. */
+    if (cmd->type == DLSS5_BRIDGE_CMD_SET_CONFIG_FLOAT)
+    {
+        if (cmd->effect[0] == '\0')
+            return 0;
+        char secao[DLSS5_BRIDGE_NAME_MAX], chave[DLSS5_BRIDGE_NAME_MAX];
+        memcpy(secao, cmd->effect, sizeof(secao)); secao[DLSS5_BRIDGE_NAME_MAX - 1] = '\0';
+        memcpy(chave, cmd->name,   sizeof(chave)); chave[DLSS5_BRIDGE_NAME_MAX - 1] = '\0';
+        reshade::set_config_value<float>(nullptr, secao, chave, cmd->fvalue[0]);
+        char line[192];
+        snprintf(line, sizeof(line), "[DLSS 5 Bridge] config [%s] %s = %.4f",
+                 secao, chave, (double)cmd->fvalue[0]);
+        log_info(line);
+        g_applied.fetch_add(1, std::memory_order_relaxed);
+        return 1;
+    }
 
     /* O toque no Neural Rendering nao passa pelas filas: nao toca na API do
        ReShade, so arma dois atomicos que o nosso GetAsyncKeyState le na thread
@@ -907,6 +1246,18 @@ extern "C" __declspec(dllexport) int DLSS5Bridge_Query(DLSS5BridgeStatus *out)
     s.nr_toggle_vk   = g_nr_vk.load(std::memory_order_relaxed);
     s.nr_pulses      = g_nr_pulses.load(std::memory_order_relaxed);
     s.nr_delivered   = g_nr_delivered.load(std::memory_order_relaxed);
+    s.config_ready   = 1u;   /* protocolo 3: sabemos gravar config */
+    /* O Hook Method do add-on novo, da config VIVA do ReShade. E esta a leitura
+       que o app precisa: o ReShade.ini so recebe o valor no AutoSave, entao
+       durante a sessao o arquivo mente e a config em memoria nao. Sem a chave
+       (add-on antigo do RenoDX, ou primeira execucao) fica -1 = nao sei. */
+    {
+        int hp = -1;
+        if (!reshade::get_config_value<int>(nullptr, "RENODX-DLSS",
+                                            "DirectNeuralRenderingHookPoint", hp))
+            hp = -1;
+        s.nr_hookpoint = hp;
+    }
 
     memcpy(out, &s, want);
     return 1;
@@ -926,6 +1277,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
         reshade::register_event<reshade::addon_event::reshade_reloaded_effects>(on_reloaded_effects);
         reshade::register_event<reshade::addon_event::reshade_begin_effects>(on_begin_effects);
         reshade::register_event<reshade::addon_event::reshade_present>(on_present);
+        reshade::register_event<reshade::addon_event::reshade_finish_effects>(on_finish_effects);
         log_info("[DLSS 5 Bridge] add-on registrado (protocolo 2; fala tambem com apps de protocolo 1).");
         break;
     case DLL_PROCESS_DETACH:
@@ -935,6 +1287,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
            hook num FreeLibrary de verdade (reserved == nullptr). */
         if (reserved == nullptr)
             remove_nr_hook();
+        reshade::unregister_event<reshade::addon_event::reshade_finish_effects>(on_finish_effects);
+        g_shared.shutdown();   // solta a textura compartilhada e marca "nao publicando" no cabecalho
+        g_mistura.desligar();  // solta as texturas da mistura antes de o device morrer
         reshade::unregister_event<reshade::addon_event::reshade_present>(on_present);
         reshade::unregister_event<reshade::addon_event::reshade_begin_effects>(on_begin_effects);
         reshade::unregister_event<reshade::addon_event::reshade_reloaded_effects>(on_reloaded_effects);

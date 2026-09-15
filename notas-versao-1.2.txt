@@ -1,0 +1,22 @@
+As notas "o que mudou" da versao 1.2, prontas para o publicar-versao.ps1.
+
+Elas aparecem DENTRO da caixa que pergunta se a pessoa quer atualizar, e e por elas que ela
+decide. Por isso cabem em 240 caracteres (acima disso a caixa corta com reticencias) e falam
+do que a pessoa sente, nao do que mudou no codigo. Medidas: 228 (pt) e 232 (en).
+
+Este arquivo e UTF-8. Passe as notas LENDO ESTE ARQUIVO, nao digitando na linha de comando:
+um acento que passa pela pagina de codigo do console chega quebrado ao versao.json.
+
+--- pt ---
+Pulo de quadros corrigido: o DLSS 5 não desliga mais. Painel do End refeito (PASSES, Perfil da imagem, DLSS Frame Skipping, Fluidez) e atalhos dentro do jogo. Launcher novo com ofertas e atualização automática. AMD experimental.
+
+--- en ---
+Frame skipping fixed: DLSS 5 no longer turns itself off. Rebuilt End panel (PASSES, Image profile, DLSS Frame Skipping, Fluidity) and shortcuts that work inside the game. New launcher with deals and auto-update. AMD is experimental.
+
+--- o comando (depois que app e launcher estiverem compilados em 1.2 e promovidos) ---
+    cd "C:\Users\PCDOFAFA\Desktop\dlss5 for all portable\amd"
+    $n = [IO.File]::ReadAllText(".\notas-versao-1.2.txt", [Text.Encoding]::UTF8)
+    $pt = ([regex]::Match($n, '(?s)--- pt ---\r?\n(.*?)\r?\n\r?\n')).Groups[1].Value.Trim()
+    $en = ([regex]::Match($n, '(?s)--- en ---\r?\n(.*?)\r?\n\r?\n')).Groups[1].Value.Trim()
+    .\publicar-versao.ps1 -Versao 1.2 -Notas $pt -NotasEn $en -UrlZip "<endereco do zip>"
+Acrescente -Publicar para enviar o versao.json ao servidor (precisa de DLSS5_TOKEN_ADMIN).

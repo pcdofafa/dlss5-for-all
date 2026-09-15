@@ -59,7 +59,7 @@ function Set-IniValue($path, $section, $key, $value) {
     [IO.File]::WriteAllLines($path, $out, (New-Object System.Text.UTF8Encoding($false)))
 }
 
-Write-Host "Fafa DLSS5 Cam - setup da cadeia DLSS 5" -ForegroundColor Magenta
+Write-Host "DLSS5 For All - setup da cadeia DLSS 5" -ForegroundColor Magenta
 Write-Host "Pasta: $Root"
 if (-not (Test-Path $Exe)) { throw "DLSS5ForAll.exe nao esta nessa pasta. Coloca o script na mesma pasta do exe." }
 New-Item -ItemType Directory -Force -Path $Shaders, $Textures, $Tmp | Out-Null

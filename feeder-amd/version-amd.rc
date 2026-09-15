@@ -1,0 +1,28 @@
+#include <windows.h>
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    0,12,0,1
+ PRODUCTVERSION 0,12,0,1
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription",  "DLSS 5 Feed - AMD variant (FSR 3.1 carrier for DLSS-NR-on-AMD; MinGW build)"
+            VALUE "FileVersion",      "0.12.0.1"
+            VALUE "InternalName",     "dlss5-feed-amd"
+            VALUE "OriginalFilename", "dlss5-feed-amd.addon64"
+            VALUE "ProductName",      "DLSS 5 Feed"
+            VALUE "ProductVersion",   "0.12.0.1-amd"
+            VALUE "LegalCopyright",   "MIT: DLSS5-Feeder (jlrouzies-fr), MinHook (Tsuda Kageyu), FidelityFX SDK headers (AMD)"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

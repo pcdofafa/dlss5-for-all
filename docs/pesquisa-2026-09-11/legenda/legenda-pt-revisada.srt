@@ -1,0 +1,1064 @@
+﻿1
+00:00:00,160 --> 00:00:05,440
+Isso aqui é um PlayStation 5 rodando
+o DLSS 5. Isso vocês já viram.
+
+2
+00:00:05,440 --> 00:00:09,840
+O problema é que, depois daquele vídeo,
+vocês me deram uma ideia muito pior.
+
+3
+00:00:09,840 --> 00:00:13,081
+Eu transformei aquela
+gambiarra num programa que
+
+4
+00:00:13,081 --> 00:00:16,457
+aplica o DLSS 5 em
+praticamente qualquer coisa que
+
+5
+00:00:16,457 --> 00:00:20,440
+passa na tela do computador,
+sem precisar modificar o jogo,
+
+6
+00:00:20,440 --> 00:00:24,920
+sem ficar trocando DLL e, às
+vezes, até sem existir um jogo.
+
+7
+00:00:24,920 --> 00:00:27,029
+Você escolhe o que quer processar, dá
+
+8
+00:00:27,029 --> 00:00:29,480
+praticamente um clique
+e a mágica acontece.
+
+9
+00:00:29,480 --> 00:00:35,096
+Isso muda completamente a forma como
+você pode usar isso no seu PC. Foi aí que
+
+10
+00:00:35,096 --> 00:00:41,000
+eu percebi que não tinha criado só mais
+uma forma de colocar o DLSS em mais jogos.
+
+11
+00:00:41,000 --> 00:00:43,667
+Eu tinha criado uma ferramenta que podia
+
+12
+00:00:43,667 --> 00:00:46,800
+mudar tudo que passa na
+tela do meu computador.
+
+13
+00:00:46,800 --> 00:00:48,300
+Só que tem um problema.
+
+14
+00:00:48,300 --> 00:00:52,640
+No vídeo passado, eu fiz isso
+pensando basicamente no PlayStation 5.
+
+15
+00:00:52,640 --> 00:00:56,920
+Mas, depois que eu publiquei, vocês
+tiveram ideias que eu nem imaginava.
+
+16
+00:00:56,920 --> 00:00:59,677
+Teve gente perguntando se isso funcionaria
+
+17
+00:00:59,677 --> 00:01:02,500
+no Xbox. Teve gente
+querendo DLSS em filme.
+
+18
+00:01:02,500 --> 00:01:07,240
+Teve um maluco que perguntou se isso
+funcionaria até rodando um jogo na nuvem.
+
+19
+00:01:07,240 --> 00:01:11,440
+E eu vou confessar: essa última
+aí eu quero muito descobrir.
+
+20
+00:01:11,440 --> 00:01:15,500
+Só que basicamente todo
+mundo me pediu a mesma coisa:
+
+21
+00:01:15,500 --> 00:01:18,500
+um tutorial e o programa liberado.
+
+22
+00:01:18,500 --> 00:01:21,951
+Então eu peguei aquela
+primeira versão que vocês
+
+23
+00:01:21,951 --> 00:01:26,120
+viram no PlayStation e transformei
+numa coisa muito maior.
+
+24
+00:01:26,120 --> 00:01:27,736
+Só que, antes de colocar isso na mão de
+
+25
+00:01:27,736 --> 00:01:29,600
+todo mundo, eu precisava
+descobrir uma coisa:
+
+26
+00:01:29,600 --> 00:01:32,000
+até onde esse programa realmente funciona.
+
+27
+00:01:32,000 --> 00:01:36,522
+Uma coisa é fazer uma imagem
+bonita numa demonstração. Outra
+
+28
+00:01:36,522 --> 00:01:41,120
+completamente diferente é isso
+aqui ser realmente utilizável.
+
+29
+00:01:41,120 --> 00:01:45,440
+Então, hoje eu vou tentar quebrar
+o programa que eu mesmo criei.
+
+30
+00:01:45,440 --> 00:01:47,507
+Quero descobrir onde ele funciona, onde
+
+31
+00:01:47,507 --> 00:01:49,840
+ele dá problema e se
+essa ideia faz sentido.
+
+32
+00:01:49,840 --> 00:01:53,720
+Na pior das hipóteses, eu só criei a
+gambiarra mais sofisticada do canal.
+
+33
+00:01:53,720 --> 00:01:59,000
+Acho que o melhor lugar para começar é
+a principal diferença dessa nova versão.
+
+34
+00:01:59,000 --> 00:02:02,991
+Normalmente, quando você
+quer colocar uma tecnologia
+
+35
+00:02:02,991 --> 00:02:07,520
+dessa num jogo que não tem
+suporte, começa aquela história:
+
+36
+00:02:07,520 --> 00:02:11,500
+tem que abrir o programa, colocar
+uma DLL, ver se o jogo é compatível.
+
+37
+00:02:11,500 --> 00:02:13,644
+Aí o negócio crasha, dá um monte de
+
+38
+00:02:13,644 --> 00:02:16,400
+problema. Aqui o processo
+é bem mais simples.
+
+39
+00:02:16,400 --> 00:02:21,080
+Eu, por exemplo, vou simplesmente abrir
+o jogo em que quero aplicar a tecnologia,
+
+40
+00:02:21,080 --> 00:02:26,000
+selecionar aqui no programa o monitor em
+que o jogo está, se você tiver mais de um.
+
+41
+00:02:26,000 --> 00:02:30,500
+Ou selecionar a janela do jogo,
+o que deixa tudo mais leve.
+
+42
+00:02:30,500 --> 00:02:35,500
+Nesse caso aqui, abri o The
+Witcher 3 e clico em iniciar.
+
+43
+00:02:35,500 --> 00:02:39,000
+Aperto a tecla End.
+
+44
+00:02:39,000 --> 00:02:43,760
+Daí aparece esse menu, clica em
+habilitar e a mágica já aconteceu.
+
+45
+00:02:43,760 --> 00:02:47,000
+Aí está: Geralt com o DLSS 5 versus sem.
+
+46
+00:02:47,000 --> 00:02:50,500
+Com basicamente um
+clique, a mágica acontece.
+
+47
+00:02:50,500 --> 00:02:53,959
+O motivo de funcionar tão
+fácil em tantos jogos é
+
+48
+00:02:53,959 --> 00:02:58,760
+justamente porque eu não estou
+tentando colocar o DLSS dentro deles.
+
+49
+00:02:58,760 --> 00:03:01,526
+Pensa numa película de celular. Você não
+
+50
+00:03:01,526 --> 00:03:04,500
+desmonta o celular para
+colocar a película.
+
+51
+00:03:04,500 --> 00:03:07,800
+Você simplesmente cola ela por cima.
+
+52
+00:03:07,800 --> 00:03:13,160
+Meu programa funciona mais
+ou menos com a mesma lógica.
+
+53
+00:03:13,160 --> 00:03:16,191
+O jogo continua rodando
+normalmente por baixo. É como
+
+54
+00:03:16,191 --> 00:03:19,280
+se eu tivesse uma película
+digital por cima da imagem.
+
+55
+00:03:19,280 --> 00:03:24,200
+Só que essa película tem o DLSS
+5 sendo projetado em cima dela.
+
+56
+00:03:24,200 --> 00:03:28,960
+Então o jogo não precisa ter suporte.
+Ele nem precisa saber que o DLSS existe.
+
+57
+00:03:28,960 --> 00:03:34,040
+Eu também não preciso modificar nada
+nos arquivos dele para isso funcionar.
+
+58
+00:03:34,040 --> 00:03:38,040
+Ele gera a imagem, meu
+programa pega essa imagem,
+
+59
+00:03:38,040 --> 00:03:43,480
+aplica o processamento por cima
+e é isso que eu vejo na tela.
+
+60
+00:03:43,480 --> 00:03:46,047
+Na teoria essa diferença parece pequena,
+
+61
+00:03:46,047 --> 00:03:49,000
+mas é ela que torna a
+compatibilidade absurda.
+
+62
+00:03:49,000 --> 00:03:52,360
+Só que agora vem a parte mais importante.
+
+63
+00:03:52,360 --> 00:03:55,278
+O jogo fica bonitão quando a gente liga
+
+64
+00:03:55,278 --> 00:03:58,720
+esse filtro? Fica. Mas
+será que dá para jogar?
+
+65
+00:03:58,720 --> 00:04:03,520
+Olha, eu estou jogando
+aqui de boa o The Witcher.
+
+66
+00:04:03,520 --> 00:04:09,280
+Ele já é um jogo que não
+tem os melhores controles,
+
+67
+00:04:09,280 --> 00:04:13,000
+mas, andando aqui pela cidade,
+sinto que está bem legal.
+
+68
+00:04:13,000 --> 00:04:16,091
+Claro que, se eu desligo, o jogo parece
+
+69
+00:04:16,091 --> 00:04:19,500
+muito mais leve. E isso
+é importante falar.
+
+70
+00:04:19,500 --> 00:04:22,467
+Quando eu ligo o DLSS,
+cada frame é capturado
+
+71
+00:04:22,467 --> 00:04:25,500
+e renderizado por essa
+película em tempo real.
+
+72
+00:04:25,500 --> 00:04:29,320
+Isso pode gerar um certo
+atraso na sua gameplay.
+
+73
+00:04:29,320 --> 00:04:32,800
+E aí, se atrasar o seu controle,
+já era, não dá para brincar.
+
+74
+00:04:32,800 --> 00:04:37,640
+Bom, num contexto geral,
+jogar aqui está bem de boa.
+
+75
+00:04:37,640 --> 00:04:41,040
+O personagem está respondendo
+rápido, tranquilo mesmo.
+
+76
+00:04:41,040 --> 00:04:45,760
+Se fosse para relatar que senti
+um atraso, eu não perceberia.
+
+77
+00:04:45,760 --> 00:04:50,600
+Mas eu cheguei a medir esse
+atraso. Pelo menos nos meus testes,
+
+78
+00:04:50,600 --> 00:04:52,643
+todo esse processo do programa adiciona
+
+79
+00:04:52,643 --> 00:04:55,000
+uma latência de 20 ms,
+o que eu achei de boa.
+
+80
+00:04:55,000 --> 00:04:59,500
+Só que o atraso não é o único
+preço que o DLSS está me cobrando.
+
+81
+00:04:59,500 --> 00:05:02,714
+Aqui eu tenho um Resident
+Evil 2 com gráficos
+
+82
+00:05:02,714 --> 00:05:06,000
+bem altos e, olha lá,
+mais de 600 FPS na tela.
+
+83
+00:05:06,000 --> 00:05:08,717
+Se eu deixo esse jogo com FPS
+
+84
+00:05:08,717 --> 00:05:13,120
+destravado e aperto o
+botão para ativar o DLSS,
+
+85
+00:05:13,120 --> 00:05:16,551
+o jogo literalmente passa a rodar a
+
+86
+00:05:16,551 --> 00:05:20,080
+17, 16 FPS. Ou seja, fica injogável.
+
+87
+00:05:20,080 --> 00:05:25,500
+Mas se eu vier nas configurações
+do jogo e travar ele a 60 FPS,
+
+88
+00:05:25,500 --> 00:05:31,280
+daí eu consigo ativar
+o DLSS e manter o FPS.
+
+89
+00:05:31,280 --> 00:05:35,286
+Então é um programa realmente
+muito pesado. Dá para
+
+90
+00:05:35,286 --> 00:05:40,000
+utilizar, mas ele vai exigir
+bastante da sua placa de vídeo.
+
+91
+00:05:40,000 --> 00:05:43,285
+E por mais que a gente tenha
+colocado ele de um jeito
+
+92
+00:05:43,285 --> 00:05:46,880
+diferente, rodando por cima
+do jogo, ele ainda pesa muito.
+
+93
+00:05:46,880 --> 00:05:51,000
+Cara, esse Resident Evil
+ficou sinistro com DLSS, hein?
+
+94
+00:05:51,000 --> 00:05:55,720
+Então não é bom usar esse
+programa com FPS destravado.
+
+95
+00:05:55,720 --> 00:05:59,110
+Além disso, o jogo tem que
+estar em modo janela ou
+
+96
+00:05:59,110 --> 00:06:02,500
+janela sem bordas, o que
+não é um grande problema.
+
+97
+00:06:02,500 --> 00:06:05,378
+Mas se, mesmo assim, o
+jogo ficar muito pesado,
+
+98
+00:06:05,378 --> 00:06:08,500
+você pode diminuir só a
+resolução do DLSS por aqui.
+
+99
+00:06:08,500 --> 00:06:11,317
+Só que, como a gente acabou
+de ver, isso ocasionou um
+
+100
+00:06:11,317 --> 00:06:14,080
+bug: diminuí a resolução e
+o jogo ficou a 20 frames.
+
+101
+00:06:14,080 --> 00:06:19,360
+Então nem sempre vai funcionar. Mas
+eu também preparei uma saída curiosa
+
+102
+00:06:19,360 --> 00:06:22,505
+para jogar com o DLSS 5 sem
+colocar o peso no aparelho
+
+103
+00:06:22,505 --> 00:06:26,000
+que está rodando o jogo. Ou
+seja, eu não capo a performance.
+
+104
+00:06:26,000 --> 00:06:29,146
+Foi inclusive a técnica que eu
+
+105
+00:06:29,146 --> 00:06:33,760
+utilizei para rodar o
+DLSS no PlayStation 5.
+
+106
+00:06:33,760 --> 00:06:36,630
+O aparelho roda o jogo
+conectado numa placa de
+
+107
+00:06:36,630 --> 00:06:40,000
+captura e o computador
+renderiza essa imagem por fora.
+
+108
+00:06:40,000 --> 00:06:44,720
+Ou seja, o PlayStation roda o jogo
+e o computador joga o DLSS em cima.
+
+109
+00:06:44,720 --> 00:06:49,120
+Só que a captura externa também
+pode colocar um atraso no caminho.
+
+110
+00:06:49,120 --> 00:06:53,240
+Isso vai depender muito da qualidade
+da placa de captura e do tipo de uso.
+
+111
+00:06:53,240 --> 00:06:58,011
+Mas, enquanto eu fazia
+esses testes, capturando a
+
+112
+00:06:58,011 --> 00:07:03,560
+janela de um jogo ou o monitor
+inteiro, percebi uma coisa
+
+113
+00:07:03,560 --> 00:07:08,920
+que tornou toda essa conversa
+sobre jogos quase pequena demais,
+
+114
+00:07:08,920 --> 00:07:13,780
+já que o programa não
+sabe se o que eu executo
+
+115
+00:07:13,780 --> 00:07:18,640
+na tela é um jogo. Se
+não existir jogo nenhum,
+
+116
+00:07:18,640 --> 00:07:23,440
+será que eu consigo colocar o DLSS
+5 numa parada que não é um jogo?
+
+117
+00:07:23,440 --> 00:07:29,160
+E será que funciona bem?
+Por exemplo, isso aqui.
+
+118
+00:07:29,160 --> 00:07:34,280
+E olha, antes que você fique assustado:
+não, eu não estou com o GTA 6 aqui.
+
+119
+00:07:34,280 --> 00:07:37,155
+Isso é basicamente só um vídeo do
+
+120
+00:07:37,155 --> 00:07:40,640
+YouTube rodando com o DLSS 5 habilitado.
+
+121
+00:07:40,640 --> 00:07:46,480
+Então olha que incrível. Facilmente
+consigo habilitar e desabilitar o DLSS 5
+
+122
+00:07:46,480 --> 00:07:48,442
+até em um vídeo, o que pode elevar
+
+123
+00:07:48,442 --> 00:07:51,500
+completamente a experiência
+de usar o meu computador.
+
+124
+00:07:51,500 --> 00:07:54,960
+Eu basicamente não preciso
+limitar minha experiência a jogos.
+
+125
+00:07:54,960 --> 00:08:00,880
+Vamos ver o que acontece, por exemplo,
+quando eu ativo aqui no anime.
+
+126
+00:08:00,880 --> 00:08:05,800
+Então: três, dois, um. E
+nesse caso, como é um desenho,
+
+127
+00:08:05,800 --> 00:08:10,200
+a gente não teve muita diferença.
+Parece só um filtro comum.
+
+128
+00:08:10,200 --> 00:08:12,305
+É uma experiência um pouco diferente de
+
+129
+00:08:12,305 --> 00:08:14,680
+quando eu ativo numa
+imagem antiga do Shrek.
+
+130
+00:08:14,680 --> 00:08:17,071
+Aqui, de forma sutil, já muda um pouco o
+
+131
+00:08:17,071 --> 00:08:20,000
+traço e coloca um sombreamento
+a mais no cenário.
+
+132
+00:08:20,000 --> 00:08:22,750
+Nesse momento eu já estava achando que
+
+133
+00:08:22,750 --> 00:08:26,080
+tudo que entrasse na
+tela do meu PC ia passar.
+
+134
+00:08:26,080 --> 00:08:31,520
+Aí eu abri a Netflix e olha
+que troço louco, velho.
+
+135
+00:08:31,520 --> 00:08:33,945
+Ela literalmente bloqueia
+qualquer coisa que possa
+
+136
+00:08:33,945 --> 00:08:37,000
+capturar a tela, até a placa de
+captura que eu uso para gravar.
+
+137
+00:08:37,000 --> 00:08:39,500
+Tem que reiniciar o PC. Bendita Netflix.
+
+138
+00:08:39,500 --> 00:08:42,092
+Quando eu falei que o programa colocava o
+
+139
+00:08:42,092 --> 00:08:45,000
+DLSS em tudo, eu não
+estava contando com isso.
+
+140
+00:08:45,000 --> 00:08:49,024
+Até agora eu estava tentando
+resolver um problema de
+
+141
+00:08:49,024 --> 00:08:54,440
+compatibilidade: fazer o DLSS 5 rodar
+em coisas que não rodavam antes.
+
+142
+00:08:54,440 --> 00:08:58,440
+Mas e se esse programa também
+puder resolver outro problema,
+
+143
+00:08:58,440 --> 00:09:03,440
+que é o peso do próprio jogo? Na
+verdade, existe um jeito muito simples
+
+144
+00:09:03,440 --> 00:09:05,664
+de jogar um jogo pesado no seu computador
+
+145
+00:09:05,664 --> 00:09:08,160
+sem pesar ele, sem nenhum
+dispositivo externo.
+
+146
+00:09:08,160 --> 00:09:11,377
+É só jogar essa bomba para a
+
+147
+00:09:11,377 --> 00:09:14,480
+nuvem. Com o jogo em nuvem,
+
+148
+00:09:14,480 --> 00:09:19,012
+a renderização 3D, luzes e texturas
+estão sendo feitas num servidor
+
+149
+00:09:19,012 --> 00:09:23,680
+na internet, que manda a imagem para
+o meu PC como se fosse um vídeo.
+
+150
+00:09:23,680 --> 00:09:28,000
+Graças a isso, o meu PC não precisa se
+preocupar se o jogo é pesado ou leve.
+
+151
+00:09:28,000 --> 00:09:32,400
+Ele só vai gastar recurso
+com o DLSS. Se liga só.
+
+152
+00:09:32,400 --> 00:09:36,000
+Olha que louco, galera. Está desativado.
+
+153
+00:09:36,000 --> 00:09:39,600
+Vou ativar. Está funcionando, meu amigo.
+
+154
+00:09:39,600 --> 00:09:44,080
+Tem basicamente um monte de
+coisa acontecendo ao mesmo tempo,
+
+155
+00:09:44,080 --> 00:09:49,840
+e isso é importante a gente entender
+também. O jogo aqui está passando
+
+156
+00:09:49,840 --> 00:09:53,680
+por um monte de processo
+para chegar na minha casa.
+
+157
+00:09:53,680 --> 00:09:59,040
+Tem a compressão do vídeo, porque
+o jogo está vindo como um vídeo.
+
+158
+00:09:59,040 --> 00:10:03,200
+Isso também gera uma latência
+extra de comunicação.
+
+159
+00:10:03,200 --> 00:10:05,873
+No caso do Forza Horizon
+5, que é o jogo que eu
+
+160
+00:10:05,873 --> 00:10:09,000
+estou jogando, isso é de boa,
+não atrapalha a gameplay.
+
+161
+00:10:09,000 --> 00:10:13,362
+Porém, a gente tem a latência
+do jogo em nuvem correndo
+
+162
+00:10:13,362 --> 00:10:18,280
+aqui e mais um pouquinho de
+latência do DLSS 5 sendo aplicado.
+
+163
+00:10:18,280 --> 00:10:21,160
+Então, com esse jogo, não dá
+para eu concluir muita coisa.
+
+164
+00:10:21,160 --> 00:10:25,000
+Deixa eu ver um outro jogo. Vou
+tentar mostrar o meu controle aqui.
+
+165
+00:10:25,000 --> 00:10:27,100
+Aqui, por exemplo, no Clair Obscur:
+
+166
+00:10:27,100 --> 00:10:29,680
+Expedition 33, dá para
+sentir um pouco mais
+
+167
+00:10:29,680 --> 00:10:32,772
+quando a gente vira a
+câmera. Quando liga o DLSS,
+
+168
+00:10:32,772 --> 00:10:35,800
+honestamente, não parece
+que aumenta a latência.
+
+169
+00:10:35,800 --> 00:10:38,421
+Eu não consigo perceber. Então, para ser
+
+170
+00:10:38,421 --> 00:10:41,500
+sincero, até que ficou
+melhor do que eu achava,
+
+171
+00:10:41,500 --> 00:10:47,120
+mas não espere que você vai jogar
+um FPS aqui e vai ficar bom.
+
+172
+00:10:47,120 --> 00:10:52,400
+Outro detalhe que eu não tinha mostrado
+é que dá para mudar o estilo do DLSS.
+
+173
+00:10:52,400 --> 00:10:57,080
+Igual aqui, está no natural.
+Posso colocar no default e mudar,
+
+174
+00:10:57,080 --> 00:11:02,200
+posso colocar aqui no cinemático,
+posso diminuir a intensidade.
+
+175
+00:11:02,200 --> 00:11:07,800
+Caso eu ache que alterou muito o jogo, eu
+só aperto F7 e abre nessas configurações.
+
+176
+00:11:07,800 --> 00:11:11,536
+Igual aqui: mudei para o
+cinemático e, nesse jogo,
+
+177
+00:11:11,536 --> 00:11:15,720
+acho que ficou um pouco melhor,
+ficou mais interessante.
+
+178
+00:11:15,720 --> 00:11:19,271
+Mas agora que a gente testou
+até no cloud gaming, chega de
+
+179
+00:11:19,271 --> 00:11:22,760
+teste sensato. Você já deve
+ter visto isso aqui no canal.
+
+180
+00:11:22,760 --> 00:11:27,880
+Pensa no negócio que viralizou: isso
+aqui é um novo Super Nintendo chinês.
+
+181
+00:11:27,880 --> 00:11:31,400
+E olha que interessante:
+o danado tem saída HDMI.
+
+182
+00:11:31,400 --> 00:11:36,440
+O que eu vou fazer você já sabe. Mas o
+motivo de eu ligar o meu Super Nintendo
+
+183
+00:11:36,440 --> 00:11:39,626
+na minha placa de captura
+para usar o DLSS é o mais
+
+184
+00:11:39,626 --> 00:11:43,000
+interessante: parece que não
+dá muita diferença mesmo.
+
+185
+00:11:43,000 --> 00:11:46,332
+Pois é, parece que ativar o
+DLSS não é sinônimo de melhoria.
+
+186
+00:11:46,332 --> 00:11:49,720
+Tem arte que foi feita para ser
+do jeito que ela foi moldada.
+
+187
+00:11:49,720 --> 00:11:52,538
+Mas a gente acabou de
+comprovar que eu consigo
+
+188
+00:11:52,538 --> 00:11:55,600
+colocar o DLSS 5 direto
+num Super Nintendo chinês.
+
+189
+00:11:55,600 --> 00:12:00,524
+E é claro que isso me dá
+liberdade para ligar o Nintendo
+
+190
+00:12:00,524 --> 00:12:05,800
+Switch com esse programa, um
+Xbox ou qualquer outro console,
+
+191
+00:12:05,800 --> 00:12:09,740
+ou qualquer coisa que dê para conectar
+
+192
+00:12:09,740 --> 00:12:13,680
+no HDMI, do mesmo jeitinho que eu fiz.
+
+193
+00:12:13,680 --> 00:12:16,525
+Mas é importante falar
+que a captura externa
+
+194
+00:12:16,525 --> 00:12:19,500
+não é mágica. A placa
+de captura tem latência.
+
+195
+00:12:19,500 --> 00:12:22,943
+Então você não precisa sair
+correndo para comprar sua
+
+196
+00:12:22,943 --> 00:12:26,840
+placa de captura, porque você
+pode se frustrar um pouquinho.
+
+197
+00:12:26,840 --> 00:12:29,420
+E é importante eu falar isso
+principalmente antes de você
+
+198
+00:12:29,420 --> 00:12:32,000
+baixar o meu programa, que eu
+acho que ficou super legal.
+
+199
+00:12:32,000 --> 00:12:35,371
+Só que eu preciso deixar
+claro que ele tem problemas. A
+
+200
+00:12:35,371 --> 00:12:38,680
+gente viu que nem todo
+conteúdo processado fica legal.
+
+201
+00:12:38,680 --> 00:12:40,517
+A gente viu que tem
+conteúdo protegido que o
+
+202
+00:12:40,517 --> 00:12:42,520
+programa não consegue
+enxergar, igual a Netflix.
+
+203
+00:12:42,520 --> 00:12:46,959
+E eu também não vou te recomendar
+usar esse programa em cima de algum
+
+204
+00:12:46,959 --> 00:12:51,720
+jogo online, porque eu não sei: o
+anti-cheat pode te pegar e dar problema.
+
+205
+00:12:51,720 --> 00:12:55,509
+Se você usar a placa de captura,
+como eu falei, a própria placa pode
+
+206
+00:12:55,509 --> 00:12:59,800
+colocar um atraso no caminho. No final
+das contas, o programa não faz mágica.
+
+207
+00:12:59,800 --> 00:13:03,562
+Mas, com tudo isso dito,
+eu prometi que ia liberar
+
+208
+00:13:03,562 --> 00:13:07,400
+e estou entregando muito
+mais do que vocês pediram.
+
+209
+00:13:07,400 --> 00:13:12,200
+E agora você pode testar
+isso daí por conta própria.
+
+210
+00:13:12,200 --> 00:13:15,800
+A gente começou essa história querendo
+colocar o DLSS num PlayStation
+
+211
+00:13:15,800 --> 00:13:19,500
+e acabou fazendo um programa
+que ninguém lançou na internet.
+
+212
+00:13:19,500 --> 00:13:23,500
+Vou ficar muito feliz se ver você
+testando esse programa e me marcando
+
+213
+00:13:23,500 --> 00:13:26,500
+para eu comentar no seu canal
+ou nas suas redes sociais.
+
+214
+00:13:26,500 --> 00:13:28,270
+E é claro que eu vou pedir só a sua
+
+215
+00:13:28,270 --> 00:13:31,000
+inscrição. Se você gostou
+desse conteúdo, se inscreve,
+
+216
+00:13:31,000 --> 00:13:33,760
+porque, francamente, eu
+não sei aonde isso termina.
+
+217
+00:13:33,760 --> 00:13:37,500
+Por favor, vai mandando mais ideia maluca
+do que eu posso melhorar nesse programa,
+
+218
+00:13:37,500 --> 00:13:39,231
+porque eu já fiz mais
+do que eu acreditava que
+
+219
+00:13:39,231 --> 00:13:41,000
+era possível, então a
+gente ainda pode ir além.
+
+220
+00:13:41,000 --> 00:13:43,497
+E como eu não sei onde
+esse vídeo pode chegar,
+
+221
+00:13:43,497 --> 00:13:45,940
+só vou dizer o seguinte:
+é Brasil, meu irmão.

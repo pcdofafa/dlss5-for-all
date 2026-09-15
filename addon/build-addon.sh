@@ -26,6 +26,6 @@ OUT=${1:-"$HERE/../dlss5-bridge.addon64"}
   -I"$HERE/include/reshade" \
   "$HERE/dlss5_bridge_addon.cpp" -o "$OUT" \
   -static -static-libgcc -static-libstdc++ \
-  -lkernel32
+  -lkernel32 -lgdi32 -luser32 -lole32
 
 echo "ok -> $OUT"

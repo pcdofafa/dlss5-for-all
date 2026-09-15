@@ -1,8 +1,12 @@
 # DLSS5 For All
 
+🇺🇸 [English version](README.en.md)
+
+**por PC do Fafa** — canal: <https://youtube.com/@pcdofafa> · site: <https://pcdofafa.com.br/dlss>
+
 Uma janela Direct3D 11 mínima que mostra **uma fonte de vídeo qualquer** — placa de captura, webcam,
 **uma janela de jogo** ou **um monitor inteiro** — e existe por um único motivo: ser o alvo mais simples e
-previsível possível pra cadeia **ReShade → DLSS5-Feeder → LumeniteFX → renodx-dlss5**.
+previsível possível pra cadeia **ReShade → DLSS5-Feeder → LumeniteFX → renodx-dlss**.
 É o mesmo truque que o EDMIRE usou no Switch 2 (Feeder dentro do OBS + projetor), só que sem o OBS no meio:
 um exe, um swapchain, um depth buffer real, uma resolução.
 
@@ -72,8 +76,8 @@ e o menu do ícone traz os comandos e os atalhos.
 | **Alt+Esc** | sai do app (duas vezes em 2 s, para não fechar sem querer) |
 
 Todas as teclas são configuráveis — no botão **Atalhos…** do seletor (antes de escolher a fonte) e na seção
-ATALHOS do painel: painel, neural, filtro, teclado pro ReShade e sair, cada uma com a tecla que você quiser
-(com detecção de conflito e "restaurar padrões"). Por padrão End, F6 e Alt+Esc têm tecla.
+ATALHOS do painel, em "Mais opções": painel, neural, filtro, teclado pro ReShade e sair, cada uma com a tecla
+que você quiser (com detecção de conflito e "restaurar padrões"). Por padrão End, F6 e Alt+Esc têm tecla.
 
 O botão **Atalhos…** do seletor também configura a tecla que **abre o overlay do ReShade** (padrão **Home**).
 Essa é a única da lista que não é do app: ela vai para `[INPUT] KeyOverlay` do `ReShade.ini` — o app faz um
@@ -85,24 +89,225 @@ e o painel tem "Como usar" para rever). Se outro programa já tiver a tecla,
 o app pega a reserva e mostra qual valeu no cartaz inicial. **Esc nunca fecha o app** — só o painel ou a tela
 que estiver aberta; sair é por Alt+Esc, pelo botão do painel, pelo X (modo janela separada) ou pela bandeja.
 
+#### Quando o atalho não chega dentro do jogo
+
+O `RegisterHotKey` é global e funciona com qualquer janela na frente — **menos** em dois casos, e os dois têm
+saída:
+
+- **o jogo segura as hotkeys do Windows** (alguns pedem `RIDEV_NOHOTKEYS` no Raw Input). Não há API para
+  perguntar isso de fora; o app resolve **observando a tecla por outro caminho**: um hook de teclado de baixo
+  nível, em thread própria, espera 250 ms pelo `WM_HOTKEY` e, se ele não vier, aciona a ação assim mesmo — com
+  deduplicação nos dois sentidos, para uma tecla nunca virar duas ações. O log diz quando isso acontece
+  (`o WM_HOTKEY NAO chegou em 250 ms … a janela na frente era …`). `[ultima] atalho_reserva=0` desliga.
+  A thread é própria porque o Windows **remove** um hook de baixo nível cujo dono passa de `LowLevelHooksTimeout`
+  (300 ms por padrão) — e o laço principal já registrou `Present` travado de 787 ms num arranque;
+- **o jogo roda elevado e o app não.** Aí nenhuma tecla nossa chega lá (UIPI), e não há truque: o app detecta
+  (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `TokenElevation`; o próprio `ACCESS_DENIED` já é resposta)
+  e mostra um cartaz dizendo para abrir o DLSS5 For All como administrador também.
+
+Há ainda um caminho que **não depende de tecla nenhuma**: o **ícone na bandeja**, cujo menu abre o painel.
+
+> **O botão flutuante saiu em 11/09/2026.** Havia uma pastilha sempre por cima da camada, como terceira porta
+> para o painel; o usuário pediu a remoção — era mais uma coisa em cima do jogo. **Não ficou chave para ligar
+> de volta**: opção escondida no ini para um desenho que ninguém mais vê não é configuração, é código morto com
+> um interruptor em cima. As chaves `[ultima] botao_flutuante`, `botao_x` e `botao_y` deixaram de ser lidas. O
+> caminho reserva de **teclado** continua — é ele que resolve o caso "o jogo segura a hotkey", que era o motivo
+> original da pastilha.
+
 ## Painel na tela (End)
 
-A tecla **End** abre um painel por cima de tudo (fora da captura, então não entra no vídeo nem no filtro):
+A tecla **End** abre um painel por cima de tudo (fora da captura, então não entra no vídeo nem no filtro).
 
-- **DLSS 5**: um card só, HABILITADO/DESABILITADO (F6), que liga e desliga a camada **e** o neural juntos. O estado do
-  Neural Rendering aparece nele como informação — é como se percebe que a cadeia não subiu
-- **Teto de fps do filtro** Máx/60/45/30/20 — devolve GPU ao jogo, não deixa o filtro mais barato
-- **Resolução do DLSS** Auto/100%/77%/67%/58% — esta sim mexe no **custo da rede**. `Auto` escolhe pela área da fonte
-  (≤2,4 MP: 100 · ≤4,0: 77 · ≤6,0: 67 · acima: 58). Vale ao reabrir: quem lê o `dlss5-feed.cfg` é o add-on do feed,
-  uma vez só, quando o ReShade sobe
-- **V-Sync** (padrão desligado — não rasga a imagem, só não espera o vblank)
-- **Desligar o HDR do monitor (plano B)** (padrão desligado; o app detecta e avisa mesmo desmarcado)
-- **Mostrar FPS na tela** (padrão ligado). O número no canto é o contador do **overlay do ReShade**, não do
-  app — a caixa está também no seletor, e escrever nela mexe em `[OVERLAY] ShowFPS` do `ReShade.ini`. Se o
-  contador não sumir na hora, ele some na próxima abertura: quem o desenha é o ReShade.
-- **Idioma / Language** Português / English — vale na hora, sem reiniciar o app
-- **Abrir o ReShade** (Home por padrão; o badge mostra a tecla que está no `ReShade.ini`) e o acesso ao
-  **Grupo de ofertas — PC do Fafa**
+A **primeira vista** traz só o que se mexe no meio de uma partida; o resto fica em **Mais opções**, que abre uma
+segunda coluna ao lado. As explicações não ficam mais na tela: passar o mouse sobre qualquer controle abre um
+**balão** com o texto, depois de 350 ms. O painel nunca é desenhado abaixo do tamanho base — se não couber na
+altura da tela, esconde-se conteúdo, não se encolhe a letra.
+
+- **DLSS 5**: um card só, HABILITADO/DESABILITADO (F6), que liga e desliga a camada **e** o neural juntos. O estado
+  do Neural Rendering aparece nele como informação — é como se percebe que a cadeia não subiu.
+  **O programa abre sempre ligado, em 1 passe** (decisão do usuário): desligar pelo F6 vale **para a sessão**,
+  e a próxima abertura começa ligada. O arranque desfaz a marca `[ultima] neural_off_nosso` que a sessão
+  anterior tenha deixado — sem isso o card mostraria um estado que já não é o real
+- **Perfil da imagem (rede neural)**: um cartão com o resumo do que está valendo
+  (`Modelo B · Intensidade 100% · 2 passes`) e o botão **Ajustar**, que abre uma janela própria
+  (classe `DLSS5ForAllPerfil`, no mesmo molde da janela de Efeitos) com os seis controles:
+  MODELO (A/B/C), INTENSIDADE, ESTRUTURA, PELE E ROSTOS, TOM LOCAL e TOM GLOBAL
+- **PASSES DA REDE** 1…10 — quantas vezes a rede refaz o **mesmo** quadro (`DirectNeuralRenderingPassCount`).
+  Medido nesta árvore: ~4,2 ms de GPU por passe. Substitui o antigo "1x / 2x / 3x"
+- **DLSS FRAME SKIPPING** Desligado / 1 de cada 2 / 3 / 4 — a rede processa um quadro de cada N e o app
+  **desenha** os outros, projetando a cena pelo campo de movimento. O movimento sintetizado é automático
+  (não há interruptor) e cai sozinho para "segurar" quando falta base ou campo. Uma seção só: no modo
+  sobreposto ela usa a camada intermitente com síntese, no espelho usa o pulo simples — as duas chaves
+  (`alterna_quadros`, `pulo_quadros`) continuam no ini e ligar uma desliga a outra
+- **FLUIDEZ DO DLSS 5 NA TELA** `[−] 60 [+]` e **Destravar** — quantos quadros por segundo a película
+  apresenta; não muda o fps do jogo. **Abaixo** do que o jogo entrega o número é um teto e é **exato**.
+  **Acima**, entram quadros projetados pelo movimento — e isso é **experimental**: a entrega é **parcial**,
+  conforme a folga da placa. Medido aqui com o jogo a 60: pedindo 90 a película foi a **70**; pedindo 120,
+  a **73** (o teto útil da tela era 94). Sobe de verdade, mas não alcança o número pedido.
+  **Destravar** não desliga a projeção: sem número escolhido, o alvo passa a ser o máximo útil da tela
+  (95% do refresh). O `[−]` continua valendo no estado destravado e volta ao último número escolhido.
+  Grava em `[ultima] fps_teto_pelicula`; padrão 60; `0` = destravado. Uma linha de status embaixo mostra
+  `jogo N/s · película N/s · N projetados por segundo` — e a **película conta tudo o que vai à tela**:
+  processado, sintetizado pelo frame skipping e projetado. (Até 11/09/2026 o sintetizado ficava de fora e,
+  com o skipping ligado, a linha mostrava metade do que a pessoa estava vendo.)
+
+  **Compõe com o DLSS FRAME SKIPPING**, e isso foi medido: com skipping 1 de 2 e a Fluidez em 120, a rede
+  processou ~20/s e a película saiu a **74–80/s**. A prova externa (contagem de quadros distintos na tela,
+  fora do app) deu **≥57/s** — é um piso, porque o amostrador satura em ~88 amostras/s; mesmo assim está
+  muito acima dos ~20 processados, que é o que a composição precisava mostrar.
+- **Resolução do DLSS** Auto/100%/77%/67%/58% — mexe no **custo da rede**. `Auto` escolhe pela área da fonte
+  (≤2,4 MP: 100 · ≤4,0: 77 · ≤6,0: 67 · acima: 58). Vale ao vivo: o feed segura o rebuild por 60 quadros e
+  reconstrói (medido: ~2 s), com o neural desligado durante a reconstrução e religado 4 s depois
+- **Mais opções**: Efeitos (nitidez e anti-serrilhado, em janela própria), V-Sync, HDR, Mostrar FPS na tela,
+  **Modo comparativo**, FPS do jogo, idioma, atalhos, o **Grupo de ofertas — PC do Fafa**, o canal,
+  Abrir o ReShade, **Trocar fonte ou placa** e Sair
+- **Trocar fonte ou placa** (ao lado do Sair): volta para a tela de escolha da fonte sem fechar o app na mão.
+  O caminho é uma **reabertura** — a cadeia NGX não sobrevive a uma troca de fonte com o device vivo —, com
+  cartaz na frente enquanto troca. A cópia nova leva a fonte, a placa e o idioma de agora **já marcados**
+  (`--pre-fonte`, `--pre-janela`/`--pre-monitor`/`--pre-dispositivo`/`--pre-modo`, `--placa`); sem esses
+  argumentos o seletor cairia no que está no ini, que é a última vez que alguém abriu o app pelo seletor.
+  A janela casa por **título**: se o jogo muda o título sozinho, o seletor abre no primeiro item da lista.
+  O app também volta sozinho para essa tela quando a janela capturada é fechada
+
+### O perfil só vale quando o add-on carrega
+
+MODELO, INTENSIDADE, ESTRUTURA, PELE, TOM e PASSES são gravados em três lugares (o `[ultima]` do nosso ini, a
+config viva do ReShade pela ponte e o `ReShade.ini`), e mesmo assim **não mudam a rede enquanto o app roda**: o
+add-on RenoDX lê o perfil uma vez, quando carrega, e não relê. Medido: `DirectNeuralRenderingPassCount=10`
+escolhido no painel deixou o feed em 0,56–0,64 ms/quadro e 61 fps; o mesmo 10 lido **na abertura** deu
+3,04–6,54 ms/quadro e 24,6 fps.
+
+Por isso o app **se reabre sozinho** depois de um ajuste de perfil: 2,5 s de espera (cada novo toque reinicia a
+contagem, então mexer em seis controles reabre uma vez só), cartaz na tela e `ReabrirApp` preservando alvo (por
+HWND), fonte, placa, pulo e intermitente. `[ultima] perfil_reabre=0` desliga a reabertura — aí a escolha fica
+gravada e vale na próxima abertura feita à mão.
+
+### Motor da rede: RenoDX (padrão) ou o próprio (experimental)
+
+> **Escondido nesta release — volta na próxima.** O interruptor do motor, a régua
+> **TAMANHO DA REDE NEURAL** e o **ORÇAMENTO DE ESPERA** do módulo AMD só aparecem com
+> `[ultima] recursos_experimentais=1`. O motivo não é a interface nem a segurança: o feeder que
+> vai junto com esta versão **já traz** a guarda que impede os dois motores neurais de rodarem
+> juntos (a que evita o `0xC0000005` no `evaluate` do SuperSampling). O que falta é **medição**:
+> o motor próprio só foi comparado em cena sintética, e o que não está fechado não sai de fábrica
+> ligado. Com a chave, tudo abaixo volta a aparecer; nada foi removido do programa. Os chips de
+> **Resolução do DLSS** de sempre continuam onde estavam — eles são outra coisa (o tamanho em que
+> a cadeia inteira trabalha).
+
+Duas implementações da **mesma rede** convivem na pasta, e a troca é só configuração — nada é renomeado
+nem removido. Em **Mais opções → MOTOR DA REDE NEURAL**:
+
+| | RenoDX (padrão) | Próprio (experimental) |
+|---|---|---|
+| `ReShade.ini` `[RENODX-DLSS] DirectNeuralRenderingHookPoint` | `2` | `0` |
+| `dlss5-feed.cfg` `nr_spike` | `0` | `1` |
+| quem avalia a rede | `renodx-dlss.addon64` | `dlss5-feed.addon64` |
+| perfil e passes | valem **na próxima abertura** | valem **na hora** (o cfg é relido a cada 60 quadros) |
+| custo de GPU | — | **empate**; não é mais rápido |
+| imagem | borra bastante com muitos passes | borra bem menos (laplaciano 834 contra 168 com 4 passes) |
+
+**Trocar reabre o app uma vez**, e não é escolha de conveniência: o add-on do RenoDX lê o `HookPoint`
+uma única vez, quando carrega. **Os dois nunca ficam ligados juntos** — isso derruba o `evaluate` do
+SuperSampling em `0xC0000005` e a cena segue sem filtro nenhum; o painel grava as duas chaves na mesma
+ação, o arranque as reaplica, e o feeder recusa subir o motor próprio se a chave do outro estiver ligada.
+
+**TAMANHO DA REDE NEURAL** (só no motor próprio): `Leve 65%` · `100%` · `125%` · `150%` · `200%`. Não é
+a "Resolução do DLSS" da primeira vista — aquela é o tamanho em que a **cadeia inteira** trabalha; esta é
+o tamanho em que **só a rede** roda. É **um controle só** porque as chaves são um par: `nr_escala` só age
+com `nr_reduzida=1`, então "rede leve" e "supersampling da rede" são o mesmo par em degraus diferentes —
+dois controles separados se apagariam um ao outro. `Leve 65%` rende +21% a +34% de fps com 4 a 10 passes;
+acima de 100% custa caro (200% ≈ 2,4× o custo) **e a rede age menos** na imagem.
+
+O painel lê `dlss5-feed.status` (chave=valor, ao lado do log) e mostra `motor · rede · passes`. É de lá
+que sai o cartaz da **passagem segura**: sem esse arquivo o aviso do feeder morria no `ReShade.log` e a
+pessoa via a imagem sem filtro sem saber por quê. `estado=ok` com `motivo` preenchido quer dizer "a cadeia
+está filtrando, mas o motor pedido não subiu" — e o cartaz diz isso, não "parou".
+
+### No módulo AMD o perfil vai para o mod, e metade dele não existe
+
+No pacote AMD quem faz o Neural Rendering é o mod **DLSS-NR-on-AMD**, de terceiro — o add-on do
+RenoDX nem entra na pasta. Até a 1.2 o painel gravava o perfil no bloco `[RenoDX.DLSS5]` do
+`ReShade.ini` **mesmo ali**, onde ninguém lia: os controles pareciam funcionar e não chegavam à
+rede. Agora eles vão para `[DlssNrOnAmd]` do `dlssnr_on_amd.ini`, que é quem o mod lê.
+
+| controle do painel | chave do mod |
+|---|---|
+| TOM LOCAL | `LocalTone` |
+| ESTRUTURA | `LocalStructure` |
+| PELE E ROSTOS | `SkinStructure` |
+| máscara automática | `UseAutoMask` |
+| MODELO, INTENSIDADE, PASSES | **não existem no mod** — aparecem apagados, com o motivo |
+| TOM GLOBAL | existe (`ToneChannels`) e **fica apagado assim mesmo**: a ajuda do próprio mod diz que este build dele mantém esses canais desligados e que subir o valor *"mostly darkens the frame"* |
+
+As chaves foram conferidas **no binário do mod** (o instalador e o `version.dll` v0.2.18), não
+supostas. Os nossos cinco degraus (0/25/50/75/100%) entram na escala do mod por arredondamento em
+0..2; o `-1` de fábrica do `SkinStructure` quer dizer **auto** ("segue a Structure"), e o limite
+superior **não está confirmado** — nenhuma string do binário o nomeia. Por isso o log grava o par
+"nosso valor → valor do mod" em toda gravação. A gravação troca uma chave por vez e preserva o
+resto do arquivo (inclusive o CRLF), porque o mod também escreve nele pelo overlay dele.
+
+Mexer no perfil **reabre o app**, por dois motivos: o mod só tem prova documentada de releitura ao
+vivo para `Inline` e `Interop`; e a releitura dele **refaz o staging**, ou seja, mesmo funcionando
+ao vivo daria um repique na imagem. E o que de fato ganha fps no modo AMD não é nada disto — é a
+**Resolução do DLSS**, e o painel diz isso no rótulo daquela seção (13,5 ms por quadro só de rede
+a 634x669 numa RX 9060 XT — **medido em vídeo na tela, não em jogo**, na sessão de outro PC).
+
+**ORÇAMENTO DE ESPERA POR QUADRO** (`[−] 25 ms [+]`, passo 5, de 5 a 200) é o `InlineWaitMs` do
+mod: quanto um quadro espera pela rede antes de o mod mostrar o retoque do anterior em vez de
+segurar a imagem. **Menor = mais fluido, com resíduo do quadro anterior quando a rede atrasa;
+maior = mais fiel, menos fps.** 25 ms é o valor comprovado numa RX 9060 XT; o mod nasce em 200.
+Só aparece se o mod instalado conhecer a chave (v0.2.18 em diante) — e essa conferência não é por
+número de versão: o app procura a chave no `dlssnr_on_amd.ini` e, se não achar, o nome dentro do
+`version.dll`. O mod não carimba `VERSIONINFO`, então comparar versão não era possível de
+verdade.
+
+### Modo comparativo (para gravar o antes e o depois)
+
+Em **Mais opções → Modo comparativo (metade sem DLSS 5)**. A tela é partida ao meio: à **esquerda** a imagem
+**original** do jogo, à **direita** a mesma imagem **com o DLSS 5 aplicado** — as duas metades do **mesmo
+quadro**, que é o que convence. No meio fica uma risca branca de 2 px.
+
+Quem faz isso é a ponte (`dlss5-bridge.addon64`), em dois ganchos: no `reshade_begin_effects` o back buffer
+ainda é o nativo e uma cópia inteira é guardada; no `reshade_finish_effects` a metade esquerda dessa cópia é
+devolvida por cima do resultado. Custo medido pelo desenho: duas cópias de GPU por quadro (~8 MB + ~4 MB a
+1080p), e só com o modo ligado.
+
+No alto de cada metade vai um **selo**: as imagens `marca\comparar-original.png` e `marca\comparar-dlss5.png`,
+ao lado do executável. São carregadas do arquivo (dá para trocar a arte), redimensionadas para **9% da altura
+da tela** (`[comparar] rotulo_altura`, de 5 a 15) com margem de 1,5%, e desenhadas **sem esticar**. Faltando
+os PNGs entra um letreiro de reserva escrito na hora — cartão escuro com a palavra `ORIGINAL` / `DLSS 5`. Os
+selos são copiados, não misturados: não há transparência valendo, e em back buffer HDR (10 ou 16 bits) eles
+não aparecem (o `ReShade.log` diz).
+
+**As duas metades são do mesmo instante, e isso foi medido, não suposto.** Bateria de 45 fotos (parado,
+movimento a 8 px/quadro e movimento com frame skipping, contra `[comparar] atraso` 0/1/2), medindo o degrau
+na emenda dividido pelo degrau típico da imagem: sem compensação a razão fica em **0,87** com a cena andando
+e **0,40** com skipping (1,00 = emenda tão suave quanto o resto); compensar um quadro leva a 1,78 e 2,97, ou
+seja, **piora**. O salto que às vezes aparece numa foto é rasgo da captura (`PrintWindow` pegando a janela no
+meio da troca de quadro), não defasagem da cadeia. `[comparar] atraso` fica disponível, com padrão `0`.
+
+**No quadro sintetizado do DLSS FRAME SKIPPING as duas metades ficam iguais**, e isso não tem conserto aqui:
+naquele quadro a cadeia inteira está suprimida — não existe "com" e "sem", existe um quadro desenhado por nós.
+Para gravar comparação, deixe o frame skipping em **Desligado**.
+
+### Chaves novas do `dlss5forall.ini`
+
+| chave | seção | padrão | o que faz |
+|---|---|---|---|
+| `fps_teto_pelicula` | `[ultima]` | 60 (chave ausente) | o número da FLUIDEZ DO DLSS 5 NA TELA; `0` = destravado |
+| `fluidez` | `[ultima]` | ausente = automático | força os quadros projetados (2 ou 3); só vale se for maior que 1 |
+| `perfil_reabre` | `[ultima]` | ligado | `0` não reabre o app ao mudar o perfil/passes |
+| `atalho_reserva` | `[ultima]` | ligado | `0` desliga o hook de teclado reserva |
+| `alterna_modo` | `[ultima]` | `sintetizar` | como o quadro pulado é preenchido: `sintetizar`, `segurar`, `alfa`, `regiao` |
+| `ligado` | `[comparar]` | `0` | o modo comparativo; é o que o chip do painel grava |
+| `divisor` | `[comparar]` | `50` | onde fica a risca, em porcento da largura (aceita 5 a 95) |
+| `rotulos` | `[comparar]` | `1` | `0` esconde os selos ORIGINAL / DLSS 5 FOR ALL |
+| `rotulo_altura` | `[comparar]` | `9` | altura dos selos em % da altura da tela (5 a 15) |
+| `atraso` | `[comparar]` | `0` | quantos quadros o lado esquerdo recua; medido, 0 é o alinhado |
+| `motor` | `[ultima]` | `renodx` | `proprio` usa o motor de rede do feeder (experimental) |
+| `recursos_experimentais` | `[ultima]` | ausente | `1` mostra o interruptor do motor, a régua do tamanho da rede e o orçamento de espera do mod AMD (experimental, volta na próxima versão) |
+| `LocalTone`, `LocalStructure`, `SkinStructure`, `UseAutoMask` | `[DlssNrOnAmd]` do `dlssnr_on_amd.ini` | do mod | **módulo AMD**: é para onde vão TOM LOCAL, ESTRUTURA, PELE E ROSTOS e a máscara |
+| `nr_escala` | `[ultima]` | `100` | o degrau aceso do TAMANHO DA REDE (65, 100, 125, 150, 200) |
 
 ## Idioma
 
@@ -138,7 +343,27 @@ O preset `FafaDLSS5.ini` carrega **três técnicas**, e elas não são intercamb
 | `DLSS5_Feed` | fabrica os *motion vectors* e entrega o par ao DLSS | **não** — é o contrato do Neural Rendering |
 | `DLSS5_Sharpen` | pós-nitidez (`Sharpness=0.35`) | **sim** — é gosto, não requisito |
 
-O Neural Rendering em si não é técnica do preset: quem o roda é o add-on `renodx-dlss5.addon64`.
+#### Os controles do add-on neural: quais valem e quais não
+
+O painel do `DLSS 5 Neural Rendering` (tecla Home, no ReShade) mostra mais controles do que esta
+build usa de fato. Medido em 6 de setembro de 2026 nesta cadeia:
+
+| controle | efeito aqui |
+|---|---|
+| `NRStyle` | **vale, e é o que mais muda a imagem.** `0` (Default) é o padrão do app; `1` (Natural) comprime as altas-luzes em 10,5% e, como a periferia da cena costuma ser mais clara que o meio, isso se lê como uma **vinheta escura** em volta da imagem. Se você viu essa vinheta, era isto. |
+| `NRIntensity`, `NRLocalStructure`, `NRSkinStructure`, `NRLocalTone` | valem |
+| `NRGlobalTone` | **sem efeito nesta build** |
+| `NREnableUpscaling` | **sem efeito nesta build** — aqui a rede trabalha em resolução plena |
+| `NRTransferStrength` | **sem efeito nesta build** |
+
+O app grava `NRStyle` e `NRLocalTone` no `ReShade.ini` **toda vez que abre**, a partir de
+`[ultima] nr_estilo` e `[ultima] nr_tom_local` do `dlss5forall.ini`. Isso existe porque o
+*AutoSavePreset* do ReShade grava no `ReShade.ini` o que estiver na memória quando ele fecha, e
+foi assim que um `NRStyle=1` apareceu num pacote sem ninguém ter escolhido — a imagem mudava de
+estilo entre uma sessão e outra sem explicação. Para usar outro estilo, troque no `dlss5forall.ini`:
+o valor de lá é respeitado em todas as aberturas.
+
+O Neural Rendering em si não é técnica do preset: quem o roda é o add-on `renodx-dlss.addon64`.
 Ele é também **a parte cara** — é por isso que o painel tem um botão só para ele, separado do filtro:
 a diferença de fps ao desligá-lo é a medida do que ele custa nesta máquina. O custo do resto está no
 `dlss5-feed.log` de cada sessão, nesta forma: `600 frames: feed CPU 3.36 ms/frame … feed is 6% of the
@@ -148,8 +373,8 @@ O **Neural Rendering** é o primeiro item do painel e o motivo do app existir: o
 desligado) aparece em destaque, e o app avisa alto se ele não subir.
 
 **Ficou pesado?** O filtro custa GPU (o Neural Rendering é a parte cara). `F6` desliga na hora (e religa tudo do jeito que estava) e o jogo
-continua rodando normal por baixo — ele nunca parou; o que você via era a nossa entrega. Baixar o teto de fps
-no painel devolve GPU pro jogo. O app avisa sozinho, uma vez, quando percebe que está apresentando muito
+continua rodando normal por baixo — ele nunca parou; o que você via era a nossa entrega. Ligar o **DLSS FRAME SKIPPING** em "1 de cada 2" corta o trabalho da rede pela metade, e baixar o número da
+**FLUIDEZ DO DLSS 5 NA TELA** devolve GPU ao jogo. O app avisa sozinho, uma vez, quando percebe que está apresentando muito
 abaixo do que captura.
 
 **HDR**: quando o monitor do alvo está em HDR, o app captura em float16 e converte para SDR no próprio shader,
@@ -157,6 +382,10 @@ abaixo do que captura.
 ligado) deixou de sair estourado em branco. A caixa *Desligar o HDR do monitor enquanto captura (plano B)* é
 opcional: desliga e restaura ao sair (inclusive se o app for morto), mas jogo já aberto costuma ler o HDR só na
 inicialização. Na placa de captura a caixa confirma a conversão PQ/BT.2020. Medições em `docs/hdr.md`.
+
+**Tela cheia exclusiva não funciona** — o Windows não deixa a captura alcançar um swapchain exclusivo, e a
+nossa camada não aparece por cima dele. Jogo em **janela** ou **borderless** (a maioria dos jogos novos só tem
+borderless). Vale para as duas fontes, janela e monitor.
 
 **Se o jogo mudar de tamanho** (janela redimensionada, troca de resolução): o filtro continua — o backbuffer fica no
 tamanho em que nasceu (mexer nele com a cadeia NGX viva derruba o Feeder), a imagem nova é encaixada nele, a captura
@@ -191,9 +420,11 @@ fecha sozinha — a pessoa fecha em `Agora não`, no X ou com Esc — sem contag
    - LumeniteFX (`lumenite_*.fx`, `include\`, blue noise)
    - `nvngx_dlss.dll` copiado do driver NVIDIA ou de um jogo
    - `ReShade.ini` + preset `FafaDLSS5.ini` já com `DLSS5_MV_PROVIDER=3` e as técnicas na ordem certa
-3. **Você** coloca `renodx-dlss5.addon64` + `nvngx_dlssnr.dll` ao lado do exe (instalador RHI do RankFTW ou canal #DLSS5 do Discord do RenoDX).
+3. **Você** coloca `renodx-dlss.addon64` + `nvngx_dlssnr.dll` ao lado do exe (instalador RHI do RankFTW ou canal #DLSS5 do Discord do RenoDX).
    O script para e espera por eles. São o código vazado da NVIDIA — o script não baixa isso por você.
-   **Se abrir o app sem eles**, o seletor mostra uma faixa dizendo o que falta, com um botão que abre as
+   **Se abrir o app sem eles**, o seletor mostra uma faixa dizendo o que falta — e a conferência inclui o
+   `nvngx_dlss.dll` do passo 2, que o script copia mas pode não achar: sem ele a sessão NGX não abre, o
+   feeder cai na passagem segura e a tela fica idêntica à original, sem erro nenhum. Há um botão que abre as
    releases do RHI e outro que abre a pasta onde os arquivos vão. Instalou com o seletor aberto? Clique de
    volta na janela e a faixa some sozinha. O app continua abrindo e mostrando a imagem sem eles — o que não
    acontece é o realce do DLSS 5, e era exatamente essa a confusão: a imagem sai igual à original e parece
@@ -273,6 +504,8 @@ O ReShade aplica tudo **no Present** da nossa janela, então quem grava tem que 
 - **NVIDIA App / ShadowPlay** também funciona.
 - Se a fonte for **monitor** com "esconder esta janela da captura" ligado, o OBS **não vê** a nossa janela —
   use dois monitores (jogo num, DLSS5 For All no outro) ou capture por janela.
+- Para o vídeo de **antes e depois**, ligue o **Modo comparativo** (Mais opções): as duas metades saem no mesmo
+  quadro, já com os selos, e não é preciso cortar nada na edição. Deixe o DLSS FRAME SKIPPING desligado.
 
 Latencia: medida nesta maquina, do frame capturado ao pixel na tela, **18-21 ms com a GPU livre** (era ~121 ms
 antes do swapchain waitable com `SetMaximumFrameLatency(1)`). O Neural Rendering acrescenta +3 a 4,5 ms a 1080p e
@@ -302,7 +535,7 @@ poe o monitor real como principal) e confere a linha `LAT ritmo do WGC` no `dlss
 | A overlay some quando clico fora | comportamento normal | ela só aparece com o jogo em primeiro plano |
 | A overlay fica atrás do jogo | jogo topmost brigando | o app reafirma o topo a cada 1 s; se persistir, roda o jogo em janela normal |
 | Imagem nítida parada mas borra ao mexer | motion vectors não chegando | Overlay → seção *Motion vectors* do Feeder. Kernel **acima** do Feed e `DLSS5_MV_PROVIDER=3`. |
-| A imagem sai igual à original, "não faz nada" | faltam `renodx-dlss5.addon64` e/ou `nvngx_dlssnr.dll` | O seletor avisa numa faixa e leva às releases do RHI. Sem eles o app é só espelho: o neural não sobe. |
+| A imagem sai igual à original, "não faz nada" | falta um de `renodx-dlss.addon64`, `nvngx_dlssnr.dll` ou `nvngx_dlss.dll` | O seletor avisa numa faixa **dizendo qual** e leva às releases do RHI. Sem o `nvngx_dlss.dll` a sessão NGX nem abre e o feeder cai na passagem segura — o sintoma é exatamente "igual ao original", sem erro. |
 | Painel DLSS 5 em STANDBY | add-on perdeu o primeiro create | O Feeder recria sozinho depois de ~180 frames. Espera. |
 | "0.0 fps (alvo parado)" | a janela capturada não redesenhou nada | normal em janela estática; num jogo o número sobe |
 | Fatal: "dispositivo em uso" / nenhum modo (câmera) | outro app segurando a captura | Fecha OBS/Discord/navegador/app Câmera, clica em *Atualizar lista*. |
@@ -320,37 +553,16 @@ poe o monitor real como principal) e confere a linha `LAT ritmo do WGC` no `dlss
 **O que precisa ir no zip** (além do que o `setup-dlss5.ps1` baixa): `DLSS5ForAll.exe`, `dlss5-bridge.addon64` (ponte do
 painel — é por ela que o F6 alterna o neural sem teclado), `reshade-shaders\Shaders\DLSS5_Grade.fx` e `DLSS5_Sharpen.fx`
 (opcionais, para quem quiser grading pelo overlay do ReShade),
-`reshade-shaders\Textures\dlss5_grade_luts.png`, os `preset-0*.ini`, `ofertas.ini`, `README.md` e `setup-dlss5.ps1`.
+`reshade-shaders\Textures\dlss5_grade_luts.png`, `marca\comparar-original.png` e `marca\comparar-dlss5.png`
+(os selos do modo comparativo — sem eles o modo funciona, mas com letreiro de reserva),
+os `preset-0*.ini`, `ofertas.ini`, `README.md` e `setup-dlss5.ps1`.
 O `ReShade.ini` e o `FafaDLSS5.ini` o script gera; `dlss5forall.ini` nasce na primeira execução. Não distribua `nvngx_dlssnr.dll`.
 
 O app é MIT e não contém nenhum código da NVIDIA. O que ele hospeda (ReShade, Feeder, LumeniteFX, RenoDX, o DLL vazado)
 tem cada um sua licença e seu risco — o DLSS 5 nesse estado é um build interno que caiu do NBA 2K27, e a Take-Two já
 derrubou coisa por copyright. Faz o vídeo, deixa claro que é experimento com build vazado, e não redistribui o `nvngx_dlssnr.dll`.
 
-## Compilar do código-fonte
+---
 
-O app é C++17 puro sobre a API do Win32 — sem SDK externo, sem gerenciador de pacotes, sem CMake.
-
-**Precisa de:** Windows 10/11 x64, **MinGW-w64 pelo [msys2](https://www.msys2.org/)**
-(`pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils`) e um **bash** (o do msys2, o do Git for Windows ou o WSL).
-O `build-mingw.sh` procura o `g++` em `C:\msys64\mingw64\bin` e põe essa pasta no `PATH` antes de chamá-lo — se o seu
-msys2 estiver noutro caminho, exporta `CXX` apontando pro teu `g++`.
-
-```bash
-./build-mingw.sh                 # DLSS5ForAll.exe + o add-on da ponte (dlss5-bridge.addon64)
-./build-mingw.sh MeuTeste.exe    # outro nome de saída
-SKIP_ADDON=1 ./build-mingw.sh    # só o exe, pra iterar rápido
-```
-
-O script compila também o `app.rc` com o `windres` (ícone + VERSIONINFO) e, no fim, chama o `addon/build-addon.sh`,
-que usa os headers do ReShade em `addon/include/reshade/`. Compila com `-Wall -Wextra`: aviso novo é defeito, não ruído.
-
-Os binários gerados **não** são versionados. Pra montar a cadeia inteira numa pasta de teste, roda o `setup-dlss5.ps1`,
-que baixa ReShade, Feeder, LumeniteFX e RenoDX de cada fonte oficial.
-
-## Contribuindo
-
-PRs são bem-vindos — o passo a passo (fork → branch → PR, revisão do dono antes de entrar) está em
-[`CONTRIBUTING.md`](CONTRIBUTING.md). **Regra que não tem exceção: PR nenhum pode trazer `nvngx_dlssnr.dll`,
-`nvngx_dlss.dll`, `renodx-*.addon64` ou `dxgi.dll`.** Este repositório distribui a receita, nunca os ingredientes
-proprietários de terceiros.
+**DLSS5 For All — por PC do Fafa.**
+Canal: <https://youtube.com/@pcdofafa> · Download e novidades: <https://pcdofafa.com.br/dlss>

@@ -1,0 +1,457 @@
+﻿=====================================================================
+  DLSS5 FOR ALL  -  VERSÃO PORTABLE
+  por PC do Fafa
+=====================================================================
+  (English version: README.txt)
+  Canal: youtube.com/@pcdofafa   ·   Site: pcdofafa.com.br/dlss
+
+
+O QUE É ISSO
+---------------------------------------------------------------------
+Aplica o DLSS 5 (Neural Rendering da NVIDIA) por cima de qualquer
+coisa que apareça na sua tela: jogo em janela, emulador, vídeo,
+o monitor inteiro ou uma placa de captura / webcam.
+
+Nada é instalado no Windows e nada é injetado dentro do jogo.
+Tudo roda de dentro desta pasta.
+
+
+O QUE TEM NA PASTA
+---------------------------------------------------------------------
+DLSS5ForAll.exe   ->  É POR AQUI QUE VOCÊ ABRE.
+                      Mostra a tela do grupo com os botões de modo
+                      (placa NVIDIA / placa AMD) e abre o programa certo.
+LEIA-ME.txt       ->  este arquivo
+README.txt        ->  o mesmo tutorial em inglês
+bin\              ->  o programa para placa NVIDIA e tudo que ele precisa.
+bin-amd\          ->  o programa para placa AMD (quando existir na sua
+                      versão; sem essa pasta o botão AMD fica cinza).
+                      No dia a dia não precisa entrar em nenhuma das duas.
+
+
+PRECISA DE
+---------------------------------------------------------------------
+- Windows 10 (1903 ou mais novo) ou Windows 11, 64 bits
+- Placa GeForce RTX (série 20 ou mais nova) com driver atualizado,
+  ou Radeon RX 7000 / RX 9000 com o módulo AMD (em desenvolvimento)
+- O jogo rodando em JANELA ou BORDERLESS
+  (tela cheia exclusiva NÃO funciona: o Windows não deixa capturar)
+
+
+COMO USAR EM 5 PASSOS
+---------------------------------------------------------------------
+1. Abre o jogo. Deixa ele em janela ou borderless.
+
+2. Dá dois cliques em DLSS5ForAll.exe.
+   Aparece a tela do grupo. Embaixo dos botões do grupo tem dois:
+     USAR O DLSS 5 EM PLACA NVIDIA   (verde)
+     USAR O DLSS 5 EM PLACA AMD      (vermelho)
+   O que não serve no seu PC fica cinza, com o motivo escrito nele.
+   Se os dois estiverem cinzas, aparece ABRIR SEM DLSS 5: o programa
+   abre mesmo assim, só com os efeitos (nitidez, anti-serrilhado...).
+
+3. No seletor, escolhe a FONTE:
+     Janela   -> escolhe o jogo na lista.  MAIS LEVE. (recomendado)
+     Monitor  -> a tela inteira passa pelo filtro.
+     Câmera / Placa de captura -> webcam, ezcap, DroidCam etc.
+   Tem mais de uma placa de vídeo? Em "Placa de vídeo que roda o
+   filtro" você escolhe qual delas roda o DLSS 5 — a outra fica
+   livre pro jogo. Com uma placa só, a linha só mostra o nome.
+
+4. Decide como quer ver o resultado:
+     [x] SOBREPOR o alvo   -> o filtro fica colado POR CIMA do jogo.
+                              Parece que o DLSS 5 roda dentro dele.
+                              O mouse e o teclado continuam indo pro jogo.
+     [ ] SOBREPOR o alvo   -> o resultado abre numa JANELA SEPARADA.
+                              Bom pra gravar e comparar lado a lado.
+
+5. Clica em INICIAR. Pronto.
+   O jogo continua rodando normal por baixo; o que você vê é a
+   imagem dele já passada pelo DLSS 5.
+
+A última escolha fica salva: na próxima vez é só INICIAR.
+
+
+TECLAS
+---------------------------------------------------------------------
+End       abre / fecha o PAINEL (tudo se ajusta nele, com o mouse)
+F6        liga / desliga o DLSS 5  ->  o "antes e depois"
+Home      abre o overlay do ReShade (ajustes finos)
+F7        abre o ReShade E entrega mouse/teclado pra ele;
+          aperta de novo pra fechar e devolver ao jogo
+Alt+Esc   sai do app (aperta DUAS vezes em 2 segundos)
+Esc       NUNCA fecha o app, só a tela que estiver aberta
+
+Todas as teclas podem ser trocadas no botão "Atalhos..." do seletor
+ou na seção ATALHOS do painel, em "Mais opções".
+
+SE O ATALHO NÃO FUNCIONAR DENTRO DO JOGO
+Alguns jogos seguram as teclas de atalho do Windows enquanto estão
+na frente. O programa tem duas saídas para isso, e elas já vêm
+ligadas:
+  - um caminho reserva: se a tecla for apertada e o Windows não
+    entregar o atalho, o programa reconhece a tecla assim mesmo, em
+    cerca de um quarto de segundo;
+  - o ÍCONE NA BANDEJA, ao lado do relógio: o menu dele abre o
+    painel sem depender de tecla nenhuma.
+Se o jogo rodar como administrador e o programa não, nenhuma tecla
+chega nele — nesse caso o programa avisa na tela e a saída é abrir o
+DLSS5 For All como administrador também (ou usar a bandeja).
+
+
+O PAINEL (tecla End)
+---------------------------------------------------------------------
+A primeira tela do painel traz só o que se mexe no meio do jogo. O
+resto fica em "Mais opções", que abre uma segunda coluna ao lado.
+Passar o mouse em cima de qualquer controle mostra um balão
+explicando o que ele faz.
+
+- DLSS 5: HABILITADO / DESABILITADO (o mesmo que o F6).
+      O programa ABRE SEMPRE LIGADO, em 1 passe. Desligar com o F6
+      vale para a sessão: quando você fechar e abrir de novo, ele
+      volta ligado.
+
+- Perfil da imagem (rede neural): um cartão com o resumo do que está
+      valendo ("Modelo B · Intensidade 100% · 2 passes") e o botão
+      AJUSTAR, que abre uma janela só para isso, com os seis
+      controles da rede: MODELO (A / B / C), INTENSIDADE, ESTRUTURA,
+      PELE E ROSTOS, TOM LOCAL e TOM GLOBAL.
+      O add-on de Neural Rendering lê esse perfil uma vez, quando
+      carrega, e não relê enquanto roda. Por isso o programa se
+      reabre sozinho depois que você escolhe: ele espera dois
+      segundos e meio (se você mexer em vários controles, reabre uma
+      vez só, no fim), avisa na tela e volta com a mesma janela, a
+      mesma placa e os mesmos ajustes. Para desligar essa reabertura
+      automática, use perfil_reabre=0 no dlss5forall.ini — aí a
+      escolha fica gravada e passa a valer quando você reabrir o
+      programa na mão.
+
+- PASSES DA REDE: de 1 a 10. É quantas vezes a rede neural refaz o
+      MESMO quadro. Mais passes, mais rede e mais custo: aqui foram
+      medidos cerca de 4,2 ms de placa por passe. Substitui o antigo
+      "1x / 2x / 3x". Vale pelo mesmo caminho do perfil (o programa
+      se reabre sozinho).
+
+- DLSS FRAME SKIPPING: Desligado / 1 de cada 2 / 1 de cada 3 /
+      1 de cada 4. A rede processa um quadro de cada N e o programa
+      DESENHA os outros, projetando a cena pelo movimento — não é
+      repetição de quadro, e não aparece o jogo cru no meio. É a
+      forma de aliviar a placa sem perder ritmo na tela.
+      O movimento sintetizado é automático: não há nada para ligar.
+      Quando faltar base ou campo de movimento, o programa segura o
+      último quadro bom sozinho, por quadro, sem piscar.
+
+- FLUIDEZ DO DLSS 5 NA TELA: [−] 60 [+] e o botão DESTRAVAR.
+      Quantos quadros por segundo a imagem filtrada apresenta. NÃO
+      muda o fps do jogo.
+      ABAIXO do que o jogo entrega, o número é EXATO: a imagem para
+      nele.
+      ACIMA, o programa projeta quadros a mais pelo movimento — e
+      isso é EXPERIMENTAL: a entrega é PARCIAL e depende da folga da
+      placa. Medido aqui, com o jogo a 60: pedindo 90 a imagem foi a
+      70; pedindo 120, a 73. Sobe de verdade, mas não chega ao
+      número pedido. Se a máquina não tiver folga nenhuma, o
+      programa recua sozinho.
+      DESTRAVAR (mostra ∞) não desliga a projeção: sem número
+      escolhido, o alvo passa a ser o máximo que a sua tela mostra.
+      O − continua funcionando no estado destravado e volta ao
+      último número que você usou. Segurar o − ou o + repete.
+      Embaixo, uma linha diz o que está acontecendo de verdade:
+      "jogo 60/s · película 74/s · 26 projetados por segundo" — e
+      esse número da película conta TUDO o que vai para a tela:
+      processado, sintetizado pelo pulo de quadros e projetado.
+
+- RESOLUÇÃO DO DLSS: Auto / 100% / 77% / 67% / 58%. É o tamanho em
+      que a rede trabalha: quanto menor, mais leve ela fica. Muda na
+      hora, com uns dois segundos de reconstrução.
+
+- Mais opções: Efeitos (nitidez e anti-serrilhado), V-Sync, HDR, FPS
+      na tela, MODO COMPARATIVO, MOTOR DA REDE NEURAL, FPS do jogo,
+      idioma, atalhos, os links do grupo e do canal, Abrir o ReShade,
+      TROCAR FONTE OU PLACA e Sair.
+
+- NO MODO AMD o motor é o mod DLSS-NR-on-AMD, e não há escolha:
+      o painel mostra isso e diz onde os ajustes vão parar. TOM
+      LOCAL, ESTRUTURA e PELE E ROSTOS vão para o dlssnr_on_amd.ini
+      e valem quando o programa reabre. MODELO, INTENSIDADE e PASSES
+      não existem no mod; TOM GLOBAL existe, mas o próprio autor
+      avisa que esta versão do mod o mantém desligado e que subir só
+      escurece a imagem. Os quatro aparecem apagados, com o motivo
+      escrito — antes pareciam funcionar e não mexiam em nada.
+      Para GANHAR FPS no modo AMD o controle é a RESOLUÇÃO DO DLSS,
+      na primeira tela do painel: é o tamanho que pesa. Medido em
+      VÍDEO na tela (não em jogo), numa RX 9060 XT: 13,5 ms por
+      quadro só de rede.
+
+- ORÇAMENTO DE ESPERA POR QUADRO (só no modo AMD): [−] 25 ms [+].
+      É quanto o quadro espera pela rede antes de o mod desistir e
+      mostrar o retoque do quadro anterior. MENOR deixa mais fluido,
+      com um resíduo do quadro anterior quando a rede atrasa; MAIOR
+      deixa mais fiel e com menos fps. 25 ms é o valor comprovado
+      numa RX 9060 XT — o mod vem de fábrica em 200. Só aparece se o
+      mod instalado for a versão 0.2.18 ou mais nova, que é quando
+      essa chave passou a existir.
+
+- MOTOR DA REDE NEURAL: RenoDX (padrão) ou Próprio (experimental).
+      São duas implementações da MESMA rede, e o programa reabre uma
+      vez para trocar. O motor próprio NÃO É MAIS RÁPIDO — o custo é
+      o mesmo, medido. O que muda: ele borra bem menos quando você
+      usa muitos passes, e os ajustes do "Perfil da imagem" passam a
+      valer NA HORA, sem o programa reabrir a cada mudança.
+      Com o motor próprio aparece também o TAMANHO DA REDE NEURAL:
+      Leve 65% / 100% / 125% / 150% / 200%. Não confunda com a
+      "Resolução do DLSS" da primeira tela: aquela é o tamanho em que
+      tudo trabalha, esta é só o da rede. "Leve 65%" dá de 21% a 34%
+      mais fps com 4 a 10 passes; acima de 100% custa muito caro (o
+      dobro e meio, em 200%) e a rede mexe MENOS na imagem — se quiser
+      mais efeito, aumente os passes em 100% em vez de subir daqui.
+
+- TROCAR FONTE OU PLACA (embaixo, ao lado do Sair): volta para a
+      tela de escolha, aquela do começo, sem você ter de fechar o
+      programa. Ele se reabre sozinho (o filtro precisa ser montado
+      de novo) e a tela já vem com a janela, a placa e o idioma de
+      agora marcados. Se a janela que você estava filtrando for
+      fechada, o programa volta para essa tela por conta própria.
+
+FICOU PESADO?
+  1. Ligue o DLSS FRAME SKIPPING em "1 de cada 2".
+  2. Baixe a "Resolução do DLSS" (77% ou 67%).
+  3. Deixe os PASSES em 1.
+  4. Use a fonte Janela em vez de Monitor.
+  F6 desliga na hora pra você comparar o custo.
+
+HDR: se o monitor estiver em HDR, o app converte sozinho.
+Não precisa mexer em nada.
+
+PROBLEMAS COMUNS
+---------------------------------------------------------------------
+"A imagem ficou igual, não faz nada"
+   Falta um destes três em bin\: renodx-dlss.addon64,
+   nvngx_dlssnr.dll ou nvngx_dlss.dll. O seletor mostra uma faixa
+   dizendo QUAL falta, com um botão que abre a página onde pegar
+   (instalador RHI) e outro que abre a pasta bin.
+   O nvngx_dlss.dll é o mais fácil de esquecer: sem ele o DLSS nem
+   começa, e a tela fica igualzinha à original, sem erro nenhum.
+
+"O filtro some quando clico fora do jogo"
+   Normal no modo sobreposto: ele só aparece com o jogo em foco.
+
+"No modo sobreposto o teclado não faz nada no app"
+   É de propósito: mouse e teclado vão pro jogo.
+   End abre o painel; F7 entrega o teclado pro ReShade.
+
+"O ReShade não abre com Home"
+   A tecla foi trocada. Confere em "Atalhos..." (linha "Abrir o
+   ReShade") no seletor.
+
+"Nada abre, nenhuma janela"
+   Abre bin\dlss5forall.log: ele diz onde parou.
+
+"Fica em 50 fps travado"
+   Monitor virtual instalado (Parsec, Meta, Virtual Desktop...).
+   Desativa no Gerenciador de Dispositivos ou deixa o monitor real
+   como principal.
+
+Tela cheia exclusiva: não funciona. Jogo em janela ou borderless.
+
+
+MÓDULO AMD (beta)
+---------------------------------------------------------------------
+O botão vermelho USAR O DLSS 5 EM PLACA AMD usa a pasta bin-amd\.
+Ele roda a rede do DLSS 5 numa Radeon por meio do mod
+"DLSS-NR-on-AMD" (de danielblnc), que é de terceiro, fechado e NÃO
+vem no pacote. É BETA: pode não funcionar na sua placa e roda mais
+devagar (segundo o autor do mod, uns 31 fps em 1080p na RX 9070 XT
+e uns 15 a 20 fps na RX 9060 XT).
+
+Precisa de: Windows 11, driver Adrenalin 26.1.1 ou mais novo,
+Radeon RX 7000 ou RX 9000, o seu nvngx_dlssnr.dll e o instalador
+do mod. RX 9060 XT: precisa do mod v0.2.14 ou mais novo (o autor
+disse em 05/09/2026 que o suporte entra nessa versão); hoje a
+release pública ainda é a v0.2.11 e as builds novas estão só no
+Discord do autor. Confira a página de releases antes de baixar.
+
+Passo a passo curto (o completo está em bin-amd\LEIA-ME-AMD.txt):
+  1. Copie o seu nvngx_dlssnr.dll (o mesmo de bin\) para bin-amd\.
+  2. Baixe dlssnr_on_amd_setup.exe em
+       https://github.com/danielblnc/DLSS-NR-on-AMD/releases/latest
+     copie-o para bin-amd\ e dê dois cliques nele. Ele gera
+     version.dll, dlssnr_on_amd.ini e dlssnr_on_amd_weights.bin.
+  3. Confira no dlssnr_on_amd.ini que Inline=1 (ele já grava assim).
+  4. Dê dois cliques em bin-amd\preparar-mod-amd.cmd: ele confere
+     tudo e diz o que falta. Depois é só abrir pelo botão AMD.
+Antivírus pode acusar o instalador do mod (é conhecido). A decisão
+de confiar é sua; se for usar, coloque bin-amd\ nas exclusões antes.
+
+
+MOVER OU COPIAR A PASTA
+---------------------------------------------------------------------
+Pode copiar a pasta inteira pra outro lugar, outro HD ou outro PC.
+A única regra: DLSS5ForAll.exe e a pasta bin\ ficam JUNTOS.
+
+Evite caminho com acento e a pasta Arquivos de Programas.
+
+Suas configurações ficam em bin\ :
+   dlss5forall.ini   fonte escolhida, atalhos, idioma
+   ReShade.ini       ajustes do ReShade e do neural
+   FafaDLSS5.ini     preset com as técnicas
+
+
+GRAVAR O RESULTADO
+---------------------------------------------------------------------
+Receita que funciona:
+  1. No app: fonte JANELA e SOBREPOR desmarcado (janela separada).
+  2. No OBS: "Captura de Janela" apontando pro DLSS5ForAll.exe, com
+     o MÉTODO DE CAPTURA em "Windows 10 (1903 e superior)".
+     No método "Automático" (BitBlt) a janela sai PRETA: é limitação
+     do método, não do app.
+Não usa "Captura de Jogo". NVIDIA App / ShadowPlay também funciona.
+Com a fonte MONITOR a nossa janela se esconde de gravadores de
+propósito (senão ela filmaria a si mesma): use a fonte Janela ou
+dois monitores. No modo SOBREPOR a camada some quando o jogo perde
+o foco, então o preview do OBS parece vazio — grave no modo janela
+separada.
+
+
+MODO COMPARATIVO (o vídeo de antes e depois)
+---------------------------------------------------------------------
+Em Mais opções, no painel. A tela é partida ao meio: do lado
+ESQUERDO a imagem ORIGINAL do jogo, do lado DIREITO a mesma imagem
+COM o DLSS 5. São as duas metades do MESMO quadro — não é corte de
+edição, e é isso que convence quem assiste.
+
+No alto de cada metade aparece um selo (ORIGINAL e DLSS 5 FOR ALL).
+Eles são as imagens marca\comparar-original.png e
+marca\comparar-dlss5.png da pasta bin: se você quiser outra arte, é
+só trocar os dois arquivos. Sumindo os arquivos, o modo continua
+funcionando e entra um letreiro simples no lugar.
+
+DEIXE O "DLSS FRAME SKIPPING" DESLIGADO PARA GRAVAR. No quadro que
+o programa desenha (o quadro pulado) não existe "com DLSS" e "sem
+DLSS" — os dois lados ficam iguais, e não é defeito.
+
+No bin\dlss5forall.ini, na seção [comparar]: ligado=1 liga sem o
+painel, divisor=50 move a linha do meio (de 5 a 95, em porcento),
+rotulos=0 esconde os dois selos e rotulo_altura=9 muda o tamanho
+deles (de 5 a 15, em porcento da altura da tela — aumente se for
+cortar o vídeo para celular).
+
+
+AJUSTES FINOS NO dlss5forall.ini (opcional)
+---------------------------------------------------------------------
+Tudo o que o painel oferece já fica gravado sozinho. As chaves abaixo
+são para quem quer mudar o comportamento padrão; todas ficam na seção
+[ultima] do bin\dlss5forall.ini e nenhuma precisa existir.
+
+fluidez=2           força os quadros projetados (2 ou 3 por chegada).
+                    Sem a chave, o programa decide sozinho a partir do
+                    número escolhido em FLUIDEZ DO DLSS 5 NA TELA.
+                    O valor 1 é o padrão e não desliga o automático.
+fps_teto_pelicula=  o número da FLUIDEZ DO DLSS 5 NA TELA. Sem a
+                    chave, o padrão é 60; 0 quer dizer destravado.
+perfil_reabre=0     não reabre o programa sozinho quando você muda o
+                    perfil da rede ou os passes. A escolha fica
+                    gravada e passa a valer na próxima abertura.
+atalho_reserva=0    desliga o caminho reserva das teclas (o que
+                    reconhece o atalho quando o jogo segura as
+                    hotkeys do Windows).
+recursos_experimentais=1
+                    mostra no painel as peças experimentais que ainda
+                    não saem de fábrica e voltam na próxima versão: a
+                    escolha do MOTOR DA REDE, o TAMANHO DA REDE NEURAL
+                    e o ORÇAMENTO DE ESPERA do modo AMD. Ficam
+                    escondidas porque o motor próprio só foi medido em
+                    cena de teste, não em jogo — o que não está
+                    fechado não sai ligado. Nada foi retirado do
+                    programa.
+alterna_modo=       como o quadro pulado é preenchido, para o caso de
+                    o padrão não aparecer nesta máquina: sintetizar
+                    (padrão), segurar, alfa ou regiao.
+
+TRÊS CONTROLES DO NEURAL QUE NÃO FAZEM NADA NESTA VERSÃO
+O add-on de Neural Rendering expõe NRGlobalTone (TOM GLOBAL),
+NREnableUpscaling e NRTransferStrength. Nesta build eles não mudam a
+imagem — o próprio add-on avisa isso no caso do tom global. O TOM
+GLOBAL continua na janela do perfil porque ele volta a funcionar em
+outras versões do add-on; os outros dois não aparecem no programa.
+
+AVISOS
+---------------------------------------------------------------------
+- Jogo online: anti-cheat pode não gostar de overlay. Por sua conta.
+- nvngx_dlssnr.dll e renodx-dlss.addon64 são build vazado da
+  NVIDIA / RenoDX. Não redistribua.
+- Detalhes técnicos, linha de comando, latência e créditos:
+  bin\README.md  e  bin\CREDITOS.md
+
+
+PRIVACIDADE (o que este programa manda pela internet, e como desligar)
+---------------------------------------------------------------------
+O DLSS5ForAll.exe desta pasta (o launcher, a tela do grupo) faz até três
+consultas curtas ao abrir, todas em https e só se o ofertas.ini tiver a
+chave url_base= preenchida (sem ela, nada sai do seu computador):
+- se existe versão nova do programa;
+- qual é a publicidade da tela do grupo (título, mensagem, cupom);
+- na cópia do autor, o relatório de uso (a sua cópia não tem essa chave).
+
+Junto com essas consultas vão QUATRO dados, e só eles:
+  v  = a versão do programa (ex.: 1.1)
+  m  = o botão que você escolheu na última vez (nvidia, amd ou sem)
+  l  = o idioma do programa (pt ou en)
+  id = um número aleatório criado na primeira abertura, guardado em
+       dlss5forall.ini ao lado deste arquivo ([atualizacao] id_instalacao=).
+       Ele não vem do seu hardware, nome, e-mail nem endereço IP.
+Os cliques nos botões da tela do grupo (NVIDIA, AMD, abrir sem DLSS 5,
+quero as ofertas, apoiar o canal, cupom, atualizar, fechou sem escolher)
+também são registrados com esses mesmos quatro dados e nada mais.
+
+A VITRINE (a coluna da esquerda da tela): com internet, a tela fica mais
+larga e mostra, à esquerda, a página de ofertas de agora do grupo
+(grupo.pcdofafa.com.br/app-ofertas), aberta pelo WebView2 (o motor do Edge
+que já vem no Windows; a WebView2Loader.dll ao lado deste arquivo é só a
+ponte até ele). Essa página recebe o idioma (l) e o mesmo id acima (só com
+contar=1), e nada mais; os cliques dentro dela ("ver oferta", "entrar no
+grupo") são registrados pela própria página. Links abrem no seu navegador
+padrão. Sem internet, sem o WebView2 na máquina ou num monitor estreito a
+tela é a de sempre, de uma coluna. Para nunca mostrar a coluna: no
+ofertas.ini, troque vitrine=1 por vitrine=0. Os dados do motor ficam em
+cache\webview2\ (pode apagar).
+
+Para quê: contar quantas pessoas usam o programa, saber quais botões são
+usados e avisar quando há versão nova. Não é enviado nome de jogo, hardware,
+tempo de uso, arquivos, nem qualquer dado pessoal. Não há cookies.
+
+Para desligar: abra o ofertas.ini (ao lado deste arquivo) e troque
+    contar=1
+por
+    contar=0
+Com contar=0 nenhum dos quatro dados é enviado e nenhum clique é registrado.
+O aviso de versão nova e a publicidade continuam funcionando. Para não haver
+consulta nenhuma, deixe url_base= vazio.
+
+
+COMO SAI UMA VERSÃO NOVA (para quem publica o programa)
+-------------------------------------------------------
+1. Rode  amd\publicar-versao.ps1 -Versao 1.3 -Publicar
+   Ele monta o DLSS5ForAll-1.3.zip, calcula o SHA-256, escreve o versao.json
+   (versao, data, url, sha256, tamanho_bytes, notas, notas_en) e envia os dois.
+2. O versao.json é a ÚNICA fonte da atualização. Se a página de download
+   mostrar um link diferente do que está nele, quem manda é o versao.json:
+   o programa nunca lê a página, só esse arquivo.
+3. Escreva as notas em uma ou duas frases, em pt e en — elas aparecem dentro
+   da caixa que pergunta, e é por elas que a pessoa decide.
+4. Quem já tem o programa recebe o aviso na abertura seguinte (e em até
+   30 minutos, se o launcher estiver aberto na hora em que você publicar).
+5. A caixa só aparece DEPOIS do clique em INICIAR, com a versão, o tamanho do
+   download e as notas. Quem marcar "Atualizar automaticamente nas próximas
+   vezes" passa a receber sem pergunta: o programa baixa, confere o SHA-256,
+   troca os arquivos e reabre sozinho. Se o hash não bater, nada é trocado.
+
+
+=====================================================================
+  DLSS5 For All - por PC do Fafa
+=====================================================================
+  Canal no YouTube ....... youtube.com/@pcdofafa
+  Site / download ........ pcdofafa.com.br/dlss
+
+  O programa é gratuito. O canal e o grupo de ofertas são o que
+  mantêm ele de pé — se ele te ajudou, passa lá.

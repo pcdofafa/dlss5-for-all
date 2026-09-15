@@ -118,7 +118,7 @@
    struct, e o add-on aceita qualquer struct_size entre o tamanho da v1 e o
    atual, preenchendo so o que couber. E o padrao cbSize do Win32, e e o que
    deixa as quatro combinacoes (exe velho/novo x add-on velho/novo) andarem. */
-#define DLSS5_BRIDGE_PROTOCOL     2u
+#define DLSS5_BRIDGE_PROTOCOL     4u
 #define DLSS5_BRIDGE_PROTOCOL_MIN 1u
 
 /* tamanho do DLSS5BridgeStatus na v1 -- congelado, nao recalcule com sizeof */
@@ -138,6 +138,26 @@
 #define DLSS5_BRIDGE_CMD_TECHNIQUE     4u
 #define DLSS5_BRIDGE_CMD_RESET_UNIFORM 5u
 #define DLSS5_BRIDGE_CMD_NR_TOGGLE     6u   /* protocolo 2: alterna o Neural Rendering */
+/* protocolo 3: grava um inteiro na config do ReShade, de DENTRO do processo.
+   effect = secao, name = chave, ivalue[0] = valor.
+
+   POR QUE ISTO PRECISOU EXISTIR. O add-on novo do RenoDX nao tem hotkey, e o
+   liga/desliga dele e uma chave do ReShade.ini. O exe tentou gravar de fora,
+   com WritePrivateProfileStringW, e o valor durava ate o AutoSave: o ReShade
+   guarda a config INTEIRA em memoria e regrava o arquivo por cima, entao a
+   escrita de fora era apagada minutos depois (medido: gravamos as 00:16:44,
+   o ReShade reescreveu as 00:19:28 e o valor voltou ao que era). De dentro
+   nao ha essa corrida -- quem grava e o mesmo dono da copia em memoria. */
+#define DLSS5_BRIDGE_CMD_SET_CONFIG_INT 7u
+
+/* protocolo 4: o mesmo que o 7, mas com FLOAT. effect = secao, name = chave,
+   fvalue[0] = valor.
+
+   POR QUE UM COMANDO SEPARADO. O perfil de imagem do RenoDX novo e todo float
+   normalizado (Intensity, LocalToneStrength, SkinStructureStrength... de 0 a 1),
+   e o set_config_value do ReShade e tipado: gravar 0.55 como inteiro guarda 0 e
+   apaga o ajuste. Com o int a gente so alcancava HookPoint, Encoding e Style. */
+#define DLSS5_BRIDGE_CMD_SET_CONFIG_FLOAT 8u
 
 #define DLSS5_BRIDGE_NAME_MAX 64
 
@@ -171,6 +191,11 @@ typedef struct DLSS5BridgeStatus
     uint32_t nr_toggle_vk;    /* a tecla que o RenoDX espera (NRToggleKey, ou F6) */
     uint32_t nr_pulses;       /* toques que armamos                               */
     uint32_t nr_delivered;    /* toques que o RenoDX efetivamente leu             */
+    /* ---- protocolo 3 ---- */
+    uint32_t config_ready;    /* 1 = o add-on sabe gravar config (CMD_SET_CONFIG_INT) */
+    int32_t  nr_hookpoint;    /* [RENODX-DLSS] DirectNeuralRenderingHookPoint, lido da
+                                 config VIVA do ReShade (nao do arquivo, que fica para
+                                 tras). -1 = a chave nao existe / add-on antigo.       */
 } DLSS5BridgeStatus;
 
 /* ======================================================================
@@ -469,6 +494,52 @@ namespace rsbridge
         c.count = 1;
         detail::put(c.name, "NeuralRendering");   /* o Submit exige um nome */
         return detail::send(c);
+    }
+
+    /* Grava um inteiro na config do ReShade, de dentro do processo dele.
+       true = o add-on aceitou; false = add-on velho (protocolo < 3) ou fila
+       cheia, e ai o chamador cai no ReShade.ini -- que funciona quando o
+       ReShade ainda vai LER o arquivo (proxima abertura), mas perde a corrida
+       com o AutoSave enquanto ele esta rodando. Ver CMD_SET_CONFIG_INT. */
+    inline bool SetConfigInt(const char *secao, const char *chave, int valor)
+    {
+        if (secao == nullptr || chave == nullptr)
+            return false;
+        DLSS5BridgeCommand c {};
+        c.type      = DLSS5_BRIDGE_CMD_SET_CONFIG_INT;
+        c.count     = 1;
+        c.ivalue[0] = valor;
+        detail::put(c.effect, secao);
+        detail::put(c.name, chave);
+        return detail::send(c);
+    }
+
+
+    /* Grava um float na config do ReShade, de dentro do processo dele. Mesmo
+       contrato do SetConfigInt: true = aceitou; false = add-on com protocolo
+       < 4, e ai so resta o ReShade.ini (que vale na proxima abertura). */
+    inline bool SetConfigFloat(const char *secao, const char *chave, float valor)
+    {
+        if (secao == nullptr || chave == nullptr)
+            return false;
+        DLSS5BridgeCommand c {};
+        c.type      = DLSS5_BRIDGE_CMD_SET_CONFIG_FLOAT;
+        c.count     = 1;
+        c.fvalue[0] = valor;
+        detail::put(c.effect, secao);
+        detail::put(c.name, chave);
+        return detail::send(c);
+    }
+    /* O Hook Method do add-on novo do RenoDX, lido da config VIVA: 0 Off,
+       1 Auto, 2 Upscaled, 3 Hudless, 4 Present. -1 = nao sei (add-on antigo,
+       ponte antiga, ou a chave ainda nao existe). E esta a resposta que vale
+       enquanto o ReShade esta no ar; o arquivo so alcanca depois do AutoSave. */
+    inline int NeuralHookPoint()
+    {
+        Status st;
+        if (!GetStatus(st) || st.protocol < 3u)
+            return -1;
+        return st.nr_hookpoint;
     }
 
     /* Quantos toques o RenoDX ja LEU. E com isto que se confirma a entrega.

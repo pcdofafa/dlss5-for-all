@@ -21,7 +21,7 @@ OUT=${1:-DLSS5ForAll.exe}
 # O icone e o VERSIONINFO entram pelo app.rc, compilado por windres num .o comum que
 # depois vai junto no link. Sem isto o exe sai com o icone branco padrao do Windows.
 #
-# O .ico e DERIVADO da foto (marca\gerar-icone.ps1) e por isso pode nao existir numa
+# O .ico e DERIVADO da arte da capivara (marca\gerar-icone-capivara.ps1) e por isso pode nao existir numa
 # copia recem-clonada: se faltar, o build segue sem ele em vez de morrer - um exe sem
 # icone e melhor que nenhum exe. Mas avisa alto, porque publicar sem icone e o tipo de
 # coisa que so se descobre depois do zip pronto.
@@ -29,13 +29,16 @@ RES_OBJ=""
 if [ -f app.rc ]; then
   if [ ! -f marca/DLSS5ForAll.ico ]; then
     echo "AVISO: marca/DLSS5ForAll.ico nao existe - o exe vai sair SEM icone."
-    echo "       gere com: powershell -ExecutionPolicy Bypass -File .\\marca\\gerar-icone.ps1"
+    echo "       gere com: powershell -ExecutionPolicy Bypass -File .\\marca\\gerar-icone-capivara.ps1"
   else
     WINDRES=$(command -v windres || command -v x86_64-w64-mingw32-windres || true)
     if [ -z "$WINDRES" ]; then
       echo "AVISO: windres nao encontrado no PATH - o exe vai sair SEM icone."
     else
-      "$WINDRES" app.rc -O coff -o app.res.o || { echo "falhou ao compilar app.rc"; exit 1; }
+      # --codepage=65001: o app.rc e UTF-8 e os campos de texto (CompanyName, descricao)
+      # podem ter acento. Sem isso o windres os leria na pagina de codigo ANSI da maquina e
+      # sairiam errados nas Propriedades do arquivo. O .rc tambem tem #pragma code_page(65001).
+      "$WINDRES" --codepage=65001 app.rc -O coff -o app.res.o || { echo "falhou ao compilar app.rc"; exit 1; }
       RES_OBJ=app.res.o
     fi
   fi
@@ -43,7 +46,9 @@ fi
 
 # -Wall -Wextra sempre: os dois unicos avisos reais que apareceram aqui (destrutor nao
 # virtual num handler COM, indentacao enganosa) eram defeitos de verdade.
-"$CXX" -std=c++17 -O2 -municode -mwindows -Wall -Wextra main.cpp $RES_OBJ -o "$OUT" \
+# -Ifeeder-amd/...: os cabecalhos ffx-api (FidelityFX SDK 1.1.4) do fg_ffx.h - so cabecalhos;
+# a DLL e carregada em tempo de execucao e so quando o modo interpolado esta ligado.
+"$CXX" -std=c++17 -O2 -municode -mwindows -Wall -Wextra -Ifeeder-amd/src-feeder/external/ffx -Iexternal/ffmpeg-lgpl/include main.cpp $RES_OBJ -o "$OUT" \
   -ld3d11 -ld3d12 -ldxgi -ldxguid \
   -lmfplat -lmf -lmfreadwrite -lmfuuid \
   -lole32 -loleaut32 -lcomctl32 -ldwmapi -lruntimeobject -lgdiplus -lgdi32 \

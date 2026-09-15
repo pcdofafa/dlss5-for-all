@@ -1,0 +1,31 @@
+# DLSS5 For All - regras de atributos do repositório
+#
+# REGRA PRINCIPAL, NÃO REMOVA:
+# "* -text" desliga QUALQUER conversão de quebra de linha, na entrada e na saída.
+# Todo arquivo vai para o repositório e volta dele byte a byte, exatamente como
+# está no disco. Os fontes deste projeto são LF puro e UTF-8 sem BOM, e a máquina
+# tem core.autocrlf=true no nível de sistema; sem esta linha o git reescreveria
+# todo main.cpp para CRLF no primeiro checkout de rollback.
+#
+# Também NÃO existe nenhuma regra "working-tree-encoding" aqui, de propósito:
+# assim o git preserva a codificação e o BOM de cada arquivo como estão.
+* -text
+
+# Binários e imagens: sem diff nem merge textual (binary = -diff -merge -text).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.addon64 binary
+*.o binary
+*.obj binary
+*.res.o binary
+*.cso binary
+
+# Diff útil para os fontes, mantendo "-text" (sem conversão de EOL).
+*.cpp diff=cpp
+*.h   diff=cpp
+*.hpp diff=cpp
+*.c   diff=cpp

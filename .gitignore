@@ -1,35 +1,9 @@
-# =====================================================================================
-#  .gitignore do DLSS5 For All  —  este arquivo é, antes de tudo, um cinto de segurança
-# =====================================================================================
-#
-#  ESTE REPOSITÓRIO É PÚBLICO. Os quatro padrões do bloco abaixo NUNCA podem entrar
-#  aqui, em commit nenhum, nem "só pra testar", nem dentro de um .zip. Cada um deles é
-#  código proprietário de terceiros que nós não temos o direito de redistribuir:
-#
-#    nvngx_dlssnr.dll     — Neural Rendering da NVIDIA. É um build INTERNO que vazou
-#                           (saiu de uma versão de NBA 2K27). Publicar isto é convite
-#                           direto a DMCA da NVIDIA / Take-Two e suspensão da conta.
-#    nvngx_dlss.dll       — DLSS da NVIDIA. Proprietário, redistribuição só sob a
-#                           licença da NVIDIA, que este projeto não tem.
-#    renodx-*.addon64     — binário compilado do RenoDX. É do projeto RenoDX, não nosso;
-#                           quem quiser tem que pegar nas releases oficiais deles.
-#    dxgi.dll             — na prática é o ReShade renomeado. Quem redistribui o ReShade
-#                           é o instalador oficial, não a gente.
-#
-#  O app em si (main.cpp, headers, shaders, scripts) é nosso e é MIT. O que ele CARREGA
-#  em tempo de execução é baixado pelo usuário, pelo setup-dlss5.ps1, de cada fonte
-#  oficial. O repositório distribui a receita, nunca os ingredientes de terceiros.
-#
-#  Se um `git status` algum dia mostrar qualquer um destes nomes: PARE, não commite,
-#  e apague o arquivo da árvore de trabalho.
-# -------------------------------------------------------------------------------------
-nvngx_*.dll
-renodx-*.addon64
-dxgi.dll
+# DLSS5 For All - o que NÃO entra no controle de versão.
+# Critério: entra o que é fonte de verdade (código, shaders, documentação,
+# arte de marca, scripts). Fica de fora tudo que é resultado de compilação,
+# binário pesado de terceiros, cache, log ou cópia de segurança manual.
 
-# ---------------------------------------------------------------- binários em geral
-# O add-on da ponte (dlss5-bridge.addon64) e o exe são ARTEFATOS: saem do build-mingw.sh
-# e do addon/build-addon.sh. Repositório guarda fonte, release guarda binário.
+# --- Compilados e binários -------------------------------------------------
 *.exe
 *.dll
 *.addon64
@@ -39,40 +13,50 @@ dxgi.dll
 *.lib
 *.a
 *.pdb
-
-# ---------------------------------------------------------------- pacotes
+*.exp
+*.ilk
 *.zip
 *.7z
-*.rar
-*.msi
 
-# ---------------------------------------------------------------- lixo de execução
-*.log
-*.log[0-9]
+# --- Saídas de build e de empacotamento ------------------------------------
+feeder-amd/build/
+feeder-amd/dist/
+build/
+dist/
+saida/
+
+# --- Cache de shaders gerado pelo ReShade (centenas de .asm/.cso) ----------
 reshade-cache/
+
+# --- Logs e estado de execução ---------------------------------------------
+*.log
+*.log.*
+*.log[0-9]
+instalacao-*.log
+
+# --- Cópias de segurança manuais (.bak-*) ----------------------------------
+# Não são histórico: o histórico agora é o próprio git.
+*.bak
+*.bak-*
+*.bak.*
+*.old
+*.orig
+*.rej
+
+# --- Capturas de tela ------------------------------------------------------
+capturas/
+screenshots/
 DLSS5 Screenshots/
 
-# ---------------------------------------------------------------- cópias de segurança
-# O fluxo de trabalho daqui gera muito arquivo .bak-alguma-coisa. Nenhum deles serve
-# pra ninguém de fora, e alguns são exes de 2 MB.
-*.bak
-*.bak*
-*.antes-*
-*~
+# --- Repositório git de terceiros já versionado à parte --------------------
+# feeder-amd/src-feeder é um clone de https://github.com/jlrouzies-fr/DLSS5-Feeder
+# com histórico e remoto próprios. Versioná-lo aqui criaria um submódulo vazio.
+# As alterações locais sobre ele estão registradas em
+# feeder-amd/patches-feeder-amd.diff, que ESTE repositório versiona.
+feeder-amd/src-feeder/
 
-# ---------------------------------------------------------------- segredos
-# Nada de credencial no repositório. O backend do site lê tudo de secrets do Cloudflare
-# (npx wrangler secret put ...), nunca de arquivo versionado.
-.env
-.env.*
-.dev.vars
-ADMIN-TOKEN.txt
-.wrangler/
-.dryrun/
-node_modules/
-
-# ---------------------------------------------------------------- editor / sistema
+# --- Lixo do Windows -------------------------------------------------------
 Thumbs.db
 desktop.ini
-.vscode/
-.idea/
+*.tmp
+~$*

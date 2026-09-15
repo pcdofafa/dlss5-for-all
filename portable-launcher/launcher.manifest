@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Manifesto do launcher portable. A dependencia do Common Controls 6 e o que faz o
+     TaskDialogIndirect (a caixa padrao "Nova versao disponivel") existir; sem ela o
+     comctl32 carregado e o 5.x e a funcao nao esta la (cai no MessageBox).
+     DPI: PerMonitorV2 (com PerMonitor e system como reserva nos Windows mais antigos). A tela
+     do grupo (splash_ofertas.h) e a janelinha de progresso (atualizacao.h) escalam tudo por
+     Esc(v, dpi), e a vitrine (vitrine.h) acompanha pelo ZoomFactor; sem esta declaracao o
+     Windows esticava a janela inteira (texto borrado em 125%) e escalava as coordenadas das
+     mensagens de mouse vindas de fora. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.1.0.0" processorArchitecture="amd64" name="PCdoFafa.DLSS5ForAll.Launcher" type="win32"/>
+  <description>DLSS5 For All (portable launcher)</description>
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+                        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+    </dependentAssembly>
+  </dependency>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/> <!-- Windows 10/11 -->
+    </application>
+  </compatibility>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, system</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>

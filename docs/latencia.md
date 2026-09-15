@@ -166,6 +166,24 @@ teto real, fora do nosso alcance.
 
 ## 4. O achado que vale mais que tudo isso junto: o WGC preso em 50 Hz
 
+> ### ✅ RESOLVIDO — esta seção descreve um problema que já foi consertado
+>
+> A causa era o **`MinUpdateInterval` da `IGraphicsCaptureSession5`**: o padrão de 16 ms vira
+> dois vblanks a 100 Hz, ou seja 20,00 ms = 50,0 fps exatos. Está documentado e corrigido em
+> `screen_capture.h:199-218`, e a medição foi de **49,93 → 99,83 fps**. Os logs de 2026-09-08
+> mostram chegada em 97,9–99,3 fps, e o próprio app registra a correção na abertura:
+> `captura: MinUpdateInterval 16.00 ms -> 0.00 ms`.
+>
+> **Não era, portanto, o monitor virtual nem os adaptadores** — a suspeita da seção anterior
+> também já havia sido descartada por teste do usuário.
+>
+> **O teto que CONTINUA valendo** é outro, e é da natureza do WGC: a captura **nunca passa do
+> refresh do monitor**. Um jogo a 300 fps num monitor de 99 Hz entrega ~99 quadros por segundo
+> à captura — os demais são descartados pelo compositor, antes de nós. Isso importa para
+> qualquer raciocínio sobre "destravar o fps do jogo para ganhar latência".
+>
+> O texto abaixo fica como registro histórico da investigação.
+
 **O Windows Graphics Capture entrega exatamente 50.0 fps nesta máquina, sempre.**
 Intervalo entre `FrameArrived`: média **20.00 ms**, p05 18.4, p95 21.0, min 14, max 26.
 
@@ -187,7 +205,17 @@ sem cópia de GPU, sem draw, sem Present — o relógio continua marcando 20.00 
 **Custo:** ~10 ms de latência média (metade do período de 20 ms) e metade da suavidade —
 de 100 fps na fonte chegam 50 até nós.
 
-### Suspeita
+### Suspeita — TESTADA E DESCARTADA (2026-09-08)
+
+> **Não era isso.** O usuário desativou **todos** os adaptadores virtuais no Gerenciador de
+> Dispositivos, como manda o passo 4 abaixo, e **a latência não mudou**. A hipótese está
+> refutada na prática; o passo a passo fica aqui como registro do que já foi tentado, para
+> ninguém gastar os 10 minutos de novo.
+>
+> Fica também o dado que enfraquece a suspeita original: em 2026-09-08, com os três
+> adaptadores virtuais ainda instalados, o WGC entregou **16,67 ms (60,0 fps)** acompanhando
+> um jogo a 60 — ou seja, o travamento em 50,0 fps descrito nesta seção **não se reproduziu**.
+> O que quer que cause o teto de 50 fps, não é a mera presença dos adaptadores virtuais.
 
 A máquina tem **três adaptadores de vídeo virtuais** além da RTX 4080 (Meta Virtual Monitor,
 Parsec Virtual Display Adapter, Virtual Desktop Monitor), e o **monitor principal do Windows é o

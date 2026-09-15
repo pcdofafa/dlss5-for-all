@@ -1,0 +1,17 @@
+# Exemplo de servidor para o launcher do DLSS5 For All (Cloudflare Worker + D1).
+# SO DOCUMENTACAO do contrato: o servidor de verdade e o painel fafa-attribution do
+# usuario. Se um dia for usado sozinho: `npx wrangler d1 create dlss5`, cole o database_id
+# aqui, `npx wrangler d1 execute dlss5 --file=schema.sql`, `npx wrangler secret put TOKEN_ADMIN`,
+# `npx wrangler deploy`. Ver README-CLOUDFLARE.md.
+name = "dlss5-atualizacao"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dlss5"
+database_id = "COLE-AQUI-O-ID-DO-D1"
+
+# O manifesto (versao.json) e a publi (ofertas.json) ficam na tabela `documentos` do D1,
+# gravados por POST /publicar. Sem nada publicado, o Worker devolve 404 e o launcher
+# segue como se nao houvesse versao nova nem publi.

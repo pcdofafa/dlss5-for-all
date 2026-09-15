@@ -84,6 +84,7 @@ struct LatProbe {
     LatSeries wake;     // t1 -> t2 (evento -> loop acordar)
     LatSeries tick;     // duracao do Tick
     LatSeries pres;     // duracao do DrawAndPresent (inclui a cadeia ReShade/DLSS)
+    LatSeries slot;     // espera pelo slot de apresentacao (contrapressao da placa)
     LatSeries disp;     // fim do Present -> vblank em que o frame apareceu
     // gap/nArrive/lastArr sao escritos pelo Invoke do WGC, que roda numa THREAD DO SISTEMA,
     // e lidos/zerados pelo laco principal em Dump()/Reset(). Sem sincronizacao isso e data
@@ -107,7 +108,7 @@ struct LatProbe {
     LONGLONG QpcTo100ns(LONGLONG q) const { return freq.QuadPart ? (LONGLONG)((double)q * 10000000.0 / (double)freq.QuadPart) : 0; }
 
     void Reset() {
-        srt.reset(); wake.reset(); tick.reset(); pres.reset(); disp.reset();
+        srt.reset(); wake.reset(); tick.reset(); pres.reset(); disp.reset(); slot.reset();
         AcquireSRWLockExclusive(&lkGap);
         gap.reset(); nArrive = 0; lastArr = 0;
         ReleaseSRWLockExclusive(&lkGap);
@@ -121,6 +122,22 @@ struct LatProbe {
         nArrive++;
         ReleaseSRWLockExclusive(&lkGap);
     }
+
+    // ESPERA PELO SLOT DE APRESENTACAO. Chamado pelo laco principal em volta do
+    // WaitForPresentSlot, que fica no TOPO do ciclo, antes de pegar o quadro.
+    //
+    // Por que este numero faltava e por que ele decide a leitura do orcamento de quadro:
+    // "present" mede a CHAMADA de DrawAndPresent, e o Present do D3D11 volta assim que
+    // enfileira, sem esperar a placa. Entao, quando a placa e o gargalo, o tempo NAO
+    // aparece ali - ele aparece aqui, na volta seguinte, quando o objeto de espera segura
+    // o laco ate haver vaga. Sem esta serie, esse tempo nao estava em lugar nenhum e o
+    // orcamento de quadro tinha um buraco.
+    //
+    // A leitura: espera pequena aqui significa apresentacao desacoplada, e a latencia de
+    // fila NAO entra na vazao. Espera grande significa contrapressao, e ai a fila volta a
+    // entrar na vazao - a interpretacao do custo por quadro muda inteira. Custo: duas
+    // leituras de relogio por quadro.
+    void Slot(LONGLONG s0, LONGLONG s1) { slot.add(Ms(s1 - s0)); }
 
     // Chamado pelo loop principal logo depois do DrawAndPresent.
     void Present(LONGLONG p0, LONGLONG p1, IDXGISwapChain* sc) {
@@ -148,11 +165,18 @@ struct LatProbe {
         AcquireSRWLockShared(&lkGap);
         const UINT32 nArr = nArrive;
         ReleaseSRWLockShared(&lkGap);
+        // 'slot' entra ao lado de 'acordar' porque as duas sao espera, e juntas com tick e
+        // present formam a parte SERIAL do ciclo - a unica que soma no custo por quadro.
+        // PRESENT->TELA continua no fim e continua sendo LATENCIA: quem somar tudo numa
+        // conta de vazao vai contar duas vezes o que a fila ja esta escondendo.
         Log("LAT %.0fs | fps chegada=%.1f copiado=%.1f present=%.1f | srt %.2f/%.2f | acordar %.2f/%.2f"
-            " | tick %.2f/%.2f | present %.2f/%.2f | PRESENT->TELA %.2f/%.2f (n=%d)  [ms media/p95]",
+            " | slot %.2f/%.2f | tick %.2f/%.2f | present %.2f/%.2f | serial %.2f"
+            " | PRESENT->TELA %.2f/%.2f (n=%d)  [ms media/p95]",
             s, nArr / s, nTick / s, nPres / s,
-            srt.avg(), srt.p95(), wake.avg(), wake.p95(), tick.avg(), tick.p95(),
-            pres.avg(), pres.p95(), disp.avg(), disp.p95(), disp.n);
+            srt.avg(), srt.p95(), wake.avg(), wake.p95(), slot.avg(), slot.p95(),
+            tick.avg(), tick.p95(), pres.avg(), pres.p95(),
+            wake.avg() + slot.avg() + tick.avg() + pres.avg(),
+            disp.avg(), disp.p95(), disp.n);
         AcquireSRWLockShared(&lkGap);
         const double gmn = gap.mn(), g05 = gap.pct(0.05), gav = gap.avg(), g95 = gap.p95(), gmx = gap.mx();
         ReleaseSRWLockShared(&lkGap);
@@ -486,7 +510,8 @@ struct ScreenCapture {
     }
 
     // Tamanho "de conteudo" que queremos entregar pro renderer (o recorte).
-    bool TargetRect(RECT* out, RECT* frameOrigin) {
+    bool TargetRect(RECT* out, RECT* frameOrigin, bool* usouMoldura = nullptr) {
+        if (usouMoldura) *usouMoldura = false;
         if (targetMon) {
             MONITORINFO mi{}; mi.cbSize = sizeof(mi);
             if (!GetMonitorInfoW(targetMon, &mi)) return false;
@@ -501,13 +526,36 @@ struct ScreenCapture {
         }
         *frameOrigin = fb;
         if (!clientOnly) { *out = fb; return true; }
+        // DAQUI PARA BAIXO, cair no `fb` e um ACIDENTE, nao uma escolha: quer dizer que a
+        // area util nao pode ser medida NESTE instante (janela ainda assentando, no meio de
+        // um resize). Quem chama precisa saber, senao guarda a moldura no cache e captura a
+        // barra de titulo pelo resto da sessao - foi o que aconteceu em 14/09/2026 04:33
+        // (`fonte mudou ... para 1286x808`, que e a moldura DWM, com a area util em 1280x720).
         RECT cr{};
-        if (!GetClientRect(targetWin, &cr)) { *out = fb; return true; }
+        if (!GetClientRect(targetWin, &cr)) { *out = fb; if (usouMoldura) *usouMoldura = true; return true; }
         POINT tl{ cr.left, cr.top }, br{ cr.right, cr.bottom };
         ClientToScreen(targetWin, &tl); ClientToScreen(targetWin, &br);
         RECT c{ tl.x, tl.y, br.x, br.y };
-        if (c.right - c.left < 16 || c.bottom - c.top < 16) { *out = fb; return true; }
+        if (c.right - c.left < 16 || c.bottom - c.top < 16) { *out = fb; if (usouMoldura) *usouMoldura = true; return true; }
         *out = c;
+        // OS TRES RETANGULOS, NO LOG, sempre que algum muda. Em 14/09/2026 o app dizia estar
+        // capturando 1276x776 enquanto uma medicao por fora dava janela 1306x791 e area util
+        // 1270x688 - e nao havia como saber se era a nossa conta que estava errada, se era
+        // outro instante, ou se o `clientOnly` nem estava valendo. Tres numeros numa linha
+        // respondem isso na proxima abertura, sem depender de ninguem medir por fora.
+        // (O processo e PER_MONITOR_AWARE_V2, entao tudo aqui e pixel de verdade.)
+        {
+            RECT wr{}; GetWindowRect(targetWin, &wr);
+            static RECT ultC{}, ultW{}, ultF{};
+            if (memcmp(&ultC, &c, sizeof(RECT)) || memcmp(&ultW, &wr, sizeof(RECT)) || memcmp(&ultF, &fb, sizeof(RECT))) {
+                ultC = c; ultW = wr; ultF = fb;
+                Log("captura: client %ldx%ld em %ld,%ld | janela %ldx%ld | moldura DWM %ldx%ld | recorte=%s",
+                    (long)(c.right - c.left), (long)(c.bottom - c.top), (long)c.left, (long)c.top,
+                    (long)(wr.right - wr.left), (long)(wr.bottom - wr.top),
+                    (long)(fb.right - fb.left), (long)(fb.bottom - fb.top),
+                    clientOnly ? "area util" : "JANELA INTEIRA (a moldura entra na imagem)");
+            }
+        }
         return true;
     }
 
@@ -522,8 +570,14 @@ struct ScreenCapture {
         RECT wr{};
         if (!targetWin || !GetWindowRect(targetWin, &wr)) return false;
         if (!cacheOk || memcmp(&wr, &lastWinRect, sizeof(RECT)) != 0) {
-            if (!TargetRect(&cacheWant, &cacheOrg)) return false;
-            lastWinRect = wr; cacheOk = true;
+            bool moldura = false;
+            if (!TargetRect(&cacheWant, &cacheOrg, &moldura)) return false;
+            lastWinRect = wr;
+            // SO GUARDA O QUE VALE. Se a area util nao pode ser medida agora, o retangulo
+            // da moldura serve para ESTE quadro e mais nada: sem isto, o cache so seria
+            // refeito quando a JANELA mudasse de tamanho - e uma janela parada nunca muda,
+            // entao a moldura ficava capturada para sempre.
+            cacheOk = !moldura;
         }
         *out = cacheWant; *frameOrigin = cacheOrg;
         return true;

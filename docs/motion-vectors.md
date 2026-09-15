@@ -490,6 +490,16 @@ quadro descarta o histórico, que é exatamente o que um MV bom serviria para re
 `reset_every=1` é o plano B para o caso do MV de hardware não entregar, não um
 complemento. A medição do `reset_every` é do agente `nitidez`.
 
+> **Armadilha de nome, achada em 2026-09-06: `MV_VALIDATE` e `VALIDATE_MV` são DUAS
+> chaves diferentes, com nomes quase iguais e fácil de trocar uma pela outra.**
+> `MV_VALIDATE` é uma chave; `VALIDATE_MV` (com o limiar `MV_CONSISTENCY`) é outra — e é
+> ela quem zera a MAIORIA dos vetores, por uma margem de 5 a 30 vezes sobre a hipótese
+> estática (medido logo abaixo, em "não mexer no `MV_CONSISTENCY`"). Um teste de bancada
+> chamado "sem validação" que desliga só `MV_VALIDATE` deixa o mecanismo dominante
+> (`VALIDATE_MV`) ligado, e mede muito menos do que o nome sugere. Antes de chamar
+> qualquer coisa de "validação desligada", confira as DUAS chaves — e nomeie a variante
+> pela chave que ela de fato desliga, não pela palavra "validação" sozinha.
+
 Validação no `[DLSS5_Feed.fx]` do `FafaDLSS5.ini` — o que está aplicado agora:
 
 ```ini

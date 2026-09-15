@@ -3,7 +3,14 @@
 //
 //  Compilado por windres no build-mingw.sh. Nao precisa de header gerado: o unico
 //  recurso com id numerico e o icone, e ele e o 1 de proposito.
+//
+//  CODIFICACAO: este arquivo e UTF-8 e o CompanyName tem acento ("PC do Fafa"). O windres,
+//  sem que ninguem diga nada, le o .rc na pagina de codigo ANSI da maquina, e ai o acento
+//  vira dois caracteres estranhos nas Propriedades do arquivo e na tela de aviso do Windows.
+//  Duas defesas, e as duas sao precisas: o pragma abaixo, que vale mesmo para quem compilar
+//  a mao, e o --codepage=65001 do build-mingw.sh, que vale mesmo se o pragma se perder.
 // =====================================================================================
+#pragma code_page(65001)
 
 // O ICONE PRINCIPAL TEM DE SER O MENOR ID NUMERICO DO ARQUIVO.
 // Nao e estilo: quando o Explorer precisa do icone de um exe, ele pega o recurso de
@@ -17,8 +24,8 @@
 // APP_VERSION do main.cpp e "1.1". Aqui o numero vai nos dois formatos que o Windows
 // pede: a tupla binaria (que ele compara para saber qual arquivo e mais novo) e a string
 // que aparece nas propriedades. Ao subir a versao, mexa nos dois - eles nao se conversam.
-#define VER_TUPLA   1,1,0,0
-#define VER_TEXTO   "1.1.0.0"
+#define VER_TUPLA   1,2,0,0
+#define VER_TEXTO   "1.2.0.0"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     VER_TUPLA
