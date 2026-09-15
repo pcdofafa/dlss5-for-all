@@ -1,4 +1,4 @@
-🇧🇷 [Versão em português](README.pt-BR.md)
+🇧🇷 [Versão em português](LEIA-ME.md)
 
 # DLSS5 For All
 

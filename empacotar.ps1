@@ -111,7 +111,7 @@ if ($exe.VersionInfo.ProductName.Trim() -ne 'DLSS5 For All') {
 # sairam do painel em 03/09/2026 (o preset em uso nao carregava nenhum dos dois shaders,
 # entao nao faziam nada). Continuam no pacote de proposito: quem quiser grading liga a
 # tecnica pelo overlay do ReShade. Tirar do zip e decisao do usuario, nao do script.
-$raiz = @('DLSS5ForAll.exe','dlss5-bridge.addon64','README.md','README.pt-BR.md','LICENSE','CREDITOS.md','CREDITS.md','ofertas.ini',
+$raiz = @('DLSS5ForAll.exe','dlss5-bridge.addon64','README.md','LEIA-ME.md','LICENSE','CREDITOS.md','CREDITS.md','ofertas.ini',
           'setup-dlss5.ps1','setup-dlss5.auto.ps1','gerar-luts.ps1',
           'preset-01-nucleo-afinado.ini','preset-02-grade-neutra.ini','preset-03-grade-cinema.ini',
           'preset-04-brilho-contido.ini','preset-05-nitidez.ini')
