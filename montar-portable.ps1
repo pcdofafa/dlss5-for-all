@@ -69,7 +69,7 @@ $programa = @(
     'preset-01-nucleo-afinado.ini', 'preset-02-grade-neutra.ini', 'preset-03-grade-cinema.ini',
     'preset-04-brilho-contido.ini', 'preset-05-nitidez.ini',
     'setup-dlss5.ps1', 'setup-dlss5.auto.ps1', 'gerar-luts.ps1',
-    'README.md', 'LICENSE', 'CREDITOS.md'
+    'README.md', 'README.pt-BR.md', 'LICENSE', 'CREDITOS.md', 'CREDITS.md'
 )
 foreach ($f in $programa) {
     $src = Join-Path $Root $f
@@ -130,7 +130,7 @@ function Copiar-Amd($src, $dstNome) {
 foreach ($f in 'DLSS5ForAll.exe', 'dlss5-bridge.addon64', 'dxgi.dll',
                'preset-01-nucleo-afinado.ini', 'preset-02-grade-neutra.ini', 'preset-03-grade-cinema.ini',
                'preset-04-brilho-contido.ini', 'preset-05-nitidez.ini',
-               'LICENSE', 'CREDITOS.md') {
+               'LICENSE', 'CREDITOS.md', 'README.pt-BR.md', 'CREDITS.md') {
     Copiar-Amd (Join-Path $Root $f) $f
 }
 

@@ -1,6 +1,6 @@
 # Créditos e licenças
 
-🇺🇸 [English version](CREDITS.en.md)
+🇺🇸 [English version](CREDITS.md)
 
 **Código deste projeto (MIT — ver `LICENSE`):** `DLSS5ForAll.exe` (`main.cpp`, `screen_capture.h`, `hdr_control.h`,
 `splash_ofertas.h`, `qr.h`, `reshade_bridge.h`), o add-on `dlss5-bridge.addon64` (`addon\`), os shaders
