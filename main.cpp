@@ -12454,9 +12454,8 @@ static void RestoreHdrOnExit() {
 // item do painel abre o link no navegador, que resolve igual.
 // (o include esta no topo do arquivo, junto dos demais)
 static const wchar_t* kUrlGrupo = L"https://grupo.pcdofafa.com.br/pg";
-// O canal do criador, lido do ofertas.ini (chave `canal`) na abertura. Vazio = o app nao
-// tem canal para divulgar, e ai o item "Apoie o criador" nem aparece no painel nem no
-// launcher. Prometer um link que nao existe e pior do que nao ter o botao.
+// O canal do criador, o endereco embutido (ofertas::CanalPadrao) na abertura; a chave
+// `canal` do ofertas.ini nao e mais lida.
 static std::wstring g_urlCanal;
 static std::atomic<bool> g_ofertasAberto{ false };
 
@@ -17240,9 +17239,7 @@ static int RenderV7(Graphics* g) {
         }
         cy += 58 + 12;
     }
-    // -------- apoie o criador: so aparece com endereco no ofertas.ini (chave `canal`).
-    // Sem a chave o item nem existe - um botao que abre um link inventado e pior do que
-    // botao nenhum, e quem empacota o app pode nao ter canal para divulgar.
+    // -------- apoie o criador: o endereco e o embutido (a chave `canal` do ini nao vale mais).
     if (g_abaAtual == ABA_GERAL && !g_urlCanal.empty()) {
         RectF r(L, cy, IW, 58);
         const int idx = (int)g_items.size();
@@ -28685,13 +28682,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         Log("perfil da rede: painel %s (add-on novo=%d), passes=%d",
             g_hud.nrPode ? "com os controles" : "sem os controles", RenoDxNovo() ? 1 : 0, g_hud.nrPasses);
     }
-    // O canal do criador vem do ofertas.ini, e a validacao http(s) e a mesma do resto do
-    // modulo - o ini fica ao lado do exe e e editavel por qualquer um.
+    // O canal do criador e o endereco embutido do modulo (a chave `canal` do ofertas.ini
+    // nao e mais lida - o ini fica ao lado do exe e e editavel por qualquer um).
 #ifdef TEM_SPLASH_OFERTAS
     {
         const ofertas::Config oc = ofertas::LoadConfig();
         g_urlCanal = oc.canal;
-        if (!g_urlCanal.empty()) Log("ofertas.ini: canal do criador configurado");
+        if (!g_urlCanal.empty()) Log("canal do criador: endereco embutido");
     }
 #endif
     // A ESCOLHA DA PESSOA SOBRE O FPS NA TELA MANDA, e tem de ser reaplicada aqui.

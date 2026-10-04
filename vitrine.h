@@ -502,13 +502,12 @@ struct Motor final : ofertas::detail::VitrineHost {
     const wchar_t* Carga() const { const int e = estado.load(); return e == 1 ? L"ok" : e == 2 ? L"falhou" : L"carregando"; }
 };
 
-// A decisao que nao depende da tela: chave vitrine=, endereco, runtime. Devolve true com o
+// A decisao que nao depende da tela: endereco, runtime (a chave vitrine= do ini nao e lida). Devolve true com o
 // motor preenchido (url, pasta de dados, log); false com o motivo para o log. A espera pela
 // rede (1,5 s) e do launcher.cpp, porque e ele que sabe quando a busca comecou. (A vitrine
-// nao depende de url_base: o endereco dela e fixo, kUrlVitrinePadrao, ou vitrine_url=.)
+// nao depende de url_base: o endereco dela e fixo, kUrlVitrinePadrao.)
 inline bool Preparar(Motor& m, const atualizacao::Verificacao& verif, const std::wstring& raiz, std::wstring& motivo) {
     m.log = atualizacao::ArquivoLogLauncher(raiz);
-    if (!verif.cfg.vitrine)        { motivo = L"ini_vitrine=0"; return false; }
     m.url = atualizacao::UrlVitrine(verif);
     if (m.url.empty())             { motivo = L"sem_url"; return false; }
     if (!m.RuntimePresente(raiz, motivo)) return false;

@@ -412,8 +412,8 @@ ponte até ele). Essa página recebe o idioma (l) e o mesmo id acima (só com
 contar=1), e nada mais; os cliques dentro dela ("ver oferta", "entrar no
 grupo") são registrados pela própria página. Links abrem no seu navegador
 padrão. Sem internet, sem o WebView2 na máquina ou num monitor estreito a
-tela é a de sempre, de uma coluna. Para nunca mostrar a coluna: no
-ofertas.ini, troque vitrine=1 por vitrine=0. Os dados do motor ficam em
+tela é a de sempre, de uma coluna. A coluna não pode ser desligada pelo
+ofertas.ini (as chaves vitrine= e vitrine_url= não são mais lidas). Os dados do motor ficam em
 cache\webview2\ (pode apagar).
 
 Para quê: contar quantas pessoas usam o programa, saber quais botões são

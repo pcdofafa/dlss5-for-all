@@ -414,8 +414,8 @@ receives the language (l) and the same id above (only with contar=1), and
 nothing else; clicks inside it ("see deal", "join the group") are recorded by
 the page itself. Links open in your default browser. Without internet,
 without WebView2 on the machine, or on a narrow monitor, the screen is the
-usual single-column one. To never show the column: in ofertas.ini, change
-vitrine=1 to vitrine=0. The engine's data lives in cache\webview2\ (safe to
+usual single-column one. The column cannot be turned off from ofertas.ini
+(the vitrine= and vitrine_url= keys are no longer read). The engine's data lives in cache\webview2\ (safe to
 delete).
 
 Why: to count how many people use the program, to know which buttons are

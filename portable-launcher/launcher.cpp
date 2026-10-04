@@ -33,7 +33,7 @@
 //
 //  VITRINE (vitrine.h): a tela ganha uma coluna a ESQUERDA com a pagina de ofertas de agora
 //  (https://grupo.pcdofafa.com.br/app-ofertas, rolavel, com o botao do grupo), mostrada pelo
-//  WebView2. A coluna so existe quando tudo isto vale: [atualizacao] vitrine=1 (padrao), o
+//  WebView2. A coluna so existe quando tudo isto vale: o
 //  runtime do WebView2 instalado, a rede respondeu em ate 1,5 s (ao versao.json quando ha
 //  url_base; senao a uma sonda de cabecalho na propria vitrine) e o monitor comporta as duas
 //  colunas. Faltando qualquer um, a tela e a de sempre (uma coluna) e o launcher.log diz o

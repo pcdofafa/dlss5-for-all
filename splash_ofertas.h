@@ -9,7 +9,7 @@
 //  ELA E O LAUNCHER DO APP, e nao um aviso a ser fechado. Sao TRES saidas, todas
 //  botoes de verdade e sempre na mesma posicao:
 //    QUERO AS OFERTAS   (ciano, primario)  -> abre o grupo no navegador
-//    APOIAR O CANAL     (vazado)           -> abre o canal; so existe com `canal` no ini
+//    APOIAR O CANAL     (vazado)           -> abre o canal (endereco embutido, kCanalPadrao)
 //    INICIAR PROGRAMA   (verde)            -> fecha esta janela e o app segue
 //
 //  O verde substituiu um "Agora nao" cinza. Era a MESMA acao - fechar e seguir -, mas
@@ -90,6 +90,9 @@ enum Politica { POL_SEMPRE = 0, POL_PRIMEIRA_VEZ = 1, POL_NUNCA = 2 };
 // (convite direto do grupo no Telegram, definido pelo usuario em 2026-09-05; antes era
 // grupo.pcdofafa.com.br/pg)
 inline const wchar_t* UrlPadrao() { return L"https://t.me/+Tg-va1EvXX1lYTJh"; }
+// O canal do criador e SEMPRE este (o ofertas.ini nao o troca mais); so a publi remota do
+// dono (ofertas.json, ver AplicarRemoto) pode apontar a outro lugar.
+inline const wchar_t* CanalPadrao() { return L"https://www.youtube.com/@pcdofafa?sub_confirmation=1"; }
 
 // ShellExecuteW("open", s) NAO abre so paginas: com um caminho de arquivo, um UNC de rede
 // ou um verbo de protocolo registrado ele EXECUTA o que estiver ali. O ofertas.ini fica
@@ -138,10 +141,9 @@ inline std::wstring UrlSegura(const std::wstring& u) {
 
 struct Config {
     std::wstring url      = UrlPadrao();
-    // Canal do criador. Vazio de proposito: sem endereco no ofertas.ini o botao "APOIE O
-    // CRIADOR" nem aparece no painel - prometer um link que nao existe e pior do que nao
-    // ter o botao.
-    std::wstring canal;
+    // Canal do criador: o endereco embutido (CanalPadrao); a chave `canal` do ofertas.ini
+    // nao e mais lida. Se a publi remota do dono trouxer outro, AplicarRemoto o troca.
+    std::wstring canal    = CanalPadrao();
     std::wstring marca    = L"PC DO FAFA";
     std::wstring submarca = TS(L"PROMOÇÕES", L"DEALS");
     std::wstring titulo   = TS(L"Peça de PC pelo menor preço", L"PC parts at the lowest price");
@@ -269,7 +271,7 @@ inline std::wstring UrlVisivel(const std::wstring& url) {
     return s;
 }
 
-// Le ofertas.ini (secao [ofertas]) ao lado do exe. Chaves: url, canal, url_novidades,
+// Le ofertas.ini (secao [ofertas]) ao lado do exe. Chaves: url, url_novidades,
 // mostrar, forcar_splash, titulo, mensagem, cta, botao, botao_fechar, rodape, slogan,
 // nome_grupo, marca, submarca.
 // `segundos` ainda e aceita e descartada: a janela nao fecha mais sozinha.
@@ -313,10 +315,7 @@ inline Config LoadConfig(Config base = Config()) {
             if (UrlEhWeb(v)) base.url = v;
             else             LogUrlRecusada(L"ofertas.ini", v);
         }
-        else if (_wcsicmp(k.c_str(), L"canal") == 0) {
-            if (UrlEhWeb(v)) base.canal = v;
-            else             LogUrlRecusada(L"ofertas.ini (canal)", v);
-        }
+        else if (_wcsicmp(k.c_str(), L"canal") == 0)        { /* aceita e descarta: o canal e o embutido */ }
         else if (_wcsicmp(k.c_str(), L"url_novidades") == 0) {
             if (UrlEhWeb(v)) base.urlNovidades = v;
             else             LogUrlRecusada(L"ofertas.ini (url_novidades)", v);
@@ -329,7 +328,7 @@ inline Config LoadConfig(Config base = Config()) {
         //
         // Entao: "titulo=" vale quando o app esta em portugues, "titulo_en=" quando esta em
         // ingles. Sem a chave do idioma em uso, fica o padrao embutido, que ja e traduzido.
-        // url, canal, mostrar e forcar_splash nao sao texto: valem sempre, sem sufixo.
+        // url, mostrar e forcar_splash nao sao texto: valem sempre, sem sufixo.
         else if (_wcsicmp(k.c_str(), L"segundos") == 0)     { /* aceita e descarta: sem contagem */ }
         else if (_wcsicmp(k.c_str(), L"forcar_splash") == 0) base.forcar = !detail::Falso(v);
         // "mostrar" ANTES do ramo de idioma. Ele ficava depois, e em portugues ChaveDoIdioma()
@@ -838,7 +837,7 @@ struct TextoFaixa {
     std::wstring rotulo, titulo, apoio, botao;
     bool ehCanal = false;          // ingles: a faixa chama o canal, nao o grupo
 };
-// PARA ONDE A FAIXA LEVA: o grupo em portugues, o canal em ingles. Sem `canal=` no ofertas.ini
+// PARA ONDE A FAIXA LEVA: o grupo em portugues, o canal em ingles. Sem canal
 // nao ha para onde mandar quem esta em ingles, e a faixa volta a apontar para o grupo - melhor
 // um destino em portugues do que um botao que nao faz nada.
 inline const std::wstring& AlvoDaFaixa(const Config& C) {

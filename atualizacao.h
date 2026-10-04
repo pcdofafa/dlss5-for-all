@@ -18,7 +18,8 @@
 //  A VITRINE (coluna da esquerda da tela, vitrine.h) NAO usa o url_base: e a rota
 //     https://grupo.pcdofafa.com.br/app-ofertas?l=&id=   (kUrlVitrinePadrao; JSON em
 //     /app-ofertas.json), aberta pelo motor web, nao pelo WinHTTP daqui. [atualizacao]
-//     vitrine=0 desliga; vitrine_url= troca o endereco. "Tem rede?" vem do versao.json
+//     Sempre ligada e sempre nesse endereco: vitrine= e vitrine_url= do ini NAO sao mais
+//     lidas (so a falta de rede ou de WebView2 a esconde). "Tem rede?" vem do versao.json
 //     (com url_base) ou de uma sonda de cabecalho na propria vitrine (sem url_base).
 //  url_manifesto=, url_ofertas= e relatorio_url= sobrescrevem cada endereco se existirem.
 //
@@ -607,13 +608,14 @@ inline std::wstring LerEstado(const std::wstring& raiz, const wchar_t* k, const 
 }
 // A VITRINE mora na landing do grupo, em OUTRO dominio que o do url_base (que continua so
 // para versao.json / ofertas.json / evento): e uma rota fixa, com o JSON dela ao lado
-// (/app-ofertas.json). vitrine_url= no ini troca o endereco (teste: 127.0.0.1 ou file:///).
+// (/app-ofertas.json). O endereco e SEMPRE este: vitrine_url= no ini nao e mais lida.
 constexpr const wchar_t* kUrlVitrinePadrao = L"https://grupo.pcdofafa.com.br/app-ofertas";
 struct Config {
     std::wstring urlBase, urlManifesto, urlOfertas, urlEvento, urlResumo;
     bool contar = true;
-    // a vitrine (coluna da esquerda da tela): vitrine=1|0 e vitrine_url= (padrao kUrlVitrinePadrao,
-    // independente de url_base). urlVitrine sai daqui SEM a query (l=, id=): ver UrlVitrine().
+    // a vitrine (coluna da esquerda da tela): sempre ligada e sempre em kUrlVitrinePadrao
+    // (independente de url_base; vitrine= e vitrine_url= do ini nao sao lidas). urlVitrine
+    // sai daqui SEM a query (l=, id=): ver UrlVitrine().
     bool vitrine = true;
     std::wstring urlVitrine;
     // A GAVETA DA VITRINE vem aberta no PRIMEIRO uso e, depois, a cada N aberturas; nas
@@ -653,13 +655,9 @@ inline Config LerConfig(const std::wstring& raiz) {
     const std::wstring token = LerChaveIni(ini, L"atualizacao", L"relatorio_token");
     const std::wstring contar = LerChaveIni(ini, L"atualizacao", L"contar", L"1");
     c.contar = !Desligado(contar);
-    c.vitrine = !Desligado(LerChaveIni(ini, L"atualizacao", L"vitrine", L"1"));
-    c.urlVitrine = LerChaveIni(ini, L"atualizacao", L"vitrine_url");
-    if (!c.urlVitrine.empty() && !UrlVitrineAceita(c.urlVitrine)) {
-        Anotar(ArquivoLogLauncher(raiz), L"vitrine_url recusada (so https, 127.0.0.1 ou file:/// de teste; %ls) - fica o padrao", c.urlVitrine.substr(0, 200).c_str());
-        c.urlVitrine.clear();
-    }
-    if (c.urlVitrine.empty()) c.urlVitrine = kUrlVitrinePadrao;   // a vitrine nao depende de url_base: e uma rota da landing
+    // vitrine= e vitrine_url= do ini NAO sao lidas: a vitrine fica ligada (c.vitrine = true)
+    // e o endereco e sempre o embutido.
+    c.urlVitrine = kUrlVitrinePadrao;   // a vitrine nao depende de url_base: e uma rota da landing
     {
         const std::wstring n = LerChaveIni(ini, L"atualizacao", L"vitrine_lembrar_a_cada", L"10");
         const int v = _wtoi(n.c_str());
