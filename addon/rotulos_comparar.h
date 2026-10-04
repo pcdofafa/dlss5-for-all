@@ -222,6 +222,77 @@ inline bool desenhar_texto(const wchar_t *texto, UINT alturaAlvo, ImagemBGRA &ou
     return ok;
 }
 
+/* ETIQUETA PEQUENA (25/09/2026, pedido do dono: rotulos pequenos "DLSS 5" e
+   "Original" nos lados da linha). Diferente do letreiro de reserva acima, esta
+   E o desenho pretendido: fundo quase preto, fio cinza de 1 px e o texto branco
+   em Segoe UI Semibold. Opaca (a copia e de bloco, ver o cabecalho). */
+inline bool desenhar_etiqueta(const wchar_t *texto, UINT alturaAlvo, ImagemBGRA &out)
+{
+    if (texto == nullptr || alturaAlvo < 8) return false;
+
+    const int h = (int)alturaAlvo;
+    const int recuo = (h * 35) / 100;
+    const int corpo = (h * 58) / 100;
+
+    HDC tela = GetDC(nullptr);
+    HDC dc = CreateCompatibleDC(tela);
+    if (tela) ReleaseDC(nullptr, tela);
+    if (dc == nullptr) return false;
+
+    HFONT fonte = CreateFontW(-corpo, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                              DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
+                              ANTIALIASED_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    HGDIOBJ velha = fonte ? SelectObject(dc, fonte) : nullptr;
+
+    RECT med{ 0, 0, 0, 0 };
+    DrawTextW(dc, texto, -1, &med, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+    int w = (med.right - med.left) + recuo * 2;
+    if (w < h) w = h;
+
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    void *bits = nullptr;
+    HBITMAP dib = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    bool ok = false;
+    if (dib != nullptr && bits != nullptr)
+    {
+        HGDIOBJ velhoBmp = SelectObject(dc, dib);
+
+        RECT tudo{ 0, 0, w, h };
+        HBRUSH fundo = CreateSolidBrush(RGB(16, 16, 20));
+        FillRect(dc, &tudo, fundo);
+        DeleteObject(fundo);
+        HBRUSH fio = CreateSolidBrush(RGB(110, 110, 120));
+        FrameRect(dc, &tudo, fio);
+        DeleteObject(fio);
+
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, RGB(248, 248, 250));
+        DrawTextW(dc, texto, -1, &tudo, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        GdiFlush();
+
+        out.w = (UINT)w; out.h = (UINT)h;
+        out.px.assign((size_t)w * h * 4, 0);
+        memcpy(out.px.data(), bits, out.px.size());
+        for (size_t i = 3; i < out.px.size(); i += 4) out.px[i] = 0xFF;
+        ok = true;
+
+        SelectObject(dc, velhoBmp);
+    }
+
+    if (dib) DeleteObject(dib);
+    if (velha) SelectObject(dc, velha);
+    if (fonte) DeleteObject(fonte);
+    DeleteDC(dc);
+    return ok;
+}
+
 /* O CopySubresourceRegion exige formatos da mesma familia, entao a textura
    nasce com o formato do back buffer -- e so precisamos saber a ordem dos
    canais. Fora destes dois grupos (HDR de 10 ou 16 bits), nao ha conversao e

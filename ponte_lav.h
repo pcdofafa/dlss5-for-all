@@ -40,6 +40,7 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <mutex>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -75,7 +76,9 @@ struct Lav {
     std::wstring motivo;     // por que nao carregou (vazio se ok)
     std::string  licenca, versao;
 
-    static Lav& I() { static Lav l; if (!l.tentou) l.Carregar(); return l; }
+    // B5: carregar leva ~100 ms e agora comeca numa thread no arranque; call_once faz quem
+    // perguntar no meio esperar essa carga em vez de carregar duas vezes.
+    static Lav& I() { static Lav l; static std::once_flag uma; std::call_once(uma, [] { l.Carregar(); }); return l; }
 
     static std::wstring PastaDoExe() {
         wchar_t p[MAX_PATH]{}; GetModuleFileNameW(nullptr, p, MAX_PATH);

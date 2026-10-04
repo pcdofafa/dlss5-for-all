@@ -19,13 +19,24 @@
 // segundo icone no .rc.
 1  ICON  "marca\\DLSS5ForAll.ico"
 
+// v2.0: A COPIA DE SEGURANCA DA PORTA (ver ConferirLancamento no main.cpp). O app aberto direto,
+// sem o launcher na raiz do pacote, recria a partir daqui o ..\DLSS5ForAll.exe, o
+// ..\WebView2Loader.dll e o ..\versao.txt e abre por ele. O build-mingw.sh compila o launcher
+// ANTES deste .rc, entao o embutido e sempre o do mesmo build. Os ids sao RCDATA (outro tipo):
+// nao disputam com o icone 1 a regra do "menor id".
+101 RCDATA "portable-launcher\\DLSS5ForAll.exe"
+102 RCDATA "portable-launcher\\WebView2Loader.dll"
+// o versao.txt da raiz (o build-mingw.sh o gera de versao.h, igual ao montar-portable.ps1)
+103 RCDATA "portable-launcher\\versao.txt"
+
+
 #include <windows.h>
 
 // APP_VERSION do main.cpp e "1.1". Aqui o numero vai nos dois formatos que o Windows
 // pede: a tupla binaria (que ele compara para saber qual arquivo e mais novo) e a string
 // que aparece nas propriedades. Ao subir a versao, mexa nos dois - eles nao se conversam.
-#define VER_TUPLA   1,2,0,0
-#define VER_TEXTO   "1.2.0.0"
+#define VER_TUPLA   2,0,0,0
+#define VER_TEXTO   "2.0.0.0"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     VER_TUPLA

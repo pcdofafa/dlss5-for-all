@@ -45,7 +45,7 @@
     - Fila de 128 comandos. Se estourar (painel arrastando slider enquanto o
       render esta travado), os NOVOS sao descartados e 'dropped' sobe; o
       estado desejado continua correto, entao o proximo reapply conserta.
-    - 64 chaves de estado desejado. Passou disso, o comando ainda e aplicado,
+    - 128 chaves de estado desejado. Passou disso, o comando ainda e aplicado,
       so nao sobrevive a um reload.
     - Um effect_runtime por vez (o app so tem uma swapchain).
 
@@ -104,8 +104,8 @@ extern "C" __declspec(dllexport) const char *DESCRIPTION =
 namespace
 {
     constexpr size_t kQueueCap = 128;   /* uniforms  */
-    constexpr size_t kTechCap  = 32;    /* tecnicas  */
-    constexpr size_t kStateCap = 64;
+    constexpr size_t kTechCap  = 64;    /* tecnicas (I22: 14 tecnicas do card Filtros, ligadas e desligadas a cada quadro sintetizado) */
+    constexpr size_t kStateCap = 128;   /* I22: 14 tecnicas + ~40 uniforms dos filtros, mais o resto do app */
 
     /* o efeito de cor que o painel controla (ver reshade_bridge.h) */
     constexpr const char *kGradeEffect    = "DLSS5_Grade.fx";
@@ -132,13 +132,12 @@ namespace
            ligada=0        0/1, pode mudar com o jogo rodando
            eps=0.0001      o botao que decide se o serrilhado volta
 
-       Relido a cada ~1 s dentro do on_present, que e onde o add-on ja faz o
-       trabalho fora da iteracao de efeitos. Reler todo quadro seria um
-       GetPrivateProfileString por quadro por uma chave que muda uma vez por
-       sessao; um segundo de atraso e imperceptivel para quem esta comparando
-       na tela e nao aparece no custo. */
+       Aplicado no on_present, que e onde o add-on ja faz o trabalho fora da
+       iteracao de efeitos. B10 (16/09/2026): a LEITURA do ini nao e mais feita
+       ali (eram ~10 aberturas de arquivo por segundo na thread do Present): uma
+       thread propria confere a data do arquivo e le so quando muda - ver
+       ini_thread. */
     dlss5_mistura::Mistura g_mistura;
-    ULONGLONG              g_mistura_ultimo_ini = 0;
 
     /* MODO COMPARATIVO (ver comparar_lado_a_lado.h). Desligado por padrao; a
        chave e [comparar] ligado=1 no dlss5forall.ini, lida na mesma passada de
@@ -642,19 +641,80 @@ namespace
         BRIDGE_TRACE("refresh: fim");
     }
 
+    /* B10 (16/09/2026): O QUE O INI DIZ, lido FORA da thread do Present. Eram ~10
+       GetPrivateProfile* (cada um abre e fecha o arquivo) por segundo dentro do
+       on_present. Agora a thread de ini (mais abaixo) le isto so quando o
+       dlss5forall.ini ou o dlss5-feed.cfg mudam de data ou tamanho, e publica por um
+       ponteiro atomico; o on_present so troca o ponteiro e chama os configurar(). */
+    struct IniMistura
+    {
+        bool ligada = false; float eps = 1e-4f; int wr = 0;
+        bool comp = false; float divi = 50.f; int rot = 1; int rotH = 4; int atr = 0;
+        bool en = false;   /* [idioma] lingua=en: textos desenhados no quadro em ingles */
+        /* O RETANGULO DO CAMINHO CURTO (short_w/short_h do dlss5-feed.cfg).
+           Zero = desligado. So o comparativo o usa, para nao colar tarja preta
+           na metade direita - ver A METADE DIREITA PRETA em
+           comparar_lado_a_lado.h. */
+        int shW = 0, shH = 0;
+        /* X-CONSOLE / I11: a geometria da fonte, escrita pelo app em [comparar]
+           (bb_w/bb_h, fonte_x/y/w/h, caixa_w/caixa_h). Ver comparar_lado_a_lado.h. */
+        dlss5_comparar::Geometria geo;
+        wchar_t exe[MAX_PATH] = { 0 };
+        wchar_t atalho[64] = { 0 };
+    };
+    std::atomic<IniMistura *> g_ini_pendente{ nullptr };
+
+    /* QUAL dlss5forall.ini (25/09/2026, diagnostico do comparativo). O app NAO
+       grava sempre ao lado do exe: quando a pasta do exe nao aceita escrita
+       (instalado em Program Files), ele passa a usar
+       %LOCALAPPDATA%\DLSS5ForAll\dlss5forall.ini (main.cpp, g_dadosDir /
+       IniPath). Este add-on lia so o do exeDir - e ai o Ctrl+F6 gravava
+       [comparar] ligado=1 num arquivo que ninguem daqui lia: o modo nunca ligava,
+       sem erro em lugar nenhum. Agora: se o do LOCALAPPDATA existe e e MAIS NOVO
+       que o do exeDir (ou o do exeDir nao existe), vale ele. Barato: dois
+       GetFileAttributesEx, e a thread de ini ja faz isso a cada 250 ms.
+       `exeDir` com a barra final; `ini` recebe o caminho escolhido. */
+    void caminho_ini(const wchar_t *exeDir, wchar_t *ini, size_t n)
+    {
+        _snwprintf(ini, n, L"%sdlss5forall.ini", exeDir);
+        ini[n - 1] = L'\0';
+        wchar_t base[MAX_PATH] = { 0 };
+        const DWORD r = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+        if (r == 0 || r >= MAX_PATH) return;
+        wchar_t alt[MAX_PATH];
+        _snwprintf(alt, MAX_PATH, L"%s\\DLSS5ForAll\\dlss5forall.ini", base);
+        alt[MAX_PATH - 1] = L'\0';
+        WIN32_FILE_ATTRIBUTE_DATA a{}, b{};
+        if (!GetFileAttributesExW(alt, GetFileExInfoStandard, &b)) return;
+        if (GetFileAttributesExW(ini, GetFileExInfoStandard, &a) &&
+            CompareFileTime(&a.ftLastWriteTime, &b.ftLastWriteTime) >= 0) return;
+        wcsncpy(ini, alt, n - 1);
+        ini[n - 1] = L'\0';
+    }
+
+    /* A LINHA ARRASTAVEL, AO VIVO (25/09/2026). O app (comparativo.h) chama o
+       export DLSS5Bridge_CompararAoVivo a cada movimento do mouse; o ini so
+       recebe a posicao quando a pessoa solta. Passar pelo ini a 60 Hz seria
+       reescrever o arquivo inteiro 60 vezes por segundo e ainda esperar os
+       250 ms da thread de ini - a linha andaria aos saltos, atras do mouse.
+       seq muda a cada chamada; on = -1/0/1; div em centesimos de ponto
+       percentual (0..10000), -1 = nao mexe. */
+    std::atomic<uint32_t> g_cmp_vivo_seq{ 0 };
+    std::atomic<int>      g_cmp_vivo_on{ -1 };
+    std::atomic<int>      g_cmp_vivo_div{ -1 };
+
     /* Le [mistura] do dlss5forall.ini do exeDir. Barato e sem alocar: duas
        chaves curtas. Devolve tudo para a classe, que decide sozinha se precisa
        recriar recursos. */
-    void mistura_reler_ini()
+    bool mistura_ler_ini(IniMistura *out)
     {
         wchar_t exe[MAX_PATH] = { 0 };
-        if (GetModuleFileNameW(nullptr, exe, MAX_PATH) == 0) return;
+        if (GetModuleFileNameW(nullptr, exe, MAX_PATH) == 0) return false;
         wchar_t *barra = wcsrchr(exe, L'\\');
-        if (barra == nullptr) return;
+        if (barra == nullptr) return false;
         *(barra + 1) = L'\0';
         wchar_t ini[MAX_PATH];
-        _snwprintf(ini, MAX_PATH, L"%sdlss5forall.ini", exe);
-        ini[MAX_PATH - 1] = L'\0';
+        caminho_ini(exe, ini, MAX_PATH);
 
         const bool ligada = GetPrivateProfileIntW(L"mistura", L"ligada", 0, ini) != 0;
         wchar_t buf[32] = { 0 };
@@ -698,16 +758,23 @@ namespace
             }
         }
 
-        g_mistura.configurar(ligada, eps, wr);
-        if (!ligada) g_mistura.desligar();
+        out->ligada = ligada; out->eps = eps; out->wr = wr;
 
         /* O modo comparativo vem na mesma leitura: e o mesmo ini e o mesmo
            ritmo de um segundo, e abrir o arquivo duas vezes por segundo para
            ler duas chaves nao se justifica. */
         const bool comp = GetPrivateProfileIntW(L"comparar", L"ligado", 0, ini) != 0;
-        const int  divi = (int)GetPrivateProfileIntW(L"comparar", L"divisor", 50, ini);
-        const bool rot  = GetPrivateProfileIntW(L"comparar", L"rotulos", 1, ini) != 0;
-        const int  rotH = (int)GetPrivateProfileIntW(L"comparar", L"rotulo_altura", 9, ini);
+        /* divisor com fracao (25/09/2026, linha arrastavel): "37.5" vale. */
+        float divi = 50.f;
+        {
+            wchar_t d[32] = { 0 };
+            GetPrivateProfileStringW(L"comparar", L"divisor", L"50", d, 32, ini);
+            divi = (float)_wtof(d);
+            if (!(divi >= 0.f && divi <= 100.f)) divi = 50.f;
+        }
+        /* rotulos: 0 sem, 1 etiquetas "DLSS 5"/"Original" (padrao), 2 artes PNG */
+        const int  rot  = (int)GetPrivateProfileIntW(L"comparar", L"rotulos", 1, ini);
+        const int  rotH = (int)GetPrivateProfileIntW(L"comparar", L"rotulo_altura", 4, ini);
         /* atraso: quantos quadros o lado esquerdo recua para casar com o
            direito. ZERO e o valor MEDIDO -- a bateria de 45 fotos em
            comparar_lado_a_lado.h mostra que compensar PIORA. A chave existe
@@ -721,7 +788,191 @@ namespace
            quem liga sem querer precisa ver como desligar sem adivinhar. */
         wchar_t atalho[64] = L"";
         GetPrivateProfileStringW(L"comparar", L"atalho", L"", atalho, 64, ini);
-        g_comparar.configurar(comp, divi, rot, rotH, atr, exe, atalho);
+        /* short_w/short_h saem do dlss5-feed.cfg, que e onde o app os grava
+           (main.cpp, o gravador do retangulo do caminho curto). O ini nao os
+           tem: quem le esse retangulo do outro lado e o feeder, nao o app. */
+        int shW = 0, shH = 0;
+        {
+            wchar_t cfg[MAX_PATH];
+            _snwprintf(cfg, MAX_PATH, L"%sdlss5-feed.cfg", exe);
+            cfg[MAX_PATH - 1] = L'\0';
+            FILE *f = _wfopen(cfg, L"rb");
+            if (f != nullptr)
+            {
+                char linha[256];
+                while (fgets(linha, sizeof(linha), f) != nullptr)
+                {
+                    if (linha[0] == '#') continue;
+                    const char *eq = strchr(linha, '=');
+                    if (eq == nullptr) continue;
+                    if (strncmp(linha, "short_w", 7) == 0 && linha[7] == '=') shW = atoi(eq + 1);
+                    else if (strncmp(linha, "short_h", 7) == 0 && linha[7] == '=') shH = atoi(eq + 1);
+                }
+                fclose(f);
+            }
+        }
+
+        /* X-CONSOLE / I11: a geometria da fonte (main.cpp, ComparadorGravarRetangulo).
+           Ausente = zeros = app antigo, e o comparador segue a regra anterior. */
+        out->geo.bbW = (int)GetPrivateProfileIntW(L"comparar", L"bb_w", 0, ini);
+        out->geo.bbH = (int)GetPrivateProfileIntW(L"comparar", L"bb_h", 0, ini);
+        out->geo.fx  = (int)GetPrivateProfileIntW(L"comparar", L"fonte_x", 0, ini);
+        out->geo.fy  = (int)GetPrivateProfileIntW(L"comparar", L"fonte_y", 0, ini);
+        out->geo.fw  = (int)GetPrivateProfileIntW(L"comparar", L"fonte_w", 0, ini);
+        out->geo.fh  = (int)GetPrivateProfileIntW(L"comparar", L"fonte_h", 0, ini);
+        out->geo.cw  = (int)GetPrivateProfileIntW(L"comparar", L"caixa_w", 0, ini);
+        out->geo.ch  = (int)GetPrivateProfileIntW(L"comparar", L"caixa_h", 0, ini);
+
+        out->comp = comp; out->divi = divi; out->rot = rot; out->rotH = rotH; out->atr = atr;
+        {
+            wchar_t lg[8] = { 0 };
+            GetPrivateProfileStringW(L"idioma", L"lingua", L"pt", lg, 8, ini);
+            out->en = (lg[0] == L'e' || lg[0] == L'E');
+        }
+        out->shW = shW; out->shH = shH;
+        wcsncpy(out->exe, exe, MAX_PATH - 1);
+        wcsncpy(out->atalho, atalho, 63);
+        return true;
+    }
+
+    /* Na thread do Present: o que a thread de ini publicou, se publicou. */
+    /* QUEM MANDA NO LIGADO E NA POSICAO DA LINHA (25/09/2026): quem mudou por
+       ultimo. O ini e o caminho de sempre (o Ctrl+F6 do app grava la) e o
+       export ao vivo e o do arraste. Aplicar o ini inteiro a cada releitura
+       faria uma releitura provocada por OUTRA chave (o app grava o ini o tempo
+       todo) devolver a linha para a posicao velha no meio do arraste. Entao do
+       ini so vale o que MUDOU em relacao a ultima leitura dele. */
+    int      g_cmp_ini_on  = -1;      /* ultimo ligado lido do ini; -1 = nunca leu */
+    float    g_cmp_ini_div = -1.f;    /* ultimo divisor lido do ini */
+    int      g_cmp_ef_on   = 0;       /* o que esta valendo */
+    float    g_cmp_ef_div  = 50.f;
+    uint32_t g_cmp_vivo_visto = 0;
+
+    void comparar_aplicar_vivo()
+    {
+        const uint32_t seq = g_cmp_vivo_seq.load(std::memory_order_acquire);
+        if (seq == g_cmp_vivo_visto) return;
+        g_cmp_vivo_visto = seq;
+        const int on  = g_cmp_vivo_on.load(std::memory_order_relaxed);
+        const int div = g_cmp_vivo_div.load(std::memory_order_relaxed);
+        if (on == 0 || on == 1) g_cmp_ef_on = on;
+        if (div >= 0 && div <= 10000) g_cmp_ef_div = (float)div / 100.f;
+        g_comparar.marcar_arrastavel();
+        g_comparar.posicionar(g_cmp_ef_on, g_cmp_ef_div);
+    }
+
+    void mistura_aplicar_pendente()
+    {
+        comparar_aplicar_vivo();
+        IniMistura *m = g_ini_pendente.exchange(nullptr, std::memory_order_acq_rel);
+        if (m == nullptr) return;
+        g_mistura.configurar(m->ligada, m->eps, m->wr);
+        if (!m->ligada) g_mistura.desligar();
+        const int iniOn = m->comp ? 1 : 0;
+        if (iniOn != g_cmp_ini_on) { g_cmp_ini_on = iniOn; g_cmp_ef_on = iniOn; }
+        if (m->divi != g_cmp_ini_div) { g_cmp_ini_div = m->divi; g_cmp_ef_div = m->divi; }
+        g_comparar.configurar(g_cmp_ef_on != 0, g_cmp_ef_div, m->rot, m->rotH, m->atr, m->exe, m->atalho,
+                              m->shW, m->shH, &m->geo, m->en);
+        delete m;
+    }
+
+    /* B10: A THREAD DE INI. Confere data e tamanho dos dois arquivos a cada 250 ms (so
+       metadado, sem abrir) e le quando algum mudou - a primeira volta le sempre.
+       Vida: sobe no primeiro on_present e para (com espera) no destroy_effect_runtime,
+       que o ReShade chama antes de descarregar os add-ons: o codigo nunca sai da memoria
+       com a thread andando. O DllMain so faz uma parada de seguranca no FreeLibrary. */
+    SRWLOCK           g_ini_trava = SRWLOCK_INIT;
+    HANDLE            g_ini_thread = nullptr;
+    HANDLE            g_ini_parar  = nullptr;   /* reset manual */
+    HANDLE            g_ini_saiu   = nullptr;   /* reset manual; a thread liga ao sair */
+    std::atomic<bool> g_ini_rodando{ false };
+
+    bool carimbo_de(const wchar_t *caminho, WIN32_FILE_ATTRIBUTE_DATA *out)
+    {
+        if (GetFileAttributesExW(caminho, GetFileExInfoStandard, out)) return true;
+        *out = WIN32_FILE_ATTRIBUTE_DATA{};   /* arquivo ausente tambem e um estado */
+        return false;
+    }
+    bool carimbo_igual(const WIN32_FILE_ATTRIBUTE_DATA &a, const WIN32_FILE_ATTRIBUTE_DATA &b)
+    {
+        return CompareFileTime(&a.ftLastWriteTime, &b.ftLastWriteTime) == 0 &&
+               a.nFileSizeLow == b.nFileSizeLow && a.nFileSizeHigh == b.nFileSizeHigh;
+    }
+
+    DWORD WINAPI ini_thread(void *)
+    {
+        wchar_t exe[MAX_PATH] = { 0 };
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        if (wchar_t *barra = wcsrchr(exe, L'\\')) *(barra + 1) = L'\0';
+        wchar_t ini[MAX_PATH], cfg[MAX_PATH];
+        _snwprintf(cfg, MAX_PATH, L"%sdlss5-feed.cfg", exe);  cfg[MAX_PATH - 1] = L'\0';
+        WIN32_FILE_ATTRIBUTE_DATA vistoIni{}, vistoCfg{};
+        bool primeira = true;
+        for (;;)
+        {
+            /* a escolha do arquivo e refeita a cada volta: ver caminho_ini */
+            caminho_ini(exe, ini, MAX_PATH);
+            WIN32_FILE_ATTRIBUTE_DATA agoraIni{}, agoraCfg{};
+            carimbo_de(ini, &agoraIni);
+            carimbo_de(cfg, &agoraCfg);
+            if (primeira || !carimbo_igual(agoraIni, vistoIni) || !carimbo_igual(agoraCfg, vistoCfg))
+            {
+                IniMistura *m = new IniMistura();
+                if (mistura_ler_ini(m))
+                {
+                    delete g_ini_pendente.exchange(m, std::memory_order_acq_rel);
+                    m = nullptr;
+                }
+                delete m;
+                vistoIni = agoraIni; vistoCfg = agoraCfg; primeira = false;
+            }
+            if (WaitForSingleObject(g_ini_parar, 250) == WAIT_OBJECT_0) break;
+        }
+        SetEvent(g_ini_saiu);
+        return 0;
+    }
+
+    void ini_thread_garantir()
+    {
+        if (g_ini_rodando.load(std::memory_order_acquire)) return;
+        AcquireSRWLockExclusive(&g_ini_trava);
+        if (!g_ini_rodando.load(std::memory_order_acquire))
+        {
+            if (g_ini_parar == nullptr) g_ini_parar = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (g_ini_saiu == nullptr)  g_ini_saiu  = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (g_ini_parar != nullptr && g_ini_saiu != nullptr)
+            {
+                ResetEvent(g_ini_parar);
+                ResetEvent(g_ini_saiu);
+                g_ini_thread = CreateThread(nullptr, 0, &ini_thread, nullptr, 0, nullptr);
+            }
+            if (g_ini_thread == nullptr)
+            {
+                /* Sem thread: le uma vez aqui mesmo, como antes, para o estado do ini valer. */
+                IniMistura *m = new IniMistura();
+                if (mistura_ler_ini(m)) { delete g_ini_pendente.exchange(m, std::memory_order_acq_rel); m = nullptr; }
+                delete m;
+            }
+            g_ini_rodando.store(true, std::memory_order_release);
+        }
+        ReleaseSRWLockExclusive(&g_ini_trava);
+    }
+
+    /* noDllMain: com a trava do loader na mao a thread nao termina de sair; espera o
+       evento dela em vez do handle. */
+    void ini_thread_parar(bool noDllMain)
+    {
+        AcquireSRWLockExclusive(&g_ini_trava);
+        if (g_ini_thread != nullptr)
+        {
+            SetEvent(g_ini_parar);
+            WaitForSingleObject(noDllMain ? g_ini_saiu : g_ini_thread, noDllMain ? 2000 : 3000);
+            CloseHandle(g_ini_thread);
+            g_ini_thread = nullptr;
+        }
+        g_ini_rodando.store(false, std::memory_order_release);
+        ReleaseSRWLockExclusive(&g_ini_trava);
+        delete g_ini_pendente.exchange(nullptr, std::memory_order_acq_rel);
     }
 
     void on_begin_effects(reshade::api::effect_runtime *runtime,
@@ -749,12 +1000,23 @@ namespace
            e o esperado -- o SRV nao muda, mas o ReShade nao guarda a ligacao
            entre reloads e refazer custa uma escrita de ponteiro. */
         {
+            /* PUBLICAR O ZERO TAMBEM, e nao apenas parar de publicar (18/09/2026, a
+               queda do Nativo com o Resident Evil 2). O ReShade guarda este handle --
+               que em D3D11 e o ponteiro cru do ID3D11ShaderResourceView -- ligado aos
+               descriptor tables do passe, SEM AddRef. Quando o app soltava o MV
+               (`DLSS5Bridge_SetExternalMV(nullptr)`, o que ele faz em toda troca de
+               resolucao da fonte), o `if (srv != 0)` daqui fazia o add-on apenas PARAR
+               de republicar -- e o runtime continuava com o ponteiro anterior ligado.
+               O app destruia o SRV logo em seguida e o Present do quadro seguinte caia
+               dentro do d3d11.dll, num ID3D11View::GetResource sobre memoria ja
+               reciclada (0xC0000005 em d3d11.dll+0x5E08C).
+
+               Publicar o zero e o caminho da propria API: handle nulo desliga a
+               semantica e o ReShade volta a textura vazia dele. A partir daqui, soltar
+               o MV do lado do app solta a ligacao aqui no MESMO frame. */
             const uint64_t srv = g_ext_mv.load(std::memory_order_acquire);
-            if (srv != 0)
-            {
-                const reshade::api::resource_view view = { srv };
-                runtime->update_texture_bindings("DLSS5_EXTMV", view, view);
-            }
+            const reshade::api::resource_view view = { srv };
+            runtime->update_texture_bindings("DLSS5_EXTMV", view, view);
         }
 
         DLSS5BridgeCommand batch[kQueueCap + kStateCap];
@@ -812,15 +1074,10 @@ namespace
            efeito, porque este e o ponto que ja roda uma vez por quadro fora da
            iteracao de render_effects -- mexer em recursos de dentro dela
            derruba o processo, como o comentario do on_present ja documenta
-           para as tecnicas. Uma leitura por segundo, nao por quadro. */
-        {
-            const ULONGLONG agora = GetTickCount64();
-            if (agora - g_mistura_ultimo_ini > 1000)
-            {
-                g_mistura_ultimo_ini = agora;
-                mistura_reler_ini();
-            }
-        }
+           para as tecnicas. B10: a leitura do ini saiu daqui (thread de ini); aqui so
+           se aplica o que ela publicou, quando publicou. */
+        ini_thread_garantir();
+        mistura_aplicar_pendente();
 
         /* O ReShade carrega os add-ons numa varredura so, e a ordem alfabetica
            nao garante que o RenoDX ja esteja no lugar quando o nosso DllMain
@@ -980,7 +1237,8 @@ namespace
         g_mistura.aplicar(reinterpret_cast<void *>(rtv.handle), log_info);
 
         /* O COMPARATIVO VEM DEPOIS DA MISTURA E ANTES DE PUBLICAR, e a ordem e
-           deliberada: a metade esquerda tem de ser a imagem ORIGINAL, sem
+           deliberada: a metade direita tem de ser a imagem ORIGINAL (os lados
+           foram invertidos em 14/09/2026; este comentario ficou para tras), sem
            mistura nenhuma (a mistura e parte do que se quer comparar), e a
            camada de cima (o 2x) e quem grava tem de receber a tela dividida,
            que e o que a pessoa esta vendo. */
@@ -1008,6 +1266,9 @@ namespace
 
     void on_destroy_runtime(reshade::api::effect_runtime *runtime)
     {
+        /* B10: a thread de ini para antes de o ReShade poder descarregar o add-on; o
+           proximo on_present a sobe de novo. */
+        ini_thread_parar(false);
         reshade::api::effect_runtime *expected = runtime;
         g_runtime.compare_exchange_strong(expected, nullptr);
         g_effects_loaded.store(0, std::memory_order_release);
@@ -1069,6 +1330,24 @@ extern "C" __declspec(dllexport) uint32_t DLSS5Bridge_Protocol(void)
 extern "C" __declspec(dllexport) int DLSS5Bridge_SetExternalMV(void *srv)
 {
     g_ext_mv.store(reinterpret_cast<uint64_t>(srv), std::memory_order_release);
+    return 1;
+}
+
+/* MODO COMPARATIVO AO VIVO (25/09/2026): liga/desliga e posicao da linha sem
+   passar pelo ini. Quem chama e a linha arrastavel do app (comparativo.h), por
+   GetProcAddress - um exe antigo nao chama, e um add-on antigo nao tem o export
+   (o app entao cai para gravar o ini, que continua valendo).
+   ligado: -1 = nao mexe, 0 = desliga, 1 = liga.
+   divisorPct: 0..100 = onde fica a linha dentro da imagem; < 0 = nao mexe.
+   Vale no proximo Present (aplicado no on_present, fora da iteracao de efeitos). */
+extern "C" __declspec(dllexport) int DLSS5Bridge_CompararAoVivo(int ligado, float divisorPct)
+{
+    int div = -1;
+    if (divisorPct >= 0.f && divisorPct == divisorPct)
+        div = (int)((divisorPct > 100.f ? 100.f : divisorPct) * 100.f + 0.5f);
+    g_cmp_vivo_on.store((ligado == 0 || ligado == 1) ? ligado : -1, std::memory_order_relaxed);
+    g_cmp_vivo_div.store(div, std::memory_order_relaxed);
+    g_cmp_vivo_seq.fetch_add(1, std::memory_order_acq_rel);
     return 1;
 }
 
@@ -1286,7 +1565,10 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved)
            escrever em memoria que talvez nao exista mais. So desfazemos o
            hook num FreeLibrary de verdade (reserved == nullptr). */
         if (reserved == nullptr)
+        {
+            ini_thread_parar(true);   /* B10: FreeLibrary sem runtime destruido antes */
             remove_nr_hook();
+        }
         reshade::unregister_event<reshade::addon_event::reshade_finish_effects>(on_finish_effects);
         g_shared.shutdown();   // solta a textura compartilhada e marca "nao publicando" no cabecalho
         g_mistura.desligar();  // solta as texturas da mistura antes de o device morrer

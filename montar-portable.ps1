@@ -19,7 +19,12 @@
 #
 #  SO COPIA. Nunca move nem apaga nada da pasta de origem. Os arquivos de terceiros
 #  (nvngx_dlssnr.dll, renodx-dlss5.addon64, nvngx_dlss.dll, dxgi.dll, dlss5-feed.addon64,
-#  lumenite_*, ReShade*.fxh) vao byte a byte, sem alteracao.
+#  ReShade*.fxh) vao byte a byte, sem alteracao.
+#
+#  FASE4 (22/09/2026): os `lumenite_*` NAO VAO MAIS - nem os .fx, nem os include\*.fxh, nem a
+#  textura de blue noise, nem o reshade-cache (que os leva compilados). O LumeniteFX e do
+#  umar-afzaal sob AGNYA License, que proibe redistribuicao. Quem instala os recebe do
+#  `setup-dlss5.ps1` (passo 4), que os baixa do repositorio do autor.
 #
 #  A UNICA linha alterada na copia: IntermediateCachePath do ReShade.ini, que na origem
 #  aponta para um caminho absoluto e no portable vira .\reshade-cache.
@@ -77,14 +82,50 @@ foreach ($f in $programa) {
 }
 Copy-Item (Join-Path $Root 'instalador\configurar-cadeia.cmd') $Bin -Force
 
+# FASE4 (22/09/2026): O FIDELITYFX AGORA E DO bin\ TAMBEM, E A LICENCA VAI COLADA NELE.
+# O `amd_fidelityfx_dx12.dll` entrou no caminho NVIDIA quando o Frame Generation passou a usar
+# a interpolacao da AMD (`fg_ffx.h`: FSR 3.1, SDK 1.1.4) - ate aqui este script so o copiava
+# para o `bin-amd\`, e o `bin\` do portable saia sem ele (o app achava a DLL so porque alguem
+# a tinha posto la a mao). A licenca e MIT e a MIT tem UMA condicao: o aviso de copyright e o
+# texto acompanham a copia. Por isso os dois saem no MESMO foreach - quem tirar um tira o
+# outro, e nao da para esquecer so a licenca.
+foreach ($f in 'amd_fidelityfx_dx12.dll', 'LICENSE-FidelityFX.txt') {
+    $src = Join-Path (Join-Path $Root 'perfil-amd') $f
+    if (Test-Path $src) { Copy-Item $src $Bin -Force } else { Write-Host "[!] faltou em perfil-amd\ (pulado): $f" -ForegroundColor Yellow }
+}
+if ((Test-Path (Join-Path $Bin 'amd_fidelityfx_dx12.dll')) -and -not (Test-Path (Join-Path $Bin 'LICENSE-FidelityFX.txt'))) {
+    throw "bin\amd_fidelityfx_dx12.dll sem bin\LICENSE-FidelityFX.txt - a MIT do FidelityFX exige a licenca junto"
+}
+
+# FASE4 (22/09/2026): O LUMENITEFX NAO VIAJA EM PACOTE NENHUM.
+#
+# Os oito `lumenite_*.fx`, os quatro `include\lumenite_*.fxh` e a textura
+# `lumenite_bluenoise256.png` sao do LumeniteFX (umar-afzaal) e o cabecalho deles diz
+# `License : AGNYA License (https://github.com/nvb-uy/AGNYA-License)` - que PROIBE
+# redistribuicao (FONTES-ABERTAS-2209 §7.1.1). Ate aqui este script copiava a pasta de
+# shaders inteira, entao eles entravam em todo portable e em todo zip publicado, embora o
+# CREDITOS.md ja dissesse o contrario ("componentes que o setup-dlss5.ps1 baixa").
+# Quem instala continua com eles: o `setup-dlss5.ps1`/`.auto.ps1`, passo 4, baixa o
+# LumeniteFX de codeload.github.com/umar-afzaal/LumeniteFX na maquina da pessoa.
+# O padrao pega o nome com qualquer caixa e qualquer extensao - a proxima versao deles pode
+# trazer um `.fxh` ou um `.png` novo e nao vamos lembrar de acrescentar nome por nome.
+$NaoRedistribuir = '^lumenite[_.-]'
 # shaders e texturas (sem os .bak de desenvolvimento), cache dos shaders compilados
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$Bin\reshade-shaders\Shaders" -Force }
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders\include') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders\include') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$Bin\reshade-shaders\Shaders\include" -Force }
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Textures') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Textures') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$Bin\reshade-shaders\Textures" -Force }
-Get-ChildItem (Join-Path $Root 'reshade-cache') -File | ForEach-Object { Copy-Item $_.FullName "$Bin\reshade-cache" -Force }
+# FASE4 (22/09/2026): o reshade-cache do bin\ PASSA A SAIR VAZIO, como o do bin-amd\ ja sai.
+# Os arquivos do cache tem nome de hash (`ReShade-<crc>.i/.cso`) e nao da para saber, olhando,
+# qual deles e o LumeniteFX COMPILADO - e um binario compilado a partir de um fonte que a
+# AGNYA proibe redistribuir e continua sendo redistribuicao dele. Nao havendo como filtrar por
+# nome, o cache inteiro fica de fora. Preco: o ReShade recompila os efeitos na primeira
+# abertura (alguns segundos, uma vez). Alem disso o cache seria inutil mesmo: os
+# `lumenite_*.fx` so chegam na maquina depois que o `setup-dlss5.ps1` os baixa.
+# Para voltar atras basta descomentar a linha abaixo.
+# Get-ChildItem (Join-Path $Root 'reshade-cache') -File | ForEach-Object { Copy-Item $_.FullName "$Bin\reshade-cache" -Force }
 
 # 3. configuracoes: preservadas se o portable ja existir (a nao ser com -SobrescreverConfig)
 function Copiar-Config($nome) {
@@ -149,11 +190,12 @@ foreach ($f in 'amd_fidelityfx_dx12.dll', 'LICENSE-FidelityFX.txt',
 
 # 4d. shaders e texturas iguais aos do bin\; o reshade-cache fica VAZIO de proposito (o
 #     ReShade recompila na primeira abertura; a cadeia e outra e o cache do NVIDIA nao vale)
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+# FASE4 (22/09/2026): mesmo filtro do bin\ - o LumeniteFX (AGNYA) nao e redistribuivel.
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$BinAmd\reshade-shaders\Shaders" -Force }
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders\include') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Shaders\include') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$BinAmd\reshade-shaders\Shaders\include" -Force }
-Get-ChildItem (Join-Path $Root 'reshade-shaders\Textures') -File | Where-Object { $_.Name -notmatch '\.bak' } |
+Get-ChildItem (Join-Path $Root 'reshade-shaders\Textures') -File | Where-Object { $_.Name -notmatch '\.bak' -and $_.Name -notmatch $NaoRedistribuir } |
     ForEach-Object { Copy-Item $_.FullName "$BinAmd\reshade-shaders\Textures" -Force }
 
 # 4e. configuracoes (preservadas se ja existirem, como no bin\)

@@ -301,7 +301,7 @@ Set-IniValue $preset '' 'PreprocessorDefinitions' 'DLSS5_MV_PROVIDER=3'
 # inverso quando some. O preset em repouso e o de hoje; o Hardware so precisa estar no
 # TechniqueSorting (abaixo), na posicao certa, para o add-on te-lo onde ligar.
 Set-IniValue $preset '' 'Techniques'        'Lumenite_Kernel@lumenite_Kernel.fx,DLSS5_Feed@DLSS5_Feed.fx,DLSS5_Sharpen@DLSS5_Sharpen.fx'
-Set-IniValue $preset '' 'TechniqueSorting'  'Lumenite_Kernel@lumenite_Kernel.fx,DLSS5_MV_Hardware@DLSS5_MV_Hardware.fx,DLSS5_Feed@DLSS5_Feed.fx,DLSS5_Sharpen@DLSS5_Sharpen.fx,DLSS5_Grade@DLSS5_Grade.fx'
+Set-IniValue $preset '' 'TechniqueSorting'  'Lumenite_Kernel@lumenite_Kernel.fx,DLSS5_MV_Hardware@DLSS5_MV_Hardware.fx,DLSS5_Feed@DLSS5_Feed.fx,DLSS5_HUD@DLSS5_HUD.fx,DLSS5_Grade@DLSS5_Grade.fx,Curves@Curves.fx,Vibrance@Vibrance.fx,Tint@Sepia.fx,Monochrome@Monochrome.fx,DLSS5_Noturno@DLSS5_Noturno.fx,DLSS5_Detalhes@DLSS5_Detalhes.fx,DLSS5_Sharpen@DLSS5_Sharpen.fx,Vignette@Vignette.fx,FilmGrain@FilmGrain.fx'
 
 # nitidez: os padroes do shader, gravados para quem ligar/desligar pela overlay achar tudo pronto
 Set-IniValue $preset 'DLSS5_Sharpen.fx' 'Sharpness'   '0.350000'

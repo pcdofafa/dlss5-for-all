@@ -131,5 +131,6 @@ Abra uma *issue* com:
 
 ## Licença
 
-O código deste repositório é MIT (veja `LICENSE`). Mandando um PR, você concorda que a
-sua contribuição entra sob a mesma licença.
+Da 2.0 em diante vale a licença do arquivo `LICENSE` (redistribuir o original com crédito é permitido;
+versões modificadas ou com outra marca não); as versões até a v2026.09.04 continuam MIT. PRs são
+aceitos nos termos do item 4 da `LICENSE`.

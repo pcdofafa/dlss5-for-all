@@ -325,6 +325,9 @@ public:
         ID3D11DeviceContext *ctx = nullptr; dev->GetImmediateContext(&ctx);
         if (ctx == nullptr) { bb->Release(); dev->Release(); return; }
 
+        /* B17 (H9): as leituras da medicao de quadros anteriores, sem esperar a GPU */
+        colher(ctx, log);
+
         /* A saida da rede vai para um temporario: nao da para ler e escrever o
            mesmo recurso no mesmo passe, e o D3D desligaria a leitura EM
            SILENCIO -- o passe rodaria lendo preto e a imagem sairia errada sem
@@ -340,14 +343,9 @@ public:
             const UINT cxp = m_w / 2, cyp = m_h / 2;   /* o mesmo centro do marcador */
             D3D11_BOX cx{ cxp, cyp, 0, cxp + 1, cyp + 1, 1 };
             ctx->CopySubresourceRegion(m_pixCpu, 0, 0, 0, 0, m_rede, 0, &cx);
-            D3D11_MAPPED_SUBRESOURCE mp{};
-            if (SUCCEEDED(ctx->Map(m_pixCpu, 0, D3D11_MAP_READ, 0, &mp)))
-            {
-                const unsigned char *px = reinterpret_cast<const unsigned char *>(mp.pData);
-                /* B8G8R8A8: magenta = B alto, G baixo, R alto */
-                m_marcaSobreviveu = (px[0] > 200 && px[1] < 60 && px[2] > 200);
-                ctx->Unmap(m_pixCpu, 0);
-            }
+            /* B17: lido no colher() de um quadro seguinte, com DO_NOT_WAIT; o log da medicao
+               espera esta leitura, entao sai com o mesmo resultado */
+            m_pixPend = true;
         }
 
         ID3D11RenderTargetView *rtvBB = reinterpret_cast<ID3D11RenderTargetView *>(rtvHandle);
@@ -370,7 +368,7 @@ public:
                perfeitamente e devolvesse a identidade daria exatamente o mesmo
                log -- roda, nao da erro, e nao faz nada. */
             ctx->CopyResource(m_saida, bb);
-            medir_diff(ctx, log);
+            medir_diff(ctx);   /* B17: o log sai no colher() */
         }
 
         ctx->Release(); bb->Release(); dev->Release();
@@ -440,6 +438,7 @@ private:
             td.Format = DXGI_FORMAT_R32G32B32A32_FLOAT; td.SampleDesc.Count = 1;
             td.Usage = D3D11_USAGE_STAGING; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
             ok = SUCCEEDED(dev->CreateTexture2D(&td, nullptr, &m_diffCpu));
+            ok = ok && SUCCEEDED(dev->CreateTexture2D(&td, nullptr, &m_diffCpu2));   /* B17: a amostra da saida */
             /* staging 1x1 no formato do back buffer, para ler o marcador */
             td.Format = m_fmt;
             ok = ok && SUCCEEDED(dev->CreateTexture2D(&td, nullptr, &m_pixCpu));
@@ -608,7 +607,7 @@ private:
         ctx->OMSetRenderTargets(4, rtNulo, nullptr); ctx->PSSetShaderResources(0, 4, nulo);
     }
 
-    void medir_diff(ID3D11DeviceContext *ctx, void (*log)(const char *))
+    void medir_diff(ID3D11DeviceContext *ctx)
     {
         ID3D11ShaderResourceView *nulo[4] = { nullptr, nullptr, nullptr, nullptr };
         ID3D11RenderTargetView *rtNulo[4] = { nullptr, nullptr, nullptr, nullptr };
@@ -622,27 +621,70 @@ private:
         /* Roda o shader 1x1 sobre um par e devolve (diff, nitidez de A,
            nitidez de B). Chamado duas vezes: uma para o par que entra na
            mistura, outra para o que sai dela. */
-        auto amostra = [&](ID3D11ShaderResourceView *a, ID3D11ShaderResourceView *b, float out[3]) {
+        /* B17 (H9): cada amostra vai para o SEU staging (as duas passam pelo mesmo m_diff, e a
+           fila da GPU copia cada uma na ordem) e e lida depois, no colher(), sem esperar. */
+        auto amostra = [&](ID3D11ShaderResourceView *a, ID3D11ShaderResourceView *b, ID3D11Texture2D *cpu) {
             ID3D11ShaderResourceView *s[2] = { a, b };
             ctx->PSSetShaderResources(0, 2, s);
             ctx->OMSetRenderTargets(1, &m_rtvDiff, nullptr);
             ctx->Draw(3, 0);
             ctx->OMSetRenderTargets(4, rtNulo, nullptr); ctx->PSSetShaderResources(0, 4, nulo);
-            ctx->CopyResource(m_diffCpu, m_diff);
-            D3D11_MAPPED_SUBRESOURCE mm{};
-            out[0] = out[1] = out[2] = 0.0f;
-            if (SUCCEEDED(ctx->Map(m_diffCpu, 0, D3D11_MAP_READ, 0, &mm)))
-            {
-                const float *p = reinterpret_cast<const float *>(mm.pData);
-                out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
-                ctx->Unmap(m_diffCpu, 0);
-            }
+            ctx->CopyResource(cpu, m_diff);
         };
 
-        float ent[3], sai[3];
-        amostra(m_srvNativo, m_srvRede,  ent);   /* nativo vs rede: o que ENTRA */
-        amostra(m_srvNativo, m_srvSaida, sai);   /* nativo vs saida: o que SAI  */
+        amostra(m_srvNativo, m_srvRede,  m_diffCpu);    /* nativo vs rede: o que ENTRA */
+        amostra(m_srvNativo, m_srvSaida, m_diffCpu2);   /* nativo vs saida: o que SAI  */
+        /* o log sai quadros depois: congela aqui o que ele conta deste quadro */
+        m_logResBegin = m_resBegin; m_logResFinish = m_resFinish;
+        m_logWr = m_wr; m_logEps = m_eps;
+        m_diffLido[0] = m_diffLido[1] = false;
+        m_diffPend = true;
+    }
 
+    /* B17 (H9): Map com DO_NOT_WAIT das leituras pendentes. GPU ainda ocupada = tenta no proximo
+       quadro. O log so sai com o marcador e as duas amostras lidos, com os valores congelados
+       no quadro da medicao: a mesma linha de antes, alguns quadros depois. Uma leitura que
+       falha (sem ser "ainda desenhando") vale o que valia antes: marcador inalterado, zeros. */
+    void colher(ID3D11DeviceContext *ctx, void (*log)(const char *))
+    {
+        if (m_pixPend)
+        {
+            D3D11_MAPPED_SUBRESOURCE mp{};
+            const HRESULT hr = ctx->Map(m_pixCpu, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mp);
+            if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return;
+            m_pixPend = false;
+            if (SUCCEEDED(hr))
+            {
+                const unsigned char *px = reinterpret_cast<const unsigned char *>(mp.pData);
+                /* B8G8R8A8: magenta = B alto, G baixo, R alto */
+                m_marcaSobreviveu = (px[0] > 200 && px[1] < 60 && px[2] > 200);
+                ctx->Unmap(m_pixCpu, 0);
+            }
+        }
+        if (!m_diffPend) return;
+        ID3D11Texture2D *cpu[2] = { m_diffCpu, m_diffCpu2 };
+        for (int i = 0; i < 2; i++)
+        {
+            if (m_diffLido[i]) continue;
+            D3D11_MAPPED_SUBRESOURCE mm{};
+            const HRESULT hr = ctx->Map(cpu[i], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mm);
+            if (hr == DXGI_ERROR_WAS_STILL_DRAWING) return;
+            m_diffVal[i][0] = m_diffVal[i][1] = m_diffVal[i][2] = 0.0f;
+            if (SUCCEEDED(hr))
+            {
+                const float *p = reinterpret_cast<const float *>(mm.pData);
+                m_diffVal[i][0] = p[0]; m_diffVal[i][1] = p[1]; m_diffVal[i][2] = p[2];
+                ctx->Unmap(cpu[i], 0);
+            }
+            m_diffLido[i] = true;
+        }
+        m_diffPend = false;
+        registrar_diff(m_diffVal[0], m_diffVal[1], log);
+    }
+
+    void registrar_diff(const float ent[3], const float sai[3], void (*log)(const char *))
+    {
+        /* B17: m_log* sao os valores congelados no quadro da medicao */
         {
             const float d = ent[0], nitI = ent[1], nitP = ent[2];
             if (log)
@@ -662,7 +704,7 @@ private:
                    aqui dentro, que e trabalho que ninguem pediu para uma linha
                    de log. Tambem esta marcado. */
                 const double mpCheio = (double)m_w * (double)m_h / 1e6;
-                const double f = (double)m_wr / 100.0;
+                const double f = (double)m_logWr / 100.0;
                 const double msCheio = (0.142 + 0.193 * mpCheio) * 10.0;
                 const double msRede  = (0.142 + 0.193 * mpCheio * f * f) * 10.0;
                 const double msPasse = 0.120 * (mpCheio / 4.95);
@@ -677,7 +719,7 @@ private:
                           "[DLSS 5 Bridge] mistura: rede a %d%% (%ux%u) | eps=%.2e | "
                           "passe ~%.3f ms, economia da escada ~%.2f ms, liquido ~%+.2f ms/quadro "
                           "(modelo, nao medida deste quadro) | diff nativo-vs-rede=%.3e | %s",
-                          m_wr, (unsigned)(m_w * f), (unsigned)(m_h * f), (double)m_eps,
+                          m_logWr, (unsigned)(m_w * f), (unsigned)(m_h * f), (double)m_logEps,
                           msPasse, msCheio - msRede, liquido, (double)d,
                           /* NOTACAO CIENTIFICA, e a primeira versao usava %.5f.
                              Com cinco casas, qualquer diferenca abaixo de 1e-5
@@ -702,8 +744,8 @@ private:
                 _snprintf(t, sizeof(t),
                           "[DLSS 5 Bridge] mistura/diagnostico: recurso begin=%p finish=%p (%s) | "
                           "marcador magenta no begin %s no finish -> %s",
-                          m_resBegin, m_resFinish,
-                          (m_resBegin == m_resFinish) ? "MESMO recurso" : "recursos DIFERENTES",
+                          m_logResBegin, m_logResFinish,
+                          (m_logResBegin == m_logResFinish) ? "MESMO recurso" : "recursos DIFERENTES",
                           m_marcaSobreviveu ? "SOBREVIVEU" : "sumiu",
                           m_marcaSobreviveu
                               ? "NINGUEM escreveu no back buffer entre os dois eventos: nenhuma tecnica rodou, o diff nao julga posicionamento"
@@ -719,7 +761,7 @@ private:
                 _snprintf(u, sizeof(u),
                           "[DLSS 5 Bridge] mistura/nitidez: wr=%d | nativo(begin)=%.5e | rede(finish)=%.5e | "
                           "razao=%.3f",
-                          m_wr, (double)nitI, (double)nitP,
+                          m_logWr, (double)nitI, (double)nitP,
                           (nitI > 0.0f) ? (double)(nitP / nitI) : 0.0);
                 u[sizeof(u) - 1] = '\0'; log(u);
 
@@ -813,7 +855,8 @@ private:
             { solta(m_mom[j][i]); solta(m_srvMom[j][i]); solta(m_rtvMom[j][i]); }
         for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++)
             { solta(m_coef[j][i]); solta(m_srvCoef[j][i]); solta(m_rtvCoef[j][i]); }
-        solta(m_diff); solta(m_rtvDiff); solta(m_diffCpu); solta(m_pixCpu);
+        solta(m_diff); solta(m_rtvDiff); solta(m_diffCpu); solta(m_diffCpu2); solta(m_pixCpu);
+        m_pixPend = false; m_diffPend = false;   /* B17: leitura pendente morre com os stagings */
         solta(m_psMarca);
         solta(m_samp); solta(m_cb);
         solta(m_vs); solta(m_psReduz); solta(m_psBox4); solta(m_psSolve);
@@ -849,6 +892,13 @@ private:
     ID3D11PixelShader *m_psBox2 = nullptr, *m_psAplica = nullptr, *m_psDiff = nullptr;
     ID3D11PixelShader *m_psMarca = nullptr;
     ID3D11Texture2D *m_pixCpu = nullptr;   /* 1x1 staging, formato do back buffer */
+    /* B17: leituras sem espera. m_diffCpu recebe a amostra que entra, m_diffCpu2 a que sai. */
+    ID3D11Texture2D *m_diffCpu2 = nullptr;
+    bool m_pixPend = false, m_diffPend = false, m_diffLido[2] = { false, false };
+    float m_diffVal[2][3] = {};
+    void *m_logResBegin = nullptr, *m_logResFinish = nullptr;
+    float m_logEps = 1e-4f;
+    int m_logWr = 100;
 };
 
 } // namespace dlss5_mistura

@@ -74,6 +74,7 @@ and the icon's menu carries the commands and the shortcuts.
 | **End** | opens and closes the panel — everything else (filter, neural, fps, HDR, ReShade, quit) is done there, with the mouse |
 | **F6** | toggles **everything the panel configured** (neural + the layer, in overlaid mode) at once — the before/after — and returns exactly as it was; on-screen notice of the real state |
 | **Alt+Esc** | quits the app (twice within 2 s, so it does not close by accident) |
+| **F8** | switches the processing mode by hand: Native ↔ Universal (see "Processing modes" below) |
 
 All keys are configurable — in the **Shortcuts…** button of the selector (before choosing the source) and in the
 SHORTCUTS section of the panel, under "More options": panel, neural, filter, keyboard for ReShade and quit, each with the key
@@ -95,12 +96,21 @@ that is open; quitting is via Alt+Esc, the panel button, the X (separate window 
 a way out:
 
 - **the game holds the Windows hotkeys** (some request `RIDEV_NOHOTKEYS` in Raw Input). There is no API to
-  ask that from the outside; the app solves it by **watching the key through another path**: a low-level keyboard
-  hook, on its own thread, waits 250 ms for the `WM_HOTKEY` and, if it does not arrive, fires the action anyway — with
+  ask that from the outside; the app solves it by **watching the key through another path**: an invisible window
+  of ours registered as a **Raw Input** receiver (`RIDEV_INPUTSINK`, on its own thread) sees the key without
+  focus, waits 250 ms for the `WM_HOTKEY` and, if it does not arrive, fires the action anyway — with
   deduplication in both directions, so a key never becomes two actions. The log says when that happens
   (`o WM_HOTKEY NAO chegou em 250 ms … a janela na frente era …`). `[ultima] atalho_reserva=0` turns it off.
-  The thread is its own because Windows **removes** a low-level hook whose owner exceeds `LowLevelHooksTimeout`
-  (300 ms by default) — and the main loop has already logged a `Present` stalled for 787 ms during one startup;
+  **It was a `WH_KEYBOARD_LL` hook until 15 September 2026.** A low-level hook sits in the chain that all of the
+  system's keyboard input passes through before reaching the game, which is exactly what anti-cheat heuristics
+  read as a macro; Raw Input is the same API the game itself uses to read the keyboard, pointed at our window
+  instead, and it puts nothing in the game's path (the game's `NOHOTKEYS` only turns off hotkey processing while
+  it is in front, it does not stop another process from reading the keyboard as a device). The
+  `LowLevelHooksTimeout` is gone too; the thread stays its own only for latency, so `WM_INPUT` does not wait on
+  a stalled `Present`. When the app detects a known anti-cheat system in the captured exe's folder (window
+  source), it turns **Anti-cheat mode** on for that source and a card says so on startup; this fallback path
+  **stays on** (it only reads, outside the game's process) — End and F6 keep working through it, `RegisterHotKey`
+  and the tray icon;
 - **the game runs elevated and the app does not.** Then none of our keys gets there (UIPI), and there is no trick: the app detects it
   (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `TokenElevation`; the `ACCESS_DENIED` itself is already an answer)
   and shows a card telling you to open DLSS5 For All as administrator too.
@@ -130,7 +140,7 @@ screen height, content is hidden, the font is not shrunk.
   session may have left — without that the card would show a state that is no longer real
 - **Image profile (neural network)**: a card with a summary of what is in effect
   (`Modelo B · Intensidade 100% · 2 passes`) and the **Adjust** button, which opens a window of its own
-  (class `DLSS5ForAllPerfil`, in the same mold as the Effects window) with the six controls:
+  (class `DLSS5ForAllPerfil`, in the same mold as the Filters window) with the six controls:
   MODEL (A/B/C), INTENSITY, STRUCTURE, SKIN AND FACES, LOCAL TONE and GLOBAL TONE
 - **NETWORK PASSES** 1…10 — how many times the network redoes the **same** frame (`DirectNeuralRenderingPassCount`).
   Measured in this tree: ~4.2 ms of GPU per pass. Replaces the old "1x / 2x / 3x"
@@ -158,7 +168,7 @@ screen height, content is hidden, the font is not shrunk.
 - **DLSS resolution** Auto/100%/77%/67%/58% — changes the **network's cost**. `Auto` picks by the source area
   (≤2.4 MP: 100 · ≤4.0: 77 · ≤6.0: 67 · above: 58). Takes effect live: the feed holds the rebuild for 60 frames and
   rebuilds (measured: ~2 s), with the neural turned off during the rebuild and turned back on 4 s later
-- **More options**: Effects (sharpening and anti-aliasing, in their own window), V-Sync, HDR, Show FPS on screen,
+- **More options**: Filters (sharpness, anti-aliasing, details, color, brightness & contrast, exposure & gamma, vibrance, curves, sepia, black & white, night mode, vignette and film grain — each with a switch and a slider, applied instantly, in their own window), V-Sync, HDR, Show FPS on screen,
   **Comparison mode**, game FPS, language, shortcuts, the **Deals group — PC do Fafa**, the channel,
   Open ReShade, **Switch source or card** and Quit
 - **Switch source or card** (next to Quit): goes back to the source selection screen without closing the app by hand.
@@ -290,6 +300,35 @@ middle of a frame swap), not chain lag. `[comparar] atraso` remains available, w
 on that frame the whole chain is suppressed — there is no "with" and "without", there is a frame drawn by us.
 To record a comparison, leave frame skipping **Off**.
 
+### Processing modes: Auto, Native, Universal — and Anti-cheat mode
+
+DLSS 5 For All is one thing; the **mode** is only how the image gets to it. Every function of the panel works the
+same in both.
+
+- **Universal** — captures the image from the screen and applies DLSS 5 on top of it, like a filter, in our own layer.
+  Compatible with virtually any application displayed on screen; does not interact with the game. Recommended for
+  games with anti-cheat.
+- **Native** — integrates with the game: a 64-bit DLL of ours is loaded into the running game, the frame is processed
+  on the GPU before it is presented, and the game itself shows the result (our layer disappears). Lower performance
+  cost and lower latency. Available for 64-bit games on DirectX 11 and 12, without anti-cheat. Nothing is written to
+  the game's folder and the game does not restart; when the mode is turned off the DLL unloads itself.
+- **Auto** (default) — uses Native when available; otherwise, Universal. Capture comes up first (the image appears),
+  and about 2 s after the first frame the app tries Native underneath. If it works, the layer disappears; if not,
+  capture simply continues and the reason goes to the log (`modo: Nativo indisponivel nesta fonte (...)`).
+
+The choice lives in the **Mode** card of the panel (End), with the three positions; the badge next to it says which
+transport is in use right now. The Native position is dimmed when it is not available for this source (32-bit game,
+anti-cheat detected, the integration failed); the reason shows as a tooltip. **F8** switches Native ↔ Universal by
+hand at any time, without changing the saved choice.
+
+**Anti-cheat mode** is a button on the source selection screen (under OPTIONS). Recommended for online games: it
+keeps only screen capture, with no interaction with the game, like a gameplay recorder — Native is off, the fps
+limiter piece is not installed in the game's folder (one already there is removed), and the mouse pointer mapping
+(F9) is not entered. The keyboard fallback path (Raw Input, read-only) stays. It increases the likelihood of not
+being flagged by anti-cheat systems, but does not guarantee it. When the app finds a known anti-cheat in the
+captured exe's folder, it turns this mode on by itself for that source: the button shows it, without saving it as
+your choice, and the log says `anti-cheat: modo ligado sozinho para esta fonte`.
+
 ### New keys in `dlss5forall.ini`
 
 | key | section | default | what it does |
@@ -297,7 +336,7 @@ To record a comparison, leave frame skipping **Off**.
 | `fps_teto_pelicula` | `[ultima]` | 60 (key absent) | the number of DLSS 5 SMOOTHNESS ON SCREEN; `0` = unlocked |
 | `fluidez` | `[ultima]` | absent = automatic | forces the projected frames (2 or 3); only counts if greater than 1 |
 | `perfil_reabre` | `[ultima]` | on | `0` does not relaunch the app when changing the profile/passes |
-| `atalho_reserva` | `[ultima]` | on | `0` turns off the fallback keyboard hook |
+| `atalho_reserva` | `[ultima]` | on | `0` turns off the keyboard fallback path (Raw Input) |
 | `alterna_modo` | `[ultima]` | `sintetizar` | how the skipped frame is filled: `sintetizar`, `segurar`, `alfa`, `regiao` |
 | `ligado` | `[comparar]` | `0` | the comparison mode; it is what the panel chip writes |
 | `divisor` | `[comparar]` | `50` | where the line sits, in percent of the width (accepts 5 to 95) |
@@ -308,6 +347,9 @@ To record a comparison, leave frame skipping **Off**.
 | `recursos_experimentais` | `[ultima]` | absent | `1` shows the engine switch, the network size slider and the AMD mod's wait budget (experimental, returns in the next version) |
 | `LocalTone`, `LocalStructure`, `SkinStructure`, `UseAutoMask` | `[DlssNrOnAmd]` of `dlssnr_on_amd.ini` | from the mod | **AMD module**: it is where LOCAL TONE, STRUCTURE, SKIN AND FACES and the mask go |
 | `nr_escala` | `[ultima]` | `100` | the lit step of NETWORK SIZE (65, 100, 125, 150, 200) |
+| `modo_processamento` | `[ultima]` | `auto` | the processing mode: `auto`, `nativo`, `universal` (the Mode card writes it; F8 does not) |
+| `anticheat` | `[ultima]` | `0` | `1` = Anti-cheat mode (the button on the source selection screen writes it) |
+| `ponte_modo` | `[ultima]` | `pipelined` | Native mode only: `sincrono` waits for the processed frame in the same Present (less latency, more cost) |
 
 ## Language
 
@@ -558,7 +600,7 @@ bridge — it is how F6 toggles the neural without the keyboard), `reshade-shade
 the `preset-0*.ini`, `ofertas.ini`, `README.md` and `setup-dlss5.ps1`.
 The script generates `ReShade.ini` and `FafaDLSS5.ini`; `dlss5forall.ini` is born on the first run. Do not distribute `nvngx_dlssnr.dll`.
 
-The app is MIT and contains no NVIDIA code. What it hosts (ReShade, Feeder, LumeniteFX, RenoDX, the leaked DLL)
+From 2.0 on, the license in the `LICENSE` file applies (redistributing the original with credit is allowed; modified or rebranded versions are not); versions up to v2026.09.04 remain MIT. The app contains no NVIDIA code. What it hosts (ReShade, Feeder, LumeniteFX, RenoDX, the leaked DLL)
 each has its own license and its own risk — DLSS 5 in this state is an internal build that fell out of NBA 2K27, and Take-Two has already
 taken things down for copyright. Make the video, make it clear it is an experiment with a leaked build, and do not redistribute `nvngx_dlssnr.dll`.
 

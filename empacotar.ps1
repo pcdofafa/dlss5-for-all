@@ -137,6 +137,13 @@ foreach ($f in $raiz) { Copy-Item (Join-Path $Root $f) $Out -Force }
 # nada. Quem testasse veria "compila, roda", com o codigo errado dentro.
 foreach ($f in 'DLSS5_Feed.fx','DLSS5_Grade.fx','DLSS5_Sharpen.fx','DLSS5_MV_Hardware.fx','DLSS5_HUD.fx') { Copy-Item (Join-Path $Root "reshade-shaders\Shaders\$f") "$Out\reshade-shaders\Shaders" -Force }
 Copy-Item (Join-Path $Root 'reshade-shaders\Textures\dlss5_grade_luts.png') "$Out\reshade-shaders\Textures" -Force
+# I22 (19/09/2026): OS FILTROS DO CARD "FILTROS". Dois shaders nossos (Detalhes, Modo noturno) e seis do
+# pacote SweetFX (CeeJayDK, MIT - a licenca vai junto), mais o SMAA do mesmo pacote, que o card sempre
+# usou e nunca era copiado por nenhum passo automatico (mesmo buraco do DLSS5_Feed.fx acima).
+foreach ($f in 'DLSS5_Detalhes.fx','DLSS5_Noturno.fx',
+               'Vignette.fx','Sepia.fx','Monochrome.fx','Curves.fx','FilmGrain.fx','Vibrance.fx','LICENSE-SweetFX.txt',
+               'SMAA.fx','SMAA.fxh','LICENSE-SweetFX-SMAA.txt') { Copy-Item (Join-Path $Root "reshade-shaders\Shaders\$f") "$Out\reshade-shaders\Shaders" -Force }
+foreach ($f in 'AreaTex.png','SearchTex.png') { Copy-Item (Join-Path $Root "reshade-shaders\Textures\$f") "$Out\reshade-shaders\Textures" -Force }
 Copy-Item (Join-Path $Root 'addon\include\reshade\LICENSE-ReShade.md') $Out -Force -ErrorAction SilentlyContinue
 
 # 1b. marca\ -- DUAS imagens, e so elas.
@@ -272,6 +279,26 @@ tratar=0
 [atalhos]
 interativo=F7
 "@ | Out-File "$Out\dlss5forall.ini" -Encoding ascii
+
+# 3z. CONFERENCIA DE LICENCA DA STAGING (FASE4, 22/09/2026)
+#
+# Este script monta por LISTA DE PERMISSAO, entao hoje o LumeniteFX nao entra por construcao -
+# e o cabecalho la em cima ja dizia isso. Mesmo assim a conferencia existe, e por um motivo
+# concreto: o `montar-portable.ps1` montava por copia de pasta inteira e levou os
+# `lumenite_*` para todo pacote publicado ate hoje (FONTES-ABERTAS-2209 §7.1.1). Um dia
+# alguem acrescenta um `foreach` de pasta aqui tambem. Custa um Get-ChildItem.
+#   - lumenite_* : AGNYA License (github.com/nvb-uy/AGNYA-License) - PROIBE redistribuir.
+#                  O setup-dlss5.ps1 os baixa na maquina de quem instala.
+#   - FidelityFX : MIT - PODE redistribuir, mas so COM a licenca junto (unica condicao).
+$proibido = Get-ChildItem $Out -Recurse -File | Where-Object { $_.Name -match '^lumenite[_.-]' }
+if ($proibido) {
+    throw ("arquivo com licenca que proibe redistribuicao na staging: " +
+           (($proibido | ForEach-Object { $_.FullName.Substring($Out.Length + 1) }) -join ', ') +
+           " (LumeniteFX/AGNYA - o setup-dlss5.ps1 e quem os baixa)")
+}
+if ((Test-Path "$Out\amd_fidelityfx_dx12.dll") -and -not (Test-Path "$Out\LICENSE-FidelityFX.txt")) {
+    throw "a staging leva amd_fidelityfx_dx12.dll sem LICENSE-FidelityFX.txt - a MIT do FidelityFX exige a licenca junto (copie de perfil-amd\LICENSE-FidelityFX.txt)"
+}
 
 # 4. zip (ou parada em -SomenteStaging, para o instalador pegar a pasta pronta)
 if ($SomenteStaging) {

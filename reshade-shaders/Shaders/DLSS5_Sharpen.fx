@@ -119,9 +119,22 @@ uniform int DebugView <
 
 static const float3 DLSS5_SHARP_LUMA_W = float3(0.2126, 0.7152, 0.0722);
 
+// F0 (15/09/2026, HDR de 16 bits na ponte): num backbuffer de ponto flutuante
+// (BUFFER_COLOR_BIT_DEPTH == 16, R16G16B16A16_FLOAT scRGB) a cor passa de 1.0 e o
+// saturate() de sempre a CORTARIA no branco SDR -- era o unico clipping da cadeia
+// (medido: cor 2.0 na entrada, 1.0 na saida). Ali so o piso em 0 e mantido. A
+// adaptacao ao contraste (min(mn, 1 - mx)) fica como esta: acima de 1.0 ela vai
+// a zero sozinha, entao o realce nao toca nas altas luzes HDR -- sem clipping e
+// sem inventar detalhe onde o intervalo SDR nao existe. Em 8 e 10 bits nada muda.
+#if BUFFER_COLOR_BIT_DEPTH >= 16
+    #define DLSS5_SHARP_RANGE(x) max((x), 0.0)
+#else
+    #define DLSS5_SHARP_RANGE(x) saturate(x)
+#endif
+
 float3 DLSS5_SharpTap(float2 uv)
 {
-    return saturate(tex2Dlod(ReShade::BackBuffer, float4(uv, 0.0, 0.0)).rgb);
+    return DLSS5_SHARP_RANGE(tex2Dlod(ReShade::BackBuffer, float4(uv, 0.0, 0.0)).rgb);
 }
 
 // ============================================================== pixel shader
@@ -210,7 +223,7 @@ float4 PS_DLSS5_Sharpen(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
     //        transicao para aditivo acontece abaixo de ~0.05 de luma.
     float3 mulc = c * (ynew / max(ye, 1e-4));
     float3 addc = c + delta;
-    c = saturate(lerp(addc, mulc, saturate(ye * 20.0)));
+    c = DLSS5_SHARP_RANGE(lerp(addc, mulc, saturate(ye * 20.0)));   // F0: sem teto em 16F
 
     return float4(c, 1.0);
 }

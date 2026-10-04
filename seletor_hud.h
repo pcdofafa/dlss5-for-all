@@ -27,31 +27,70 @@
 
 namespace Sel {
 using namespace Gdiplus;
-using Hud::FillRound; using Hud::StrokeRound; using Hud::Txt; using Hud::Switch; using Hud::TxtSpaced;
-using Hud::C_CARD; using Hud::C_EDGE; using Hud::C_TXT; using Hud::C_BODY; using Hud::C_DIM;
-using Hud::C_FAINT; using Hud::C_ON; using Hud::C_ACC; using Hud::C_ACC2; using Hud::C_ROW;
-using Hud::C_ROWH; using Hud::C_OFF; using Hud::C_DARK; using Hud::C_WARN; using Hud::C_SEP;
+using Hud::FillRound; using Hud::StrokeRound; using Hud::Txt; using Hud::TxtSpaced;
+// Rodada 27 (v9): A PALETA DO MOCKUP (design-gemini\mockup-consistente.html / DESIGN-SPEC), a
+// mesma do painel v8 - superficie #1E1E1E, cartoes #2A2A2A, borda #333, destaque #00E5FF, texto
+// branco / #A0A0A0. Os nomes C_* continuam os de antes (o desenho da tela inteira os usa); so o
+// valor mudou. Antes vinham do Hud (a paleta azul-ardosia do painel antigo).
+static const Color C_CARD (250,  30,  30,  30);   // #1E1E1E
+static const Color C_EDGE (255,  51,  51,  51);   // #333333
+static const Color C_TXT  (255, 255, 255, 255);
+static const Color C_BODY (255, 232, 232, 232);
+static const Color C_DIM  (255, 160, 160, 160);   // #A0A0A0
+static const Color C_FAINT(255, 160, 160, 160);
+static const Color C_ON   (255,   0, 229, 255);   // #00E5FF
+static const Color C_ACC  (255,   0, 229, 255);
+static const Color C_ACC2 (255,  51, 234, 255);   // #33EAFF
+static const Color C_ROW  (255,  42,  42,  42);   // #2A2A2A
+static const Color C_ROWH (255,  58,  58,  58);   // #3A3A3A
+static const Color C_OFF  (255,  51,  51,  51);
+static const Color C_DARK (255,   0,   0,   0);   // texto sobre o ciano
+static const Color C_WARN (255, 255, 171,   0);   // #FFAB00
+static const Color C_SEP  (255,  51,  51,  51);
 using Hud::fTitle; using Hud::fVer; using Hud::fSub; using Hud::fLbl; using Hud::fItem;
 using Hud::fItemSub; using Hud::fChip; using Hud::fBadge;
+// o interruptor do mockup (pilula 40x20, ciano ligado, punho #888 desligado)
+static void Switch(Graphics* g, const RectF& r, bool on, bool en) {
+    const BYTE a = en ? 255 : 110;
+    const RectF tr(r.X + r.Width - 40.f, r.Y + (r.Height - 20.f) / 2.f, 40.f, 20.f);
+    FillRound(g, tr, 10.f, on ? Color(a, 0, 229, 255) : Color(a, 51, 51, 51));
+    SolidBrush b(on ? Color(a, 255, 255, 255) : Color(a, 136, 136, 136));
+    g->FillEllipse(&b, on ? tr.X + 22.f : tr.X + 2.f, tr.Y + 2.f, 16.f, 16.f);
+}
 
 static const int  SH  = 20;     // margem da sombra (igual ao painel)
-static const int  CW  = 720;    // largura do cartao: as listas de janela precisam de espaco
+static const int  CW  = 860;    // largura do cartao: as listas de janela precisam de espaco (Rodada 27: 720 -> 860, a do mockup; o cabecalho ganhou o tamanho da interface)
 static const int  PAD = 24;     // respiro interno
-static const REAL TOPO_H = 52.f;   // a barra de titulo desenhada: e por ela que se arrasta
+static const REAL TOPO_H = 64.f;   // a barra de titulo desenhada: e por ela que se arrasta (Rodada 27: 52 -> 64, o titulo de 26 do mockup)
 static const int  kLinhasAlvo = 6; // linhas visiveis da lista do alvo
 static const int  kLinhasModo = 5; // linhas visiveis da lista de modos (camera)
 static const REAL kLinhaH = 32.f;  // altura de cada linha das listas
+static const REAL kColRot = 210.f; // Rodada 27 (v9): a coluna do rotulo nas linhas "rotulo + chips" (como no mockup)
 static const REAL kTipMaxW = 440.f;
 static const UINT kTimerTip = 1;
 static const UINT kTipMs = 250;    // o mouse para em cima e a dica aparece depois disto
+// I3 (18/09/2026): com um jogo em tela cheia/sem bordas ja aberto, esta tela sobe POR CIMA
+// dele (topmost + primeiro plano) e reafirma o topo de tempos em tempos - jogo sem bordas
+// costuma ser topmost tambem. Sem jogo aberto, ela e uma janela comum, como sempre foi.
+static const UINT kTimerTopo = 2;
+static const UINT kTopoMs = 500;
+// sec. 22: o "Reiniciar video do Windows" - 3 s depois do atalho, a sonda D3D12 num processo novo
+static const UINT kTimerVideo = 3;
+static std::wstring g_videoMsg;       // o resultado (ou o "feche o jogo antes") logo abaixo do botao
+static bool g_videoTestando = false;
+
+// sec. 23: EscalasDoCfg() e ListaTxt() (os passes/escalas que a sessao vai abrir, lidos do cfg
+// do feed) SAIRAM em 24/09/2026 (item 8 do dono) - so a BarraDaTela() desta tela de escolha
+// (removida junto) e o ComboDaTela() da barra usavam isto antes de a sessao comecar. A barra
+// "Rede neural: X ms de Y ms" do menu End, dentro da sessao, ficou.
 
 // cores so desta tela: o fundo das listas (mais escuro que o cartao, para "afundar") e
 // o ambar do aviso de arquivos, no mesmo espirito da barra amarela do Windows mas em
 // versao escura - chama atencao sem gritar "erro": nada esta quebrado, esta faltando.
-static const Color C_LISTA (255,  11,  17,  30);
-static const Color C_AMB_BG(255,  64,  44,  16);
-static const Color C_AMB_TX(255, 254, 215, 170);
-static const Color C_TIP_BG(252,  17,  24,  39);
+static const Color C_LISTA (255,  26,  26,  26);   // #1A1A1A (v9)
+static const Color C_AMB_BG(255,  52,  43,  24);   // ambar translucido sobre #1E1E1E (v9)
+static const Color C_AMB_TX(255, 255, 196,  92);
+static const Color C_TIP_BG(252,  30,  30,  30);
 
 static REAL g_scale = 1.f;
 
@@ -59,9 +98,29 @@ static REAL g_scale = 1.f;
 enum Kind { K_NADA = 0, K_X, K_LANG, K_FONTE, K_ALVO, K_MODO, K_RECORTE, K_SW, K_GPU,
             K_BAIXAR, K_PASTA, K_ATUALIZAR, K_ATALHOS, K_INICIAR, K_INFO,
             // o que se monta ANTES de comecar (ver o bloco no Estado)
-            K_JOGORES, K_RECONST, K_RITMO, K_CURTO, K_IAORDEM, K_NITIDEZ };
+            K_JOGORES, K_RECONST, K_RITMO, K_CURTO, K_IAORDEM, K_NITIDEZ,
+            // E1-E4 (16/09/2026): modo, exibicao do jogo e o upscaler do proprio jogo
+            // I6 (18/09/2026): a chavinha "DLSS 5 antes do upscaling" (K_UPSTREAM, H1) virou o
+            // chip Upstream do card Modo (K_MODOPROC com MODO_UPSTREAM)
+            K_MODOPROC, K_EXIBICAO, K_DLSSQUAL, K_DLSSPRESET,
+            // sec. 22: "Reiniciar video do Windows" (ultimo recurso depois de a placa resetar)
+            K_VIDEO,
+            // Rodada 27 (v9): o tamanho da interface (val = Hud::TamUi)
+            K_TAMUI,
+            K_AVANCADO };   // o titulo do bloco "Avancado" das opcoes (expande/recolhe)
 // as chavinhas, na ordem em que aparecem
-enum Sw { SW_SOBREPOR = 0, SW_TELACHEIA, SW_CURSOR, SW_ESCONDER, SW_VSYNC, SW_HDR, SW_FPS, SW_N };
+enum Sw { SW_SOBREPOR = 0, SW_TELACHEIA, SW_CURSOR, SW_ESCONDER, SW_VSYNC, SW_HDR, SW_FPS, SW_ANTICHEAT, SW_N };
+// E2: a qualidade do upscaler do jogo no Nativo (as chaves sao as do card "DLSS do jogo")
+struct QualJogo { const wchar_t* chave; const wchar_t* pt; const wchar_t* en; };
+static const QualJogo kQualJogo[] = {
+    { L"jogo",              L"Do jogo",             L"Game's own" },
+    { L"dlaa",              L"DLAA 100%",           L"DLAA 100%" },
+    { L"quality",           L"Qualidade 67%",       L"Quality 67%" },
+    { L"balanced",          L"Equilibrado 58%",     L"Balanced 58%" },
+    { L"performance",       L"Desempenho 50%",      L"Performance 50%" },
+    { L"ultra-performance", L"Ultradesempenho 33%", L"Ultra performance 33%" },
+};
+static const int kNQualJogo = (int)(sizeof(kQualJogo) / sizeof(kQualJogo[0]));
 
 struct It { RectF r; int kind; int val; bool enabled; std::wstring tip; };
 static std::vector<It> g_it;
@@ -81,17 +140,34 @@ static int  g_tipItem = -1;
 
 // fontes so desta tela (as outras vem do painel)
 static Font *fLinha = nullptr, *fTip = nullptr, *fTipT = nullptr, *fBotao = nullptr;
+// Rodada 27 (v9): as do mockup - titulo 26 negrito, titulo de secao 13 negrito, e a letra
+// pequena do controle compacto de tamanho da interface.
+static Font *fTit = nullptr, *fSec = nullptr, *fChipP = nullptr;
+static REAL g_selFatorUsado = 1.f, g_selFatorMax = 1.6f;   // o tamanho da interface desta tela (ultima pintura)
+static const UINT kTimerRepeteSel = 5;   // Rodada 27 (v10): segurar o "-"/"+" do tamanho repete
+static It   g_repIt{ RectF(), 0, 0, false, std::wstring() };
+static bool g_repAtivo = false;
+static int  g_repVezes = 0;
+static bool g_selAvancado = false;   // o bloco "Avancado" das opcoes: recolhido por padrao (Rodada 27)
 static void EnsureFonts() {
     Hud::EnsureFonts();
+    Hud::EnsureFonts8();
+    if (!fTit) {
+        fTit   = Hud::MkFont8(L"Segoe UI Variable Display", L"Segoe UI", 26.f, FontStyleBold);
+        fSec   = Hud::MkFont8(L"Segoe UI Variable Text", L"Segoe UI", 13.f, FontStyleBold);
+        fChipP = Hud::MkFont8(L"Segoe UI Variable Text Semibold", L"Segoe UI Semibold", 13.f, FontStyleRegular);
+    }
     if (fLinha) return;
-    fLinha = Hud::MkFont(L"Segoe UI",          14.f, FontStyleRegular);
+    fLinha = Hud::MkFont(L"Segoe UI",          16.f, FontStyleRegular);
     fTip   = Hud::MkFont(L"Segoe UI",          13.f, FontStyleRegular);
     fTipT  = Hud::MkFont(L"Segoe UI Semibold", 13.f, FontStyleRegular);
-    fBotao = Hud::MkFont(L"Segoe UI Semibold", 15.f, FontStyleRegular);
+    fBotao = Hud::MkFont(L"Segoe UI Semibold", 16.f, FontStyleRegular);
 }
 static void SoltarFontes() {
     delete fLinha; delete fTip; delete fTipT; delete fBotao;
     fLinha = fTip = fTipT = fBotao = nullptr;
+    delete fTit; delete fSec; delete fChipP;
+    fTit = fSec = fChipP = nullptr;
 }
 
 // Um Graphics so para MEDIR texto (o Render(nullptr) nao tem superficie). As medidas
@@ -158,6 +234,22 @@ struct Estado {
     bool curto = false;      // caminho curto do SR (captura 1:1 no canto do backbuffer)
     int  iaOrdem = 0;        // 0 = a IA trabalha ANTES de ampliar (rapida), 1 = DEPOIS (pesada)
     int  nitidez = 80;       // work_sharpness x100: o realce aplicado DEPOIS de a IA ampliar
+    // MODO ANTI-CHEAT (C1): a chavinha SW_ANTICHEAT grava [ultima] anticheat na hora do clique;
+    // quando a janela escolhida tem anti-cheat na pasta do exe, ela aparece ligada e esmaecida
+    // (ligada sozinha, sem gravar). A varredura roda uma vez por janela escolhida.
+    bool antiCheatDetectado = false; std::wstring antiCheatProduto; HWND antiCheatHwnd = nullptr;
+    // E1-E4: medidos uma vez por janela escolhida (MedirNativo)
+    HWND nativoHwnd = nullptr;
+    bool podeNativo = false;           // 64 bits, D3D11/12 carregado, sem anti-cheat na pasta
+    bool temUpscaler = false;          // DLSS, FSR 2+ ou XeSS na pasta ou carregado no jogo
+    const wchar_t* gancho = nullptr;   // H3: "DLSS" | "FSR" | "XeSS" que a DLL engancha (ngx / sr_hook): o chip Upstream vale
+    std::wstring ganchoOnde;           // H7: a pasta do Unreal onde a busca achou (log)
+    int  upstreamFalhas = 0;           // I7: [perfil:<exe>] upstream_falhas; com 2 o chip Upstream some (o Automatico nem tenta)
+    std::wstring apiJogo, perfilExe;   // "D3D12"/"D3D11"; exe em minusculas ([perfil:<exe>])
+    int  modo = MODO_UNIVERSAL;             // a escolha: MODO_AUTO / MODO_UPSTREAM / MODO_NATIVO / MODO_UNIVERSAL
+    std::wstring dlssQualidade = L"jogo", dlssPreset = L"jogo";
+    int  exibicao = -1;                // exibicao do jogo lida agora: 0 janela, 1 sem bordas, -1 nao sei
+    int  exibPedida = -1;              // o ultimo pedido (o jogo pode desfazer; nao insistimos)
     Choice ch; bool ok = false;
     HWND wnd = nullptr; HINSTANCE inst = nullptr;
 };
@@ -214,17 +306,21 @@ static std::wstring TipFonte(SourceKind k) {
         L"OVERLAY off: a separate window with the whole screen inside it, filtered. To record in OBS, turn "
         L"\"Hide\" off and use Window Capture (Windows 10 1903+).");
     return TS(
-        L"CÂMERA / PLACA DE CAPTURA\n"
-        L"A imagem que chega pelo cabo: console, outro PC, câmera. Escolha o aparelho e depois o modo "
-        L"(resolução, fps e formato).\n"
-        L"Dica: 1920x1080 é o ponto ideal — o Feeder roda em DLAA na resolução da captura, então 4K = 4x a carga. "
-        L"Prefira formato não comprimido (YUY2/NV12) quando houver.\n"
+        L"PLACA DE CAPTURA / CÂMERA / CONSOLE\n"
+        L"Para jogar PS5, Xbox, Switch ou outro PC pela placa de captura — ou usar uma câmera. "
+        L"Escolha o aparelho na lista e depois a resolução, o FPS e o formato que ele entrega.\n"
+        L"Dica: 1920x1080 a 60 fps é o ponto ideal — a placa de vídeo faz 4 vezes menos conta que em 4K "
+        L"e a imagem passa pelo DLSS 5 do mesmo jeito. Se a lista tiver YUY2 ou NV12, prefira: "
+        L"são os formatos sem compressão, com menos atraso.\n"
+        L"O som do console sai pelo programa também (chave no painel End).\n"
         L"Depois de abrir: ",
-        L"CAMERA / CAPTURE CARD\n"
-        L"The image coming through the cable: console, another PC, a camera. Pick the device, then the mode "
-        L"(resolution, fps and format).\n"
-        L"Tip: 1920x1080 is the sweet spot — the Feeder runs DLAA at the capture resolution, so 4K = 4x the load. "
-        L"Prefer an uncompressed format (YUY2/NV12) when there is one.\n"
+        L"CAPTURE CARD / CAMERA / CONSOLE\n"
+        L"To play PS5, Xbox, Switch or another PC through a capture card — or to use a camera. "
+        L"Pick the device in the list, then the resolution, FPS and format it delivers.\n"
+        L"Tip: 1920x1080 at 60 fps is the sweet spot — the GPU does 4 times less work than at 4K "
+        L"and the image still goes through DLSS 5 the same way. If the list has YUY2 or NV12, prefer them: "
+        L"they are the uncompressed formats, with less delay.\n"
+        L"The console's sound comes through the program too (switch in the End panel).\n"
         L"Once it opens: ") + RodapeAtalhos() + T(L", F11 tela cheia.", L", F11 for fullscreen.");
 }
 static const wchar_t* NomeSw(int i) {
@@ -235,7 +331,8 @@ static const wchar_t* NomeSw(int i) {
     case SW_ESCONDER:  return T(L"Esconder",   L"Hide");
     case SW_VSYNC:     return L"V-Sync";
     case SW_HDR:       return L"HDR";
-    default:           return T(L"FPS na tela", L"FPS on screen");
+    case SW_FPS:       return T(L"FPS na tela", L"FPS on screen");
+    default:           return L"Anti-cheat";   // E5: "Modo anti-cheat" cortava na grade
     }
 }
 static std::wstring TipSw(int i, const Estado& s) {
@@ -291,6 +388,14 @@ static std::wstring TipSw(int i, const Estado& s) {
         L"monitor the window is on (60 Hz = 60 fps, even capturing 100).\n"
         L"Off (the default) does NOT tear: on the flip model it simply does not wait for the vblank. You can change "
         L"it later from the panel, without closing the app.");
+    case SW_ANTICHEAT: return TS(
+        L"MODO ANTI-CHEAT\n"
+        L"Recomendado para jogos online. Mantém apenas a captura de tela, sem qualquer interação com o jogo, como um "
+        L"gravador de gameplay. Aumenta a chance de não ser detectado por sistemas anti-cheat, mas não garante que isso "
+        L"não possa ocorrer.",
+        L"ANTI-CHEAT MODE\n"
+        L"Recommended for online games. Keeps only screen capture, with no interaction with the game, like a gameplay "
+        L"recorder. Increases the likelihood of not being flagged by anti-cheat systems, but does not guarantee it.");
     case SW_HDR:
 #ifdef TEM_HDR_CONTROL
         return TS(L"HDR — plano B\n", L"HDR — plan B\n") + Hdr::Txt::Tooltip();
@@ -332,6 +437,386 @@ static void CarregarModos(Estado& s) {
     s.selModo = sel;
     if (s.selModo >= kLinhasModo) s.rolModo = s.selModo - kLinhasModo + 1;
 }
+// MODO ANTI-CHEAT: a mesma varredura por arquivo da abertura (AntitrapacaNaPasta), no exe da
+// janela escolhida. So le nomes de arquivo, e so quando a selecao muda de janela.
+static void AntiCheatNoAlvo(Estado& s) {
+    HWND h = (s.fonte == SRC_WINDOW && s.selWin >= 0 && s.selWin < (int)s.wins.size()) ? s.wins[s.selWin].hwnd : nullptr;
+    if (h == s.antiCheatHwnd) return;
+    s.antiCheatHwnd = h; s.antiCheatDetectado = false; s.antiCheatProduto.clear();
+    if (!h) return;
+    DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+    const std::wstring exe = pid ? CaminhoDoProcesso(pid) : L"";
+    std::wstring evid;
+    const std::wstring produto = exe.empty() ? L"" : AntitrapacaNaPasta(exe, &evid);
+    if (!produto.empty()) {
+        s.antiCheatDetectado = true; s.antiCheatProduto = produto;
+        Log("seletor: anti-cheat na pasta da janela escolhida (%s, evidencia: %s) - o Modo anti-cheat aparece ligado", U8(produto).c_str(), U8(evid).c_str());
+    }
+}
+// E1: valor da chave no perfil do jogo escolhido; sem perfil ou sem a chave, o [ultima]
+// (soPerfil: vazio em vez do [ultima]). Ausente e vazio se separam pelo sentinela \x01,
+// como no PerfilCarregar.
+static std::wstring LerDoJogo(const Estado& s, const wchar_t* k, bool soPerfil = false) {
+    if (!s.perfilExe.empty()) {
+        wchar_t b[512];
+        GetPrivateProfileStringW((L"perfil:" + s.perfilExe).c_str(), k, L"\x01", b, 512, IniPath().c_str());
+        if (!(b[0] == L'\x01' && b[1] == 0)) return b;
+    }
+    return soPerfil ? std::wstring() : IniGet(k);
+}
+// As escolhas de ANTES DE COMECAR: ao abrir (sem jogo: [ultima]) e a cada janela escolhida
+// (o perfil dela por cima). A fonte da verdade continua sendo o ini.
+static void LerEscolhas(Estado& s) {
+    s.jogoRes = _wtoi(LerDoJogo(s, L"jogo_resolucao").c_str());
+    // kJogoRes vem de main.cpp - fonte unica, para os degraus nunca divergirem entre a
+    // validacao aqui e os chips desenhados mais abaixo.
+    bool ok = false;
+    for (int i = 0; i < kNJogoRes; i++) if (s.jogoRes == kJogoRes[i]) ok = true;
+    if (!ok) s.jogoRes = 0;
+
+    std::wstring r = LerDoJogo(s, L"reconstrucao");
+    for (auto& c : r) c = (wchar_t)towlower(c);
+    if (r.empty()) r = L"monitor";   // o mesmo padrao do arranque
+    s.reconstrucao = (r == L"monitor") ? -1 : (r == L"captura" || r == L"nativo") ? 0 : _wtoi(r.c_str());
+    // kReconstAlt vem de main.cpp - mesma razao (0 e -1 sao sempre validos; os demais
+    // sao os degraus fixos 1080/1440/2160/3240/4320).
+    bool okr = (s.reconstrucao == 0 || s.reconstrucao == -1);
+    for (int i = 0; i < kNReconst; i++) if (s.reconstrucao == kReconstAlt[i]) okr = true;
+    if (!okr) s.reconstrucao = -1;
+
+    std::wstring t = IniGet(L"ritmo");
+    for (auto& c : t) c = (wchar_t)towlower(c);
+    s.ritmo = (t == L"livre" || t == L"solto") ? 1 : (t == L"limite" || t == L"personalizado") ? 2 : 0;
+
+    s.curto = (IniGet(L"caminho_curto") == L"1");
+    // X-CONSOLE (18/09/2026): com o motor RenoDX a "Rapida" e INERTE (o add-on avalia sempre
+    // depois de ampliar - main.cpp, "a ordem fica INERTE"). O chip marcado mostra o que VALE:
+    // Maxima. Clicar em Rapida continua trocando o motor junto (K_IAORDEM), e ai passa a valer.
+    s.iaOrdem = (IniGet(L"ia_ordem") == L"depois" || IniGet(L"motor") != L"proprio") ? 1 : 0;
+    {
+        const std::wstring vn = LerDoJogo(s, L"nitidez_ia");
+        int k = vn.empty() ? 80 : _wtoi(vn.c_str());
+        if (k < 0 || k > 100) k = 80;
+        s.nitidez = k;
+    }
+    // E1: o modo vem SO do perfil do jogo; sem perfil, Automatico
+    {
+        std::wstring mp = LerDoJogo(s, L"modo_processamento", true);
+        for (auto& c : mp) c = (wchar_t)towlower(c);
+        // v2.0 (dono): sem Automatico - sem perfil, ou perfil com "auto", abre em Universal; Nativo/Upstream so a mao
+        s.modo = (mp == L"nativo") ? MODO_NATIVO : (mp == L"upstream") ? MODO_UPSTREAM : MODO_UNIVERSAL;
+        // I7: quantas vezes o Upstream ja caiu neste jogo (so do perfil; sem perfil, zero)
+        s.upstreamFalhas = _wtoi(LerDoJogo(s, L"upstream_falhas", true).c_str());
+    }
+    // E2: qualidade e preset do upscaler do jogo (as mesmas chaves do card; fora da lista = "jogo")
+    {
+        std::wstring p = LerDoJogo(s, L"dlss_preset"), q = LerDoJogo(s, L"dlss_qualidade");
+        for (auto& c : p) c = (wchar_t)towupper(c);
+        for (auto& c : q) c = (wchar_t)towlower(c);
+        s.dlssPreset = L"jogo"; s.dlssQualidade = L"jogo";
+        for (int i = 1; i < kNDlssPresets; i++) if (p == kDlssPresets[i]) s.dlssPreset = kDlssPresets[i];
+        for (int i = 1; i < kNQualJogo; i++) if (q == kQualJogo[i].chave) s.dlssQualidade = kQualJogo[i].chave;
+    }
+}
+// E1 (16/09/2026): A JANELA ESCOLHIDA PODE USAR O NATIVO? As condicoes do ligarNativo, lidas de
+// fora e sem injetar nada: 64 bits, D3D11/12 entre os modulos carregados, sem anti-cheat na
+// pasta. E o jogo tem upscaler proprio (DLSS, FSR 2+ ou XeSS) na pasta do exe ou carregado?
+// So roda quando a janela escolhida muda. Na troca, as escolhas passam a ser as do perfil do
+// jogo e o g_perfilExe aponta para ele: o IniSet desta tela espelha no [perfil:<exe>], senao o
+// PerfilCarregar do arranque devolveria o valor antigo do perfil por cima do clique.
+// H3: os upscalers que a DLL engancha - nvngx_dlss.dll (ngx_upstream) e os modulos da tabela do
+// sr_hook.cpp (FSR 3.1 dx12/dx11, FSR do SDK 2.x, FSR 2 x64, XeSS). Em todos o modo Upstream (I6)
+// decide se a rede roda antes do upscaling. Os outros nomes do NomeDeUpscaler (ex.: amd_fidelityfx_vk.dll)
+// contam como upscaler do jogo, mas sem gancho o chip Upstream nao faria nada (some).
+static const wchar_t* NomeDeGancho(std::wstring n) {
+    for (auto& c : n) c = (wchar_t)towlower(c);
+    if (n == L"nvngx_dlss.dll") return L"DLSS";
+    if (n == L"amd_fidelityfx_dx12.dll" || n == L"amd_fidelityfx_dx11.dll" || n == L"ffx_fsr2_api_x64.dll") return L"FSR";
+    // H8: FidelityFX SDK 2.x (ex.: RE requiem) - o loader e quem o jogo chama; o modulo do
+    // upscaler aparece sozinho quando o jogo o carrega sem loader. Os dois estao no sr_hook.
+    if (n == L"amd_fidelityfx_loader_dx12.dll" || n == L"amd_fidelityfx_upscaler_dx12.dll") return L"FSR";
+    if (n == L"libxess.dll") return L"XeSS";
+    return nullptr;
+}
+static bool NomeDeUpscaler(std::wstring n) {
+    for (auto& c : n) c = (wchar_t)towlower(c);
+    const bool dll = n.size() > 4 && n.compare(n.size() - 4, 4, L".dll") == 0;
+    return n == L"nvngx_dlss.dll" || n == L"libxess.dll" ||
+           (dll && (n.rfind(L"amd_fidelityfx_", 0) == 0 || n.rfind(L"ffx_fsr2_api", 0) == 0));
+}
+// I6 (18/09/2026): o gancho de um PROCESSO ja capturado (o painel End decide se o chip Upstream
+// aparece): modulos carregados fora da pasta do app, e depois a pasta do exe. Mesma regra do
+// MedirNativo, sem o resto da medicao. nullptr = nada que a DLL engancha.
+static const wchar_t* GanchoDoProcesso(DWORD pid) {
+    if (!pid) return nullptr;
+    const wchar_t* gancho = nullptr;
+    HANDLE snap = INVALID_HANDLE_VALUE;
+    for (int t = 0; t < 3 && snap == INVALID_HANDLE_VALUE; t++) {
+        snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+        if (snap == INVALID_HANDLE_VALUE && GetLastError() != ERROR_BAD_LENGTH) break;
+    }
+    if (snap != INVALID_HANDLE_VALUE) {
+        MODULEENTRY32W me{}; me.dwSize = sizeof(me);
+        for (BOOL ok = Module32FirstW(snap, &me); ok; ok = Module32NextW(snap, &me)) {
+            if (_wcsnicmp(me.szExePath, g_exeDir.c_str(), g_exeDir.size()) == 0) continue;   // o nosso FG nao conta
+            const wchar_t* gk = NomeDeGancho(me.szModule);
+            if (gk && (!gancho || !wcscmp(gk, L"DLSS"))) gancho = gk;
+        }
+        CloseHandle(snap);
+    }
+    if (gancho) return gancho;
+    const std::wstring exe = CaminhoDoProcesso(pid);
+    const size_t barra = exe.find_last_of(L"\\/");
+    if (barra == std::wstring::npos) return nullptr;
+    WIN32_FIND_DATAW fd{};
+    HANDLE f = FindFirstFileW((exe.substr(0, barra + 1) + L"*.dll").c_str(), &fd);
+    if (f == INVALID_HANDLE_VALUE) return nullptr;
+    do { if ((gancho = NomeDeGancho(fd.cFileName)) != nullptr) break; } while (FindNextFileW(f, &fd));
+    FindClose(f);
+    return gancho;
+}
+// H7: JOGO UNREAL guarda o upscaler fora da pasta do exe (<raiz>\<Projeto>\Binaries\Win64\x.exe e
+// o DLL em <raiz>\Engine\Plugins\...\Binaries\ThirdParty\Win64 ou <raiz>\<Projeto>\Plugins\...).
+// Busca so de leitura (nomes de arquivo), a partir da raiz do jogo, com teto de profundidade, de
+// pastas e de tempo, numa thread: a resposta chega a janela por WM_SEL_UNREAL e so vale se a janela
+// escolhida ainda for a mesma. Pula Content/Saved (paks e saves: grandes e sem DLL) e juncoes.
+static const UINT kWmSelUnreal = WM_APP + 0x51;
+struct AchadoUnreal {
+    HWND alvo = nullptr;
+    bool upscaler = false; const wchar_t* gancho = nullptr;
+    std::wstring raiz, onde;
+    unsigned pastas = 0; DWORD ms = 0; bool cortou = false;
+};
+// "" quando o exe nao esta em ...\Binaries\Win64 (ou WinGDK) ou a raiz nao tem a pasta Engine
+static std::wstring RaizUnreal(const std::wstring& exe) {
+    std::wstring low = exe;
+    for (auto& c : low) c = (wchar_t)towlower(c);
+    size_t p = low.rfind(L"\\binaries\\win64\\");
+    if (p == std::wstring::npos) p = low.rfind(L"\\binaries\\wingdk\\");
+    if (p == std::wstring::npos || p == 0) return L"";
+    const size_t b = exe.find_last_of(L"\\/", p - 1);   // a barra antes do <Projeto>
+    if (b == std::wstring::npos || b < 3) return L"";    // nunca a raiz do disco
+    const std::wstring raiz = exe.substr(0, b + 1);
+    const DWORD a = GetFileAttributesW((raiz + L"Engine").c_str());
+    return (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) ? raiz : L"";
+}
+static void BuscarUnreal(AchadoUnreal& a) {
+    static const unsigned kMaxPastas = 4000, kMaxProf = 8;
+    static const DWORD kMaxMs = 2000;
+    const ULONGLONG t0 = GetTickCount64();
+    std::vector<std::pair<std::wstring, unsigned>> pilha{ { a.raiz, 0u } };
+    while (!pilha.empty()) {
+        if (a.pastas >= kMaxPastas || GetTickCount64() - t0 > kMaxMs) { a.cortou = true; break; }
+        const std::wstring dir = pilha.back().first; const unsigned prof = pilha.back().second;
+        pilha.pop_back(); ++a.pastas;
+        WIN32_FIND_DATAW fd{};
+        HANDLE f = FindFirstFileExW((dir + L"*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, FIND_FIRST_EX_LARGE_FETCH);
+        if (f == INVALID_HANDLE_VALUE) continue;
+        do {
+            const wchar_t* n = fd.cFileName;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                if (!wcscmp(n, L".") || !wcscmp(n, L"..") || (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) continue;
+                if (!_wcsicmp(n, L"Content") || !_wcsicmp(n, L"Saved")) continue;
+                if (prof + 1 < kMaxProf) pilha.push_back({ dir + n + L"\\", prof + 1 });
+            } else if (NomeDeUpscaler(n)) {
+                a.upscaler = true;
+                if (const wchar_t* gk = NomeDeGancho(n)) { a.gancho = gk; a.onde = dir; break; }
+            }
+        } while (FindNextFileW(f, &fd));
+        FindClose(f);
+        if (a.gancho) break;
+    }
+    a.ms = (DWORD)(GetTickCount64() - t0);
+}
+// H7: o resultado da busca, na thread da tela. Dono do `a`. true = mudou o que a tela mostra.
+static bool AplicarUnreal(Estado& s, AchadoUnreal* a) {
+    const bool vale = (a->alvo == s.nativoHwnd);   // senao a pessoa ja escolheu outra janela
+    if (vale) {
+        const std::string achou = a->gancho ? "achou " + U8(a->gancho) + " em " + U8(a->onde)
+                                : a->upscaler ? std::string("so upscaler sem gancho da DLL")
+                                : std::string("nenhum (o upscaler pode estar dentro do exe)");
+        Log("seletor: busca Unreal em %s - %u pastas, %lu ms%s: %s", U8(a->raiz).c_str(), a->pastas, (unsigned long)a->ms,
+            a->cortou ? " (parou no teto)" : "", achou.c_str());
+        if (a->upscaler) s.temUpscaler = true;
+        if (a->gancho) { s.gancho = a->gancho; s.ganchoOnde = a->onde; }
+    }
+    const bool mudou = vale && a->upscaler;
+    delete a;
+    return mudou;
+}
+static void MedirNativo(Estado& s) {
+    AntiCheatNoAlvo(s);
+    HWND h = (s.fonte == SRC_WINDOW && s.selWin >= 0 && s.selWin < (int)s.wins.size()) ? s.wins[s.selWin].hwnd : nullptr;
+    if (h == s.nativoHwnd) return;
+    s.nativoHwnd = h; s.podeNativo = false; s.temUpscaler = false; s.gancho = nullptr; s.ganchoOnde.clear(); s.apiJogo.clear(); s.exibPedida = -1;
+    s.perfilExe = h ? Desempenho::ExeDaJanela(h) : std::wstring();
+    for (auto& c : s.perfilExe) c = (wchar_t)towlower(c);
+    g_perfilExe = s.perfilExe;
+    LerEscolhas(s);
+    if (!h) return;
+    DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+    const bool b64 = pid && Injetor::Bits64(pid);
+    bool d3d11 = false, d3d12 = false;
+    if (b64) {
+        HANDLE snap = INVALID_HANDLE_VALUE;
+        for (int t = 0; t < 3 && snap == INVALID_HANDLE_VALUE; t++) {   // ERROR_BAD_LENGTH: o jogo carregava um modulo
+            snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
+            if (snap == INVALID_HANDLE_VALUE && GetLastError() != ERROR_BAD_LENGTH) break;
+        }
+        if (snap != INVALID_HANDLE_VALUE) {
+            MODULEENTRY32W me{}; me.dwSize = sizeof(me);
+            for (BOOL ok = Module32FirstW(snap, &me); ok; ok = Module32NextW(snap, &me)) {
+                std::wstring n = me.szModule;
+                for (auto& c : n) c = (wchar_t)towlower(c);
+                if (n == L"d3d12.dll") d3d12 = true;
+                else if (n == L"d3d11.dll") d3d11 = true;
+                // o nosso amd_fidelityfx_dx12.dll (FG) mora na pasta do app: nao conta
+                else if (NomeDeUpscaler(n) && _wcsnicmp(me.szExePath, g_exeDir.c_str(), g_exeDir.size()) != 0) {
+                    s.temUpscaler = true;
+                    const wchar_t* gk = NomeDeGancho(n);
+                    if (gk && (!s.gancho || !wcscmp(gk, L"DLSS"))) s.gancho = gk;   // com os dois, o DLSS
+                }
+            }
+            CloseHandle(snap);
+        }
+    }
+    const std::wstring exe = pid ? CaminhoDoProcesso(pid) : L"";
+    const size_t barra = exe.find_last_of(L"\\/");
+    if (!s.gancho && barra != std::wstring::npos) {   // H1/H3: segue ate achar um upscaler com gancho, nao so o primeiro
+        WIN32_FIND_DATAW fd{};
+        HANDLE f = FindFirstFileW((exe.substr(0, barra + 1) + L"*.dll").c_str(), &fd);
+        if (f != INVALID_HANDLE_VALUE) {
+            do {
+                if (NomeDeUpscaler(fd.cFileName)) s.temUpscaler = true;
+                if ((s.gancho = NomeDeGancho(fd.cFileName)) != nullptr) break;
+            } while (FindNextFileW(f, &fd));
+            FindClose(f);
+        }
+    }
+    s.apiJogo = d3d12 ? L"D3D12" : d3d11 ? L"D3D11" : L"";
+    s.podeNativo = b64 && (d3d11 || d3d12) && !s.antiCheatDetectado;
+    Log("seletor: janela escolhida %s - 64 bits=%d api=%s anti-cheat=%d upscaler do jogo=%d gancho=%s -> Nativo %s (modo do perfil: %s, upstream_falhas=%d)",
+        U8(s.perfilExe).c_str(), (int)b64, s.apiJogo.empty() ? "?" : U8(s.apiJogo).c_str(), (int)s.antiCheatDetectado,
+        (int)s.temUpscaler, s.gancho ? U8(s.gancho).c_str() : "nenhum", s.podeNativo ? "disponivel" : "indisponivel", NomeModoProc(s.modo), s.upstreamFalhas);
+    // H7: Unreal sem gancho carregado nem na pasta do exe: a busca na raiz do jogo, fora da thread da tela
+    const std::wstring raiz = (!s.gancho && s.podeNativo) ? RaizUnreal(exe) : std::wstring();
+    if (!raiz.empty()) {
+        auto* a = new AchadoUnreal; a->alvo = h; a->raiz = raiz;
+        if (s.wnd) {
+            Log("seletor: jogo Unreal - procurando DLSS/FSR/XeSS a partir de %s (em segundo plano)", U8(raiz).c_str());
+            const HWND wnd = s.wnd;
+            std::thread([wnd, a] {
+                BuscarUnreal(*a);
+                if (!PostMessageW(wnd, kWmSelUnreal, 0, (LPARAM)a)) delete a;   // a tela ja fechou
+            }).detach();
+        } else {   // sem janela (nao acontece na tela de verdade): na hora
+            BuscarUnreal(*a);
+            AplicarUnreal(s, a);
+        }
+    }
+}
+// a escolha de modo so aparece para janela que pode usar o Nativo; Modo anti-cheat ligado forca o Universal
+static bool EscolhaDeModo(const Estado& s) { return s.fonte == SRC_WINDOW && s.podeNativo && !s.sw[SW_ANTICHEAT]; }
+// true = a tela mostra os campos do Nativo. Automatico: com upscaler no jogo; sem, os do Universal.
+// I6: o Upstream e o Nativo com a rede antes do upscaling - mesmos campos.
+static bool CamposNativo(const Estado& s) {
+    if (!EscolhaDeModo(s)) return false;
+    return s.modo == MODO_NATIVO || s.modo == MODO_UPSTREAM || (s.modo == MODO_AUTO && s.temUpscaler);
+}
+// I6/I7: o chip Upstream aparece so onde vale - jogo com DLSS/FSR/XeSS que a DLL engancha e
+// que nao caiu duas vezes ali (regra do que nao funciona nao aparece). Escolhido a mao, fica:
+// e o jeito de forcar de novo depois de um patch do jogo.
+static bool ChipUpstream(const Estado& s) {
+    if (s.modo == MODO_UPSTREAM) return true;
+    return s.gancho != nullptr && s.upstreamFalhas < 2;
+}
+// Automatico sem upscaler no jogo: o upscaling escolhido so acontece pela pelicula (Universal).
+// "Amplia" = a reconstrucao passa da altura em que o jogo vai desenhar.
+static bool AmpliaPelaPelicula(const Estado& s) {
+    if (s.reconstrucao == 0 || s.selWin < 0 || s.selWin >= (int)s.wins.size()) return false;
+    const WinTarget& w = s.wins[s.selWin];
+    const int hJogo = s.jogoRes > 0 ? s.jogoRes : w.h;
+    int hAlvo = s.reconstrucao;
+    if (hAlvo < 0) {
+        MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+        HMONITOR m = w.hwnd ? MonitorFromWindow(w.hwnd, MONITOR_DEFAULTTONEAREST) : nullptr;
+        hAlvo = (m && GetMonitorInfoW(m, &mi)) ? (int)(mi.rcMonitor.bottom - mi.rcMonitor.top) : 0;
+    }
+    return hAlvo > hJogo;
+}
+// E4: a exibicao do jogo, lida de fora pelo estilo e pelo retangulo (JogoRes::Estilo).
+// Tela cheia exclusiva nao se distingue de sem bordas daqui: as duas marcam "sem bordas".
+static int ExibicaoAtual(HWND h) {
+    const int e = JogoRes::Estilo(h);
+    return e == 0 ? 0 : (e == 1 || e == 2) ? 1 : -1;
+}
+// E4: Janela (WS_OVERLAPPEDWINDOW) ou Janela sem bordas (WS_POPUP), SEMPRE com tamanho e posicao
+// dentro do monitor em que o jogo esta (o RE2 invadiu o ultrawide ao sair do sem bordas).
+// Uma tentativa por clique: se o jogo desfizer, a tela mostra o modo dele e a dica explica.
+static bool AplicarExibicao(HWND h, int modo) {
+    if (!h || !IsWindow(h)) return false;
+    MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+    HMONITOR m = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+    RECT rc{};
+    if (!m || !GetMonitorInfoW(m, &mi) || !GetClientRect(h, &rc)) return false;
+    DWORD st = (DWORD)GetWindowLongPtrW(h, GWL_STYLE);
+    const DWORD ex = (DWORD)GetWindowLongPtrW(h, GWL_EXSTYLE);
+    RECT alvo{};
+    if (modo == 1) {
+        st = (st & ~(DWORD)WS_OVERLAPPEDWINDOW) | (DWORD)WS_POPUP;
+        alvo = mi.rcMonitor;
+    } else {
+        st = (st & ~(DWORD)WS_POPUP) | (DWORD)WS_OVERLAPPEDWINDOW;
+        const RECT& wa = mi.rcWork;
+        const LONG mw = wa.right - wa.left, mh = wa.bottom - wa.top;
+        LONG cw = rc.right - rc.left, chh = rc.bottom - rc.top;
+        if (cw < 640 || chh < 360) { cw = mw * 3 / 4; chh = mh * 3 / 4; }
+        RECT fr{ 0, 0, cw, chh };
+        AdjustWindowRectEx(&fr, st, FALSE, ex);
+        const LONG margemW = (fr.right - fr.left) - cw, margemH = (fr.bottom - fr.top) - chh;
+        if (cw + margemW > mw || chh + margemH > mh) {
+            const double kx = (double)(mw - margemW) / (double)cw, ky = (double)(mh - margemH) / (double)chh;
+            const double k = kx < ky ? kx : ky;
+            cw = (LONG)(cw * k) & ~1L; chh = (LONG)(chh * k) & ~1L;
+        }
+        const LONG fw = cw + margemW, fh = chh + margemH;
+        alvo.left = wa.left + (mw - fw) / 2; alvo.top = wa.top + (mh - fh) / 2;
+        alvo.right = alvo.left + fw; alvo.bottom = alvo.top + fh;
+    }
+    SetLastError(0);
+    if (!SetWindowLongW(h, GWL_STYLE, (LONG)st) && GetLastError() != 0) {
+        Log("seletor: exibicao do jogo -> %s RECUSADA (SetWindowLong erro %lu)", modo == 1 ? "sem bordas" : "janela", (unsigned long)GetLastError());
+        return false;
+    }
+    const BOOL ok = SetWindowPos(h, nullptr, alvo.left, alvo.top, alvo.right - alvo.left, alvo.bottom - alvo.top,
+                                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    Log("seletor: exibicao do jogo -> %s: janela %ldx%ld em %ld,%ld (monitor %ldx%ld em %ld,%ld) ok=%d",
+        modo == 1 ? "sem bordas" : "janela", (long)(alvo.right - alvo.left), (long)(alvo.bottom - alvo.top),
+        (long)alvo.left, (long)alvo.top, (long)(mi.rcMonitor.right - mi.rcMonitor.left),
+        (long)(mi.rcMonitor.bottom - mi.rcMonitor.top), (long)mi.rcMonitor.left, (long)mi.rcMonitor.top, (int)ok);
+    return ok != FALSE;
+}
+// Ha uma janela de OUTRO processo cobrindo um monitor inteiro (jogo em tela cheia ou sem
+// bordas)? E o caso em que a pessoa abriu o app com o jogo ja rodando e, sem isto, teria
+// de dar Alt+Tab para achar a tela de escolha.
+static HWND JogoEmTelaCheia(const Estado& s) {
+    // a lista de janelas so e carregada com a fonte Janela; aqui vale para qualquer fonte
+    const std::vector<WinTarget> wins = (s.fonte == SRC_WINDOW) ? s.wins : EnumCaptureWindows(s.wnd);
+    for (const WinTarget& w : wins) {
+        // Rodada 22 (24/09/2026): JanelaPodeSerJogo (main.cpp) e o criterio unico e
+        // compartilhado (cloaked, WS_EX_TOOLWINDOW/TRANSPARENT/NOACTIVATE, layered
+        // transparente, sem titulo, processo do shell) - antes esta funcao so conferia
+        // visivel/minimizada/pid, e um canvas do sistema (Shell Handwriting Canvas,
+        // TextInputHost.exe) passava por aqui como se fosse um jogo.
+        if (!JanelaPodeSerJogo(w.hwnd)) continue;
+        RECT r{}; if (!GetWindowRect(w.hwnd, &r)) continue;
+        MONITORINFO mi{}; mi.cbSize = sizeof(mi);
+        if (!GetMonitorInfoW(MonitorFromWindow(w.hwnd, MONITOR_DEFAULTTONEAREST), &mi)) continue;
+        if (r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top &&
+            r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return w.hwnd;
+    }
+    return nullptr;
+}
 static void Recarregar(Estado& s) {
     s.rolAlvo = 0;
     if (s.fonte == SRC_WINDOW) {
@@ -363,9 +848,9 @@ static bool AtualizarFalta(Estado& s) {
     const std::wstring t = f.AlgumaCoisa() ? TextoFaltaDlss(f) : L"";
     const bool mudou = (t != s.faltaTxt) || (f.AlgumaCoisa() != s.falta.AlgumaCoisa());
     if (mudou) {
-        Log("seletor: aviso do DLSS 5 %s (addon=%d dlssnr=%d dlss=%d reshade=%d mod-amd faltando=%u)",
+        Log("seletor: aviso do DLSS 5 %s (addon=%d dlssnr=%d dlss=%d reshade=%d sm-ruim=%d mod-amd faltando=%u diag=%d)",
             f.AlgumaCoisa() ? "mostrado" : "escondido", (int)f.addon, (int)f.dll, (int)f.dll2,
-            (int)f.reshade, (unsigned)f.mod.size());
+            (int)f.reshade, (int)f.smRuim, (unsigned)f.mod.size(), Diag::Atual().regra);
     }
     s.falta = f; s.faltaTxt = t;
     return mudou;
@@ -418,8 +903,8 @@ static void VerificarResolucaoWindows() {
 // ------------------------------------------------------------------ desenho
 // uma linha de lista (janela / monitor / camera / modo)
 static void Linha(Graphics* g, const RectF& r, bool sel, bool hot, const wchar_t* txt, const wchar_t* dir) {
-    if (sel)      FillRound(g, r, 8.f, C_ACC);
-    else if (hot) FillRound(g, r, 8.f, C_ROWH);
+    if (sel)      FillRound(g, r, 4.f, C_ACC);
+    else if (hot) FillRound(g, r, 4.f, C_ROWH);
     const Color ct = sel ? C_DARK : C_BODY, cd = sel ? C_DARK : C_FAINT;
     // LARGURA DA COLUNA DA DIREITA, MEDIDA - nao mais fixa (14/09/2026, 8a rodada, achado de
     // D:\claude-scratch\validacao\RELATORIO.md item 3: a linha "Hollow Knight" saia como
@@ -452,7 +937,7 @@ static int Add(const RectF& r, int kind, int val, bool en, const std::wstring& t
     return (int)g_it.size() - 1;
 }
 static void Chip(Graphics* g, const RectF& r, const wchar_t* t, bool sel, bool hot, bool en = true) {
-    FillRound(g, r, 9.f, sel ? C_ACC : (hot && en) ? C_ROWH : C_ROW);
+    FillRound(g, r, 4.f, sel ? C_ACC : (hot && en) ? C_ROWH : C_ROW);
     Txt(g, t, fChip, sel ? C_DARK : en ? C_BODY : C_FAINT, r, 1, true);
 }
 
@@ -464,63 +949,117 @@ static int Render(Graphics* g) {
     const REAL top = (REAL)SH;
     REAL cy = top;
 
-    // -------- barra de titulo (desenhada): titulo, idioma e o X
+    // -------- barra de titulo (desenhada): marca, titulo, tamanho da interface, idioma e o X
+    // Rodada 27 (v9): o cabecalho do mockup - capivara + "DLSS5ForAll" (26, negrito) e, a direita,
+    // "Aa − 100% + Auto", os dois idiomas e o X. O subtitulo "— escolha a fonte" so entra se sobrar
+    // espaco entre o titulo e os controles.
     {
-        const REAL ty = cy + 12;
-        // A CAPIVARA ABRE O CABECALHO. Esta e a primeira janela que a pessoa ve, e ate aqui
-        // era a unica das nossas telas sem a marca. Vai ANTES do titulo, no mesmo canto que
-        // ela ocupa no painel e no Perfil, e o titulo comeca depois dela: nada de sobrepor.
-        // Se o recurso faltar (exe sem icone embutido), DesenharMarca nao desenha nada e o
-        // titulo continua onde esta - o layout nao depende da imagem.
-        const REAL marca = 28.f, apos = marca + 10.f;
-        if (g) Hud::DesenharMarca(g, L, ty + 1, (int)marca);
-        if (g) TxtSpaced(g, L"DLSS5 FOR ALL", fTitle, C_TXT, L + apos, ty, 30.f, 1.6f);
-        REAL x = L + apos;
-        for (const wchar_t* p = L"DLSS5 FOR ALL"; *p; p++) { wchar_t um[2] = { *p, 0 }; x += LarguraTexto(um, fTitle) + 1.6f; }
-        if (g) Txt(g, APP_VERSION, fVer, C_FAINT, RectF(x + 2, ty + 8, 40, 18), 0);
-        x += 30;
-        if (g) Txt(g, T(L"—  escolha a fonte", L"—  pick the source"), fSub, C_DIM, RectF(x, ty, 260, 30), 0, true);
-        // o X
-        RectF rx(R - 28, ty + 2, 26, 26);
+        const REAL yc = cy + TOPO_H / 2.f;   // o centro vertical da barra
+        const REAL marca = 40.f;
+        if (g) Hud::DesenharLogo8(g, L, yc - marca / 2.f, marca);
+        const REAL xT = L + marca + 12.f;
+        const REAL wT = LarguraTexto(L"DLSS5ForAll", fTit);
+        if (g) Txt(g, L"DLSS5ForAll", fTit, C_TXT, RectF(xT, yc - 18.f, wT + 4.f, 36.f), 0);
+        REAL x = xT + wT + 6.f;
+        const REAL wV = LarguraTexto(APP_VERSION, fVer) + 4.f;
+        if (g) Txt(g, APP_VERSION, fVer, C_DIM, RectF(x, yc - 3.f, wV, 16.f), 0);
+        x += wV + 10.f;
+        const REAL xSub = x;
+        // o X (30x30, contorno, como o do mockup)
+        RectF rx(R - 30.f, yc - 15.f, 30.f, 30.f);
         int idx = Add(rx, K_X, 0, true, TS(L"Fechar\nFecha sem abrir nada (Esc).", L"Close\nCloses without opening anything (Esc)."));
         if (g) {
-            FillRound(g, rx, 13.f, g_hot == idx ? C_ROWH : C_ROW);
-            Txt(g, L"✕", fChip, C_BODY, rx, 1);
+            if (g_hot == idx) FillRound(g, rx, 4.f, C_ROWH);
+            StrokeRound(g, RectF(rx.X + .5f, rx.Y + .5f, rx.Width - 1.f, rx.Height - 1.f), 4.f, C_EDGE, 1.f);
+            Txt(g, L"✕", fChip, C_DIM, rx, 1);
         }
         // idioma: dois chips, cada um na propria lingua
         const std::wstring tipL = TS(L"Idioma / Language\nA tela reabre no idioma escolhido.", L"Language / Idioma\nThe screen reopens in the chosen language.");
-        REAL cx = rx.X - 10;
+        REAL cx = rx.X - 12.f;
         const Lingua ls[2] = { LINGUA_EN, LINGUA_PT };
         for (Lingua l : ls) {
             const REAL w = LarguraTexto(NomeLingua(l), fChip) + 22;
-            RectF rc(cx - w, ty + 2, w, 26);
+            RectF rc(cx - w, yc - 15.f, w, 30.f);
             const bool sel = (g_lingua == l);
             int i2 = Add(rc, K_LANG, (int)l, true, tipL);
             if (g) Chip(g, rc, NomeLingua(l), sel, g_hot == i2);
             cx = rc.X - 6;
         }
+        // Rodada 27 (v9): TAMANHO DA INTERFACE, compacto - "Aa − 100% + Auto". O mesmo
+        // [ultima] tamanho_ui do painel (Geral > Exibicao). − e + saem do Auto; o + para no
+        // teto desta tela (a janela nunca passa da area util do monitor). Vale na hora.
+        {
+            cx -= 10.f;
+            const int p = Hud::TamanhoUi();
+            const int pUsado = (int)(g_selFatorUsado * 100.f + 0.5f), pTeto = (int)(g_selFatorMax * 100.f + 0.5f);
+            const bool noTeto = pUsado >= pTeto || pUsado >= Hud::kTamUiMax, noPiso = pUsado <= Hud::kTamUiMin;
+            const std::wstring base = TS(L"Tamanho da interface\nAumenta ou diminui juntos a letra e as janelas do app (esta tela, o painel, Filtros e Ajustes da rede neural), de 70% a 160%. "
+                                         L"Nenhuma janela passa da área útil do monitor. Auto escolhe o maior que cabe (até 100% num 1080p).",
+                                         L"Interface size\nScales the app's text and windows together (this screen, the panel, Filters and Neural network settings), from 70% to 160%. "
+                                         L"No window ever grows beyond the monitor's usable area. Auto picks the largest size that fits (up to 100% on a 1080p screen).");
+            const REAL hb = 26.f, yb = yc - hb / 2.f;
+            // Auto
+            const REAL wA = LarguraTexto(L"Auto", fChipP) + 18.f;
+            RectF ra(cx - wA, yb, wA, hb);
+            int iA = Add(ra, K_TAMUI, 0, true, TS(L"Auto\nO maior tamanho que cabe nesta tela, sem passar de 100% num 1080p. Apertar − ou + sai do Auto.",
+                                                  L"Auto\nThe largest size that fits this screen, capped at 100% on a 1080p display. Pressing − or + turns Auto off."));
+            if (g) {
+                if (p == 0) FillRound(g, ra, 4.f, g_hot == iA ? C_ACC2 : C_ACC);
+                else { if (g_hot == iA) FillRound(g, ra, 4.f, C_ROWH); StrokeRound(g, RectF(ra.X + .5f, ra.Y + .5f, ra.Width - 1.f, ra.Height - 1.f), 4.f, C_EDGE, 1.f); }
+                Txt(g, L"Auto", fChipP, p == 0 ? C_DARK : C_BODY, ra, 1);
+            }
+            cx = ra.X - 6.f;
+            auto passo = [&](const wchar_t* t, int val, bool en, const std::wstring& tip) {
+                RectF r(cx - hb, yb, hb, hb);
+                int i = Add(r, K_TAMUI, val, en, tip);
+                if (g) {
+                    if (g_hot == i && en) FillRound(g, r, 4.f, C_ROWH);
+                    StrokeRound(g, RectF(r.X + .5f, r.Y + .5f, r.Width - 1.f, r.Height - 1.f), 4.f, C_EDGE, 1.f);
+                    Txt(g, t, fChip, en ? C_TXT : Color(110, 160, 160, 160), r, 1);
+                }
+                cx = r.X - 4.f;
+            };
+            passo(L"+", 2, !noTeto, noTeto && pUsado < Hud::kTamUiMax
+                ? TS(L"Máximo para esta tela\nMaior que isto, a janela passaria da área útil do monitor.",
+                     L"Maximum for this screen\nAny larger and the window would extend past the monitor's usable area.")
+                : TS(L"Aumentar\n5% maior (até o máximo que cabe nesta tela).", L"Increase\n5% larger (up to the maximum that fits this screen)."));
+            const REAL wVal = LarguraTexto(L"160%", fChipP) + 8.f;
+            RectF rv(cx - wVal, yb, wVal, hb);
+            Add(rv, K_NADA, 0, true, base);
+            if (g) { wchar_t v[16]; _snwprintf(v, 16, L"%d%%", pUsado); v[15] = 0; Txt(g, v, fChipP, C_TXT, rv, 1); }
+            cx = rv.X - 4.f;
+            passo(L"−", 1, !noPiso, TS(L"Diminuir\n5% menor (mínimo 70%).", L"Decrease\n5% smaller (minimum 70%)."));
+            const REAL wAa = LarguraTexto(L"Aa", fChip) + 6.f;
+            RectF raa(cx - wAa, yb, wAa, hb);
+            Add(raa, K_NADA, 0, true, base);
+            if (g) Txt(g, L"Aa", fChip, C_DIM, raa, 1);
+            cx = raa.X - 8.f;
+        }
+        if (g && cx - xSub > 60.f) Txt(g, T(L"— escolha a fonte", L"— pick the source"), fSub, C_DIM, RectF(xSub, yc - 11.f, cx - xSub, 22.f), 0, true);
         cy += TOPO_H;
-        if (g) { Pen p(C_SEP, 1.f); g->DrawLine(&p, L, cy, R, cy); }
+        if (g) { Pen p(C_SEP, 1.f); g->DrawLine(&p, (REAL)SH, cy, (REAL)(SH + CW), cy); }
         cy += 16;
     }
 
     // -------- FONTE: tres cartoes, um selecionado
     {
-        if (g) Txt(g, T(L"FONTE", L"SOURCE"), fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+        if (g) Txt(g, T(L"FONTE", L"SOURCE"), fSec, C_DIM, RectF(L, cy, IW, 16), 0);
         cy += 22;
         const REAL gap = 10, bw = (IW - gap * 2) / 3, bh = 64;
         const SourceKind ks[3] = { SRC_WINDOW, SRC_MONITOR, SRC_CAMERA };
-        const wchar_t* nome[3] = { T(L"Janela", L"Window"), L"Monitor", T(L"Câmera", L"Camera") };
+        // J8: quem joga console pela placa procura "placa de captura", nao "camera" (cartao de
+        // 217 px: o nome inteiro "Placa de captura / Camera / Console" vai em duas linhas)
+        const wchar_t* nome[3] = { T(L"Janela", L"Window"), L"Monitor", T(L"Placa de captura", L"Capture card") };
         const wchar_t* sub[3]  = { T(L"recomendado · mais leve", L"recommended · lighter"),
                                    T(L"a tela inteira", L"the whole screen"),
-                                   T(L"placa de captura · console", L"capture card · console") };
+                                   T(L"Câmera / Console", L"Camera / Console") };
         for (int i = 0; i < 3; i++) {
             RectF r(L + i * (bw + gap), cy, bw, bh);
             const bool sel = (s.fonte == ks[i]);
             int idx = Add(r, K_FONTE, (int)ks[i], true, TipFonte(ks[i]));
             if (g) {
-                FillRound(g, r, 12.f, (g_hot == idx && !sel) ? C_ROWH : C_ROW);
-                if (sel) { StrokeRound(g, r, 12.f, C_ACC, 1.5f); FillRound(g, RectF(r.X, r.Y + 14, 5.f, r.Height - 28), 2.f, C_ON); }
+                FillRound(g, r, 6.f, (g_hot == idx && !sel) ? C_ROWH : C_ROW);
+                if (sel) { StrokeRound(g, r, 6.f, C_ACC, 1.f); FillRound(g, RectF(r.X, r.Y + 12, 4.f, r.Height - 24), 2.f, C_ON); }
                 Txt(g, nome[i], fItem, sel ? C_TXT : C_BODY, RectF(r.X + 18, r.Y + 10, r.Width - 30, 22), 0, true);
                 Txt(g, sub[i], fItemSub, sel ? C_ACC2 : C_FAINT, RectF(r.X + 18, r.Y + 34, r.Width - 30, 18), 0, true);
             }
@@ -533,11 +1072,11 @@ static int Render(Graphics* g) {
         const int n = NumAlvos(s);
         const wchar_t* lbl = s.fonte == SRC_WINDOW ? T(L"QUAL JANELA", L"WHICH WINDOW")
                            : s.fonte == SRC_MONITOR ? T(L"QUAL MONITOR", L"WHICH MONITOR")
-                                                    : T(L"QUAL CÂMERA OU PLACA", L"WHICH CAMERA OR CARD");
+                                                    : T(L"QUAL PLACA, CÂMERA OU CONSOLE", L"WHICH CARD, CAMERA OR CONSOLE");
         if (g) {
-            Txt(g, lbl, fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+            Txt(g, lbl, fSec, C_DIM, RectF(L, cy, IW, 16), 0);
             wchar_t c[64]; _snwprintf(c, 64, T(L"%d encontrada%s", L"%d found"), n, n == 1 ? L"" : L"s");
-            if (n > 0) Txt(g, c, fLbl, C_FAINT, RectF(L, cy, IW, 16), 2);
+            if (n > 0) Txt(g, c, fSec, C_DIM, RectF(L, cy, IW, 16), 2);
         }
         cy += 22;
         const int vis = n < kLinhasAlvo ? n : kLinhasAlvo;
@@ -547,7 +1086,7 @@ static int Render(Graphics* g) {
         const REAL boxH = (n == 0) ? (s.fonte == SRC_CAMERA ? 92.f : 56.f) : vis * kLinhaH + 8;
         RectF box(L, cy, IW, boxH);
         g_rcListaAlvo = box;
-        if (g) { FillRound(g, box, 12.f, C_LISTA); StrokeRound(g, box, 12.f, C_EDGE, 1.f); }
+        if (g) { FillRound(g, box, 8.f, C_LISTA); StrokeRound(g, box, 8.f, C_EDGE, 1.f); }
         if (n == 0) {
             if (g) {
                 const wchar_t* vazio = s.fonte == SRC_WINDOW
@@ -556,11 +1095,11 @@ static int Render(Graphics* g) {
                     : s.fonte == SRC_MONITOR
                     ? T(L"Nenhum monitor encontrado. Clique em \"Atualizar lista\".", L"No monitor found. Click \"Refresh list\".")
                     : T(L"Nenhuma placa de captura ou câmera foi encontrada neste PC.\n"
-                        L"Se ela está ligada agora, clique em \"Atualizar lista\".\n"
-                        L"Para filtrar um jogo que roda nesta máquina, escolha \"Janela\" ali em cima.",
+                        L"Se o console está ligado na placa agora, confira o cabo USB e clique em \"Atualizar lista\".\n"
+                        L"Para um jogo que roda neste PC, escolha \"Janela\" ali em cima.",
                         L"No capture card or camera was found on this PC.\n"
-                        L"If it is plugged in right now, click \"Refresh list\".\n"
-                        L"To filter a game running on this machine, pick \"Window\" up there.");
+                        L"If the console is plugged into the card right now, check the USB cable and click \"Refresh list\".\n"
+                        L"For a game running on this PC, pick \"Window\" up there.");
                 TxtWrap(g, vazio, fLinha, C_DIM, RectF(box.X + 16, box.Y + 12, box.Width - 32, box.Height - 20));
             }
         } else {
@@ -587,8 +1126,88 @@ static int Render(Graphics* g) {
         cy += boxH + 10;
     }
 
-    // -------- janela: o recorte, dois chips numa linha so
-    if (s.fonte == SRC_WINDOW) {
+    // -------- E1: o modo, so quando a janela escolhida pode usar o Nativo
+    MedirNativo(s);   // barato: so mede de novo quando a janela escolhida muda
+    const bool nativo = CamposNativo(s);
+    if (EscolhaDeModo(s)) {
+        if (g) Txt(g, T(L"Modo", L"Mode"), fItemSub, C_FAINT, RectF(L, cy, 120, 30), 0);
+        // I6 (18/09/2026): quatro chips, na ordem do mais leve ao mais compativel. O indice e o
+        // MODO_* (o valor do clique); a ordem na tela e a de `ordem`. O Upstream some onde nao
+        // vale (ChipUpstream); o Automatico escolhe entre os tres.
+        const bool upstreamAqui = ChipUpstream(s);
+        const wchar_t* nomes[4] = { T(L"Automático", L"Auto"), T(L"Nativo", L"Native"), L"Universal", L"Upstream" };
+        // os textos aprovados do card "Modo" do painel (C1/I6), mais o que vale neste jogo
+        std::wstring tips[4] = {
+            TS(L"AUTOMÁTICO\nUsa o melhor modo que funcionar neste jogo: Upstream, senão Nativo, senão Universal.",
+               L"AUTO\nUses the best mode that works in this game: Upstream, else Native, else Universal.") +
+            (upstreamAqui && s.gancho ? TS(L"\nNeste jogo: Upstream, com o upscaling do próprio jogo ligado.",
+                                           L"\nIn this game: Upstream, with the game's own upscaling on.")
+             : s.temUpscaler ? TS(L"\nNeste jogo: Nativo, com o upscaling do próprio jogo.",
+                                  L"\nIn this game: Native, with the game's own upscaling.")
+                             : TS(L"\nNeste jogo: Nativo sem upscaling; com upscaling, Universal.",
+                                  L"\nIn this game: Native without upscaling; with upscaling, Universal.")),
+            TS(L"NATIVO\nIntegra-se ao jogo e aplica o DLSS 5 na imagem final, direto na placa de vídeo. "
+               L"Imagem melhor, um pouco mais pesado. Funciona na maioria dos jogos de 64 bits em DirectX 11 e 12, sem anti-cheat.",
+               L"NATIVE\nIntegrates with the game and applies DLSS 5 to the final image, right on the graphics card. "
+               L"Better image, a bit heavier. Works in most 64-bit games on DirectX 11 and 12, without anti-cheat."),
+            TS(L"UNIVERSAL\nFunciona com qualquer coisa na tela. Não interage com o jogo: "
+               L"captura a imagem por fora e aplica o DLSS 5 sobre ela, como um filtro. Indicado para jogos com anti-cheat.",
+               L"UNIVERSAL\nWorks with anything on screen. Does not interact with the game: "
+               L"captures the image from outside and applies DLSS 5 on top of it, like a filter. Recommended for games with anti-cheat."),
+            TS(L"UPSTREAM\nAplica o DLSS 5 antes de o jogo aumentar a resolução: mais leve para a placa e sem mexer na interface do jogo. "
+               L"Só em jogos com DLSS, FSR ou XeSS, e precisa do upscaling ligado nas opções de imagem do jogo. Mais chance de incompatibilidade.\n"
+               L"Se o jogo desligar o upscaling, o DLSS 5 segue na imagem final e volta sozinho quando religar.",
+               L"UPSTREAM\nApplies DLSS 5 before the game raises the resolution: lighter on the graphics card and leaves the game's interface untouched. "
+               L"Only in games with DLSS, FSR or XeSS, and needs upscaling turned on in the game's display options. Higher chance of incompatibility.\n"
+               L"If the game turns upscaling off, DLSS 5 stays on the final image and comes back by itself when it is turned on again.") };
+        if (s.upstreamFalhas >= 2)
+            tips[MODO_UPSTREAM] += TS(L"\nEste jogo não aceitou o DLSS 5 Upstream duas vezes. Escolher aqui tenta de novo.",
+                                                                 L"\nThis game did not accept DLSS 5 Upstream twice. Choosing it here tries again.");
+        static const int ordem[3] = { MODO_UPSTREAM, MODO_NATIVO, MODO_UNIVERSAL };   // v2.0: sem Automatico
+        REAL x = L + 70, cyChips = cy;
+        for (int k = 0; k < 3; k++) {
+            const int i = ordem[k];
+            if (i == MODO_UPSTREAM && !upstreamAqui) continue;
+            const REAL w = LarguraTexto(nomes[i], fChip) + 28;
+            ProxLinhaDeChip(x, cyChips, w, L + 70, IW - 70);
+            RectF r(x, cyChips, w, 30);
+            int idx = Add(r, K_MODOPROC, i, true, tips[i]);
+            if (g) Chip(g, r, nomes[i], s.modo == i, g_hot == idx);
+            x += w + 8;
+        }
+        cy = cyChips + 30 + 8;
+    }
+
+    // -------- E4: no Nativo, a exibicao do jogo no lugar do recorte
+    if (nativo) {
+        s.exibicao = ExibicaoAtual(s.wins[s.selWin].hwnd);   // CamposNativo garante a janela
+        if (g) Txt(g, T(L"Exibição", L"Display"), fItemSub, C_FAINT, RectF(L, cy, 120, 30), 0);
+        const wchar_t* nomes[2] = { T(L"Janela", L"Windowed"), T(L"Janela sem bordas", L"Borderless") };
+        std::wstring tips[2] = {
+            TS(L"JANELA\nO jogo numa janela com bordas, dentro do monitor em que ele está.",
+               L"WINDOWED\nThe game in a bordered window, inside the monitor it is on."),
+            TS(L"JANELA SEM BORDAS\nO jogo ocupa o monitor em que ele está, sem bordas.",
+               L"BORDERLESS\nThe game fills the monitor it is on, without borders.") };
+        for (auto& t : tips) {
+            t += TS(L"\nTela cheia: use a opção do próprio jogo.", L"\nFullscreen: use the game's own option.");
+            if (s.exibPedida >= 0 && s.exibicao != s.exibPedida)
+                t += TS(L"\nO jogo voltou ao modo dele: mude pelo menu do jogo.",
+                        L"\nThe game went back to its own mode: change it in the game's menu.");
+        }
+        REAL x = L + 70, cyChips = cy;
+        for (int i = 0; i < 2; i++) {
+            const REAL w = LarguraTexto(nomes[i], fChip) + 28;
+            ProxLinhaDeChip(x, cyChips, w, L + 70, IW - 70);
+            RectF r(x, cyChips, w, 30);
+            int idx = Add(r, K_EXIBICAO, i, true, tips[i]);
+            if (g) Chip(g, r, nomes[i], s.exibicao == i, g_hot == idx);
+            x += w + 8;
+        }
+        cy = cyChips + 30 + 12;
+    }
+
+    // -------- janela: o recorte, dois chips numa linha so (E3: nao no Nativo)
+    if (s.fonte == SRC_WINDOW && !nativo) {
         if (g) Txt(g, T(L"Recorte", L"Crop"), fItemSub, C_FAINT, RectF(L, cy, 120, 30), 0);
         const wchar_t* nomes[2] = { T(L"Área útil", L"Client area"), T(L"Janela inteira", L"Whole window") };
         const std::wstring tips[2] = {
@@ -643,25 +1262,25 @@ static int Render(Graphics* g) {
     // So a "resolucao de renderizacao" fica de fora, e por um motivo simples: nao ha janela de
     // jogo para redimensionar - quem manda ali e o modo da placa de captura.
     {
-        if (g) Txt(g, T(L"ANTES DE COMEÇAR", L"BEFORE YOU START"), fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+        if (g) Txt(g, T(L"ANTES DE COMEÇAR", L"BEFORE YOU START"), fSec, C_DIM, RectF(L, cy, IW, 16), 0);
         cy += 22;
 
-        // ---- resolucao do jogo (so com fonte JANELA: e a janela dele que se redimensiona)
-        if (s.fonte == SRC_WINDOW) {
-            if (g) Txt(g, T(L"Resolução de renderização  ·  o jogo desenha nesta resolução (menos = mais FPS)",
-                            L"Render resolution  ·  the game draws at this resolution (lower = more FPS)"),
-                       fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-            cy += 22;
+        // ---- resolucao do jogo (so com fonte JANELA: e a janela dele que se redimensiona;
+        // E2: nao no Nativo - a janela do jogo nao e mexida com a ponte, o upscaler do jogo manda)
+        if (s.fonte == SRC_WINDOW && !nativo) {
+            // Rodada 27 (v9): rotulo e chips na MESMA linha, como no mockup (o "o jogo desenha nesta
+            // resolucao (menos = mais FPS)" ja esta na dica de cada chip).
+            if (g) Txt(g, T(L"Resolução de renderização", L"Render resolution"), fLinha, C_BODY, RectF(L, cy, kColRot - 8, 30), 0, true);
             // kJogoRes/kNJogoRes vem de main.cpp (fonte unica - 2160/4K acrescentado
             // 14/09/2026, pedido do usuario: quem tem monitor 4K pode querer o jogo nativo
             // em 4K e usar o programa so pela rede neural, sem ampliar nada).
-            REAL x = L, cyChips = cy;
+            REAL x = L + kColRot, cyChips = cy;
             for (int i = 0; i < kNJogoRes; i++) {
                 wchar_t b[16];
-                if (kJogoRes[i] == 0) wcscpy(b, T(L"Nativo", L"Native")); else _snwprintf(b, 16, L"%dp", kJogoRes[i]);
+                if (kJogoRes[i] == 0) wcscpy(b, L"Original"); else _snwprintf(b, 16, L"%dp", kJogoRes[i]);   // E5: "Nativo" conflitava com o modo
                 b[15] = 0;
                 const REAL w = LarguraTexto(b, fChip) + 28;
-                ProxLinhaDeChip(x, cyChips, w, L, IW);
+                ProxLinhaDeChip(x, cyChips, w, L + kColRot, IW - kColRot);
                 RectF r(x, cyChips, w, 30);
                 const int idx = Add(r, K_JOGORES, kJogoRes[i], true,
                     TS(L"RESOLUÇÃO DO JOGO\nRedimensiona a JANELA do jogo, para ele desenhar menos — e o que "
@@ -684,10 +1303,14 @@ static int Render(Graphics* g) {
         // do usuario, 14/09/2026): se a lista seguisse a tela ela ofereceria MENOS opções
         // exatamente no caso em que o programa tem MAIS a oferecer. NÃO FILTRAR pela
         // resolução atual — alguém vai querer "otimizar" isto de volta; não otimize.
-        if (g) Txt(g, T(L"Upscaling  ·  até onde a IA amplia a imagem",
-                        L"Upscaling  ·  how far the AI scales the image"),
-                   fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-        cy += 22;
+        if (!nativo) {   // E2: no Nativo o upscaling e o do proprio jogo (bloco logo abaixo)
+        // Rodada 27 (v9): rotulo (com a linha de explicacao embaixo) na coluna da esquerda e os
+        // chips na da direita, como no mockup - a linha so do rotulo saiu.
+        if (g) {
+            Txt(g, L"Upscaling", fLinha, C_BODY, RectF(L, cy, kColRot - 8, 30), 0, true);
+            TxtWrap(g, T(L"até onde a IA amplia a imagem", L"how far the AI upscales the image"), fItemSub, C_DIM, RectF(L, cy + 28, kColRot - 16, 36));
+        }
+        const REAL cyUpsIni = cy;
         {
             VerificarResolucaoWindows();
             // kReconstAlt/kReconstChave/kNReconst vem de main.cpp - fonte unica (3240/6K e
@@ -718,7 +1341,7 @@ static int Render(Graphics* g) {
                 wcscpy(b, T(L"Resolução do Windows", L"Windows resolution"));
                 b[31] = 0;
                 const REAL w = LarguraTexto(b, fChip) + 28;
-                RectF r(L, cy, w, 30);
+                RectF r(L + kColRot, cy, w, 30);
                 const std::wstring tip =
                     TS(L"RESOLUÇÃO DO WINDOWS — o padrão\nAcompanha a área de trabalho do monitor em que ESTA "
                        L"tela está agora", L"WINDOWS RESOLUTION — the default\nFollows the desktop area of the "
@@ -740,7 +1363,7 @@ static int Render(Graphics* g) {
                 _snwprintf(sub, 128, T(L"“Resolução do Windows” agora = %ux%u",
                                        L"“Windows resolution” now = %ux%u"), g_winResW, g_winResH);
                 sub[127] = 0;
-                if (g) Txt(g, sub, fItemSub, C_FAINT, RectF(L, cy, IW, 16), 0, true);
+                if (g) Txt(g, sub, fItemSub, C_FAINT, RectF(L + kColRot, cy, IW - kColRot, 16), 0, true);
                 cy += 18;
             }
             cy += 4;
@@ -748,7 +1371,7 @@ static int Render(Graphics* g) {
             // sozinha se nao couber numa linha so (ProxLinhaDeChip, definido no topo do
             // arquivo) - era exatamente aqui que 7 chips (3240/6K e 4320/8K novos) estouravam
             // a tela a 300% de escala.
-            REAL x = L, cyChips = cy;
+            REAL x = L + kColRot, cyChips = cy;
             for (int i = 0; i < kNReconst; i++) {
                 const int alvo = kReconstAlt[i];
                 if (alvo < 0) continue;   // "Resolução do Windows" ja foi desenhada acima, sozinha
@@ -757,7 +1380,7 @@ static int Render(Graphics* g) {
                 else _snwprintf(b, 32, L"%dp", alvo);
                 b[31] = 0;
                 const REAL w = LarguraTexto(b, fChip) + 28;
-                ProxLinhaDeChip(x, cyChips, w, L, IW);
+                ProxLinhaDeChip(x, cyChips, w, L + kColRot, IW - kColRot);
                 RectF r(x, cyChips, w, 30);
                 std::wstring tip =
                     TS(L"RECONSTRUÇÃO\nAté onde a rede neural reconstrói a imagem. Daí até a tela quem estica é a "
@@ -787,6 +1410,7 @@ static int Render(Graphics* g) {
                 x += w + 8;
             }
             cy = cyChips + 30 + 4;
+            if (cy < cyUpsIni + 66.f) cy = cyUpsIni + 66.f;   // o rotulo da esquerda (2 linhas) cabe inteiro
             // AVISAR, NUNCA PROIBIR (regra do usuario): reconstruir acima da tela onde a
             // pelicula vai aparecer nao e ilegitimo - so nao inventa pixel visivel nenhum a
             // mais e custa GPU a toa. A pessoa continua livre para escolher assim mesmo.
@@ -818,34 +1442,49 @@ static int Render(Graphics* g) {
             }
             cy += 8;
         }
-
-        // ---- ritmo / limite de fps
-        if (g) Txt(g, T(L"Limite de FPS",
-                        L"FPS limit"),
-                   fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-        cy += 22;
-        {
-            const wchar_t* nomes[3] = { T(L"Taxa do monitor", L"Monitor rate"),
-                                        T(L"Livre (bancada)", L"Free (bench)"),
-                                        T(L"Limite escolhido", L"Chosen cap") };
+        } else if (s.temUpscaler) {
+            // ---- E2: NO NATIVO, A QUALIDADE DO UPSCALER DO PROPRIO JOGO (DLSS, FSR 2+ ou XeSS).
+            // Mesmas chaves do card "DLSS do jogo" (dlss_qualidade / dlss_preset, no perfil do
+            // jogo): o arranque as manda para a DLL quando a ponte liga. Jogo sem upscaler
+            // proprio (RE2) nao chega aqui: a secao some.
+            if (g) Txt(g, T(L"Upscaling do jogo", L"Game upscaling"), fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
+            cy += 22;
+            const std::wstring tipQ = TS(
+                L"UPSCALING DO JOGO\nEscolhe a qualidade do DLSS, FSR ou XeSS do próprio jogo: a porcentagem é a resolução "
+                L"em que o jogo desenha antes de ampliar. Menos = mais FPS e menos detalhe.\n\"Do jogo\" mantém o que está no "
+                L"menu do jogo.\nSe a imagem não mudar, troque a opção de upscaling no menu do jogo uma vez.",
+                L"GAME UPSCALING\nPicks the quality of the game's own DLSS, FSR or XeSS: the percentage is the resolution "
+                L"the game draws at before upscaling. Lower = more FPS and less detail.\n\"Game's own\" keeps what is set in "
+                L"the game's menu.\nIf the image does not change, toggle the upscaling option in the game's menu once.");
             REAL x = L, cyChips = cy;
-            for (int i = 0; i < 3; i++) {
-                const REAL w = LarguraTexto(nomes[i], fChip) + 28;
+            for (int i = 0; i < kNQualJogo; i++) {
+                const wchar_t* b = T(kQualJogo[i].pt, kQualJogo[i].en);
+                const REAL w = LarguraTexto(b, fChip) + 28;
                 ProxLinhaDeChip(x, cyChips, w, L, IW);
                 RectF r(x, cyChips, w, 30);
-                const int idx = Add(r, K_RITMO, i, true,
-                    TS(L"RITMO\nDe quanto em quanto tempo a película dá uma volta (capturar → rede → apresentar).\n"
-                       L"Taxa do monitor: uma volta por atualização de tela, sempre com o quadro mais novo — "
-                       L"latência mínima, e o fps não passa do refresh.\nLivre: nada espera nada. É o único modo em "
-                       L"que o fps que você lê é o teto REAL da cadeia.\nLimite escolhido: só o seu teto de fps segura.",
-                       L"PACING\nHow often the layer runs one cycle (capture → network → present).\n"
-                       L"Monitor rate: one cycle per screen refresh, always the newest frame — minimum latency, and "
-                       L"fps will not exceed the refresh.\nFree: nothing waits. The only mode where the fps you read "
-                       L"is the chain's REAL ceiling.\nChosen cap: only your fps cap holds."));
-                if (g) Chip(g, r, nomes[i], s.ritmo == i, g_hot == idx);
+                const int idx = Add(r, K_DLSSQUAL, i, true, tipQ);
+                if (g) Chip(g, r, b, s.dlssQualidade == kQualJogo[i].chave, g_hot == idx);
                 x += w + 8;
             }
+            cy = cyChips + 30 + 8;
+            // preset: campo secundario, na mesma linha do rotulo curto
+            if (g) Txt(g, L"Preset", fItemSub, C_FAINT, RectF(L, cy, 70, 30), 0);
+            const std::wstring tipP = TS(
+                L"PRESET\nO modelo de IA do DLSS. Auto deixa o jogo e o driver escolherem. Só vale para o DLSS.",
+                L"PRESET\nThe DLSS AI model. Auto lets the game and the driver choose. DLSS only.");
+            x = L + 70; cyChips = cy;
+            for (int i = 0; i < kNDlssPresets; i++) {
+                const wchar_t* b = (i == 0) ? L"Auto" : kDlssPresets[i];
+                const REAL w = LarguraTexto(b, fChip) + 20;
+                ProxLinhaDeChip(x, cyChips, w, L + 70, IW - 70);
+                RectF r(x, cyChips, w, 30);
+                const int idx = Add(r, K_DLSSPRESET, i, true, tipP);
+                if (g) Chip(g, r, b, s.dlssPreset == kDlssPresets[i], g_hot == idx);
+                x += w + 6;
+            }
             cy = cyChips + 30 + 12;
+            // I6 (18/09/2026): a chavinha "DLSS 5 antes do upscaling" (H1/H3) saiu daqui - virou o
+            // chip Upstream do card Modo, acima.
         }
 
         // ============ CONTROLES QUE SO VALEM COM UPSCALING LIGADO (14/09/2026) ============
@@ -871,6 +1510,7 @@ static int Render(Graphics* g) {
         //     dlss5-feed.cpp:5447-5450, `rcas_aqui = ... && (easu_aqui || !escalando)`: o
         //     RCAS roda TAMBEM sem upscaling nenhum, sempre que a saida nao muda de tamanho
         //     (o caso exato de "Sem upscaling"). Ainda funciona -> FICA VISIVEL.
+        //     E9 (16/09): errado - o RCAS exige work_upscale 1 ou 2 (dlss5-feed.cpp:6277). Ver o gate da barra.
         //   - "Limite de FPS" e "Resolução de renderização": independem do upscaling (ritmo
         //     de apresentacao e tamanho da janela do JOGO, nao da rede) -> FICAM.
         //
@@ -879,20 +1519,17 @@ static int Render(Graphics* g) {
         // continuam exatamente como estavam, e reaparecem do jeito que a pessoa deixou se
         // ela ligar o upscaling de novo. O ReShade (F7) e os efeitos que a pessoa tenha posto
         // la CONTINUAM valendo com upscaling desligado - isto aqui nao mexe nisso.
-        const bool upscalingLigado = (s.reconstrucao != 0);
+        const bool upscalingLigado = (s.reconstrucao != 0) && !nativo;   // E2: a pelicula nao amplia no Nativo
         const bool srForcadoNoIni = (IniGet(L"super_resolucao") == L"sr");   // escolha explicita, persiste entre telas
 
         // ---- caminho curto do SR (so com upscaling ligado - ver o gate acima)
         if (upscalingLigado) {
             const wchar_t* nomes[2] = { T(L"Normal", L"Normal"), T(L"Máxima (recomendado)", L"Maximum (recommended)") };
-            if (g) Txt(g, T(L"Qualidade do upscaling",
-                            L"Upscaling quality"),
-                       fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-            cy += 22;
-            REAL x = L, cyChips = cy;
+            if (g) Txt(g, T(L"Qualidade do upscaling", L"Upscaling quality"), fLinha, C_BODY, RectF(L, cy, kColRot - 8, 30), 0, true);   // Rodada 27: mesma linha
+            REAL x = L + kColRot, cyChips = cy;
             for (int i = 0; i < 2; i++) {
                 const REAL w = LarguraTexto(nomes[i], fChip) + 28;
-                ProxLinhaDeChip(x, cyChips, w, L, IW);
+                ProxLinhaDeChip(x, cyChips, w, L + kColRot, IW - kColRot);
                 RectF r(x, cyChips, w, 30);
                 const int idx = Add(r, K_CURTO, i, true,
                     TS(L"COMO A REDE RECEBE A IMAGEM\nNormal: o programa amplia a captura até o tamanho da "
@@ -911,39 +1548,6 @@ static int Render(Graphics* g) {
             cy = cyChips + 30 + 12;
         }
 
-        // ---- NITIDEZ: a barra, tambem aqui (SEMPRE VISIVEL - ver o gate acima: o RCAS
-        // roda tambem sem upscaling, sempre que a saida nao muda de tamanho)
-        // CLIQUE DIRETO NA BARRA, e nao arrasto: esta tela nao tem captura de mouse para
-        // arrastar, e inventar uma so para isto seria mexer no que ja funciona. No painel
-        // (tecla End) a mesma nitidez tem barra de ARRASTAR, que e onde ela importa - la a
-        // pessoa esta vendo a imagem mudar. Aqui ela so escolhe o ponto de partida.
-        {
-            wchar_t rot[80];
-            _snwprintf(rot, 80, T(L"Nitidez  -  %.2f", L"Sharpness  -  %.2f"), s.nitidez / 100.0);
-            rot[79] = 0;
-            if (g) Txt(g, rot, fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-            cy += 22;
-            const REAL bh = 22, bw = IW;
-            // Onze paradas de 0,00 a 1,00: cada uma e um item clicavel do tamanho de um
-            // decimo da barra, entao clicar em qualquer ponto cai no valor mais proximo.
-            for (int i = 0; i <= 10; i++) {
-                RectF r(L + (bw / 11.f) * i, cy, bw / 11.f, bh);
-                Add(r, K_NITIDEZ, i * 10, true,
-                    TS(L"NITIDEZ - um realce aplicado DEPOIS de a IA ampliar; e o que os jogos chamam de nitidez do DLSS. O DLSS em si nao tem nitidez propria desde a versao 2.5.1. Nao cria detalhe: realca o contorno do que ja existe, e demais deixa halo. 0,00 desliga o passe; 0,88 e a referencia da propria AMD. No painel (End) esta mesma nitidez tem barra de ARRASTAR, para ajustar olhando a imagem.",
-                       L"SHARPNESS - a sharpening pass applied AFTER the AI upscales; what games call DLSS sharpness. DLSS itself has had no sharpening since 2.5.1. It creates no detail: it enhances existing edges, and too much leaves halos. 0.00 turns the pass off; 0.88 is AMD's own reference. In the panel (End) the same sharpness has a DRAG bar, to tune it while watching the image."));
-            }
-            if (g) {
-                RectF r(L, cy, bw, bh);
-                FillRound(g, r, bh / 2, C_ROW);
-                const REAL f = (REAL)s.nitidez / 100.f;
-                if (f > 0.f) FillRound(g, RectF(r.X, r.Y, r.Width * f, bh), bh / 2, C_ACC);
-                SolidBrush marca(C_FAINT);
-                g->FillRectangle(&marca, r.X + r.Width * 0.88f, r.Y + 4.f, 1.5f, bh - 8.f);
-                SolidBrush knob(Color(255, 255, 255, 255));
-                g->FillEllipse(&knob, r.X + r.Width * f - bh / 2 + 2.f, r.Y + 2.f, bh - 4.f, bh - 4.f);
-            }
-            cy += bh + 12;
-        }
 
         // ---- em que MOMENTO a IA trabalha (antes ou depois de ampliar) - so com upscaling
         // ligado, OU se o Super Resolution tiver sido escolhido a mao noutra tela (ver o
@@ -954,28 +1558,30 @@ static int Render(Graphics* g) {
         // teste de 14/09/2026, quando o caminho curto passou a entregar 4K para a rede.
         // O rotulo fala de QUALIDADE e CUSTO, que e o que o jogador decide; a ordem das
         // etapas fica no tooltip.
-        if (upscalingLigado || srForcadoNoIni) {
-            const wchar_t* nomes[2] = { T(L"Rapida (recomendado)", L"Fast (recommended)"),
-                                        T(L"Maxima (pesa ~4x)", L"Maximum (~4x heavier)") };
-            if (g) Txt(g, T(L"Qualidade da IA", L"AI quality"),
-                       fItemSub, C_BODY, RectF(L, cy, IW, 18), 0);
-            cy += 22;
-            REAL x = L, cyChips = cy;
+        if (upscalingLigado || (srForcadoNoIni && !nativo)) {
+            const wchar_t* nomes[2] = { T(L"Rápida (recomendado)", L"Fast (recommended)"),
+                                        T(L"Máxima (pesa ~4x)", L"Maximum (~4x heavier)") };
+            if (g) Txt(g, T(L"Qualidade da IA", L"AI quality"), fLinha, C_BODY, RectF(L, cy, kColRot - 8, 30), 0, true);   // Rodada 27: mesma linha
+            REAL x = L + kColRot, cyChips = cy;
             for (int i = 0; i < 2; i++) {
                 const REAL w = LarguraTexto(nomes[i], fChip) + 28;
-                ProxLinhaDeChip(x, cyChips, w, L, IW);
+                ProxLinhaDeChip(x, cyChips, w, L + kColRot, IW - kColRot);
                 RectF r(x, cyChips, w, 30);
                 const int idx = Add(r, K_IAORDEM, i, true,
                     TS(L"QUALIDADE DA IA\nDecide em que momento a rede neural trabalha."
                        L"Rapida: a IA melhora a imagem PEQUENA e so depois o upscaling amplia. A rede ve "
                        L"720p em vez de 4K e custa cerca de um quarto - e o que mantem o FPS alto.\n"
                        L"Maxima: o upscaling amplia primeiro e a IA trabalha na imagem ja grande. Pode "
-                       L"recuperar detalhe que nao existia na imagem pequena, mas pesa cerca de 4 vezes.",
+                       L"recuperar detalhe que nao existia na imagem pequena, mas pesa cerca de 4 vezes.\n"
+                       L"A Rapida so existe no motor proprio da rede: escolher aqui liga esse motor junto. "
+                       L"Com o motor RenoDX (o padrao) vale sempre a Maxima.",
                        L"AI QUALITY\nDecides when the neural network works."
                        L"Fast: the AI improves the SMALL image and only then upscaling enlarges it. The "
                        L"network sees 720p instead of 4K and costs about a quarter - this is what keeps FPS high.\n"
                        L"Maximum: upscaling runs first and the AI works on the already-large image. It may "
-                       L"recover detail that was not in the small image, but costs about 4x."));
+                       L"recover detail that was not in the small image, but costs about 4x.\n"
+                       L"Fast only exists in the built-in network engine: picking it here turns that engine on too. "
+                       L"With the RenoDX engine (the default) Maximum always applies."));
                 if (g) Chip(g, r, nomes[i], s.iaOrdem == i, g_hot == idx);
                 x += w + 8;
             }
@@ -985,8 +1591,10 @@ static int Render(Graphics* g) {
         // "Limite de FPS" tambem, que continuam visiveis mesmo com "Qualidade da IA"
         // escondida - antes este texto vivia preso dentro do bloco da IA e sumia junto,
         // o que deixava as OUTRAS reguas desta secao sem o aviso).
-        if (g) Txt(g, T(L"upscaling e limite de FPS valem quando o programa abre — por isso ficam aqui",
-                        L"upscaling and FPS limit apply when the program opens — that is why they are here"),
+        // Rodada 27 (v9): o Limite de FPS e a Nitidez sairam desta tela (ficam so no menu End; os
+        // valores continuam os mesmos do ini) - o rodape fala so do upscaling.
+        if (g) Txt(g, T(L"o upscaling vale quando o programa abre — por isso fica aqui",
+                        L"upscaling applies when the program opens — that's why it's here"),
                    fItemSub, C_FAINT, RectF(L, cy, IW, 18), 0, true);
         cy += 24;
     }
@@ -995,7 +1603,8 @@ static int Render(Graphics* g) {
     if (s.fonte == SRC_CAMERA) {
         const auto* ms = Modos(s);
         const int n = ms ? (int)ms->size() : 0;
-        if (g) Txt(g, T(L"MODO  ·  resolução, fps e formato", L"MODE  ·  resolution, fps and format"), fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+        // J8: o nome que o jogador de console entende (era "MODO")
+        if (g) Txt(g, T(L"RESOLUÇÃO / FPS / FORMATO", L"RESOLUTION / FPS / FORMAT"), fSec, C_DIM, RectF(L, cy, IW, 16), 0);
         cy += 22;
         const int vis = n < kLinhasModo ? n : kLinhasModo;
         if (n > 0 && s.rolModo > n - vis) s.rolModo = n - vis;
@@ -1003,11 +1612,11 @@ static int Render(Graphics* g) {
         const REAL boxH = (n == 0) ? 56.f : vis * kLinhaH + 8;
         RectF box(L, cy, IW, boxH);
         g_rcListaModo = box;
-        if (g) { FillRound(g, box, 12.f, C_LISTA); StrokeRound(g, box, 12.f, C_EDGE, 1.f); }
+        if (g) { FillRound(g, box, 8.f, C_LISTA); StrokeRound(g, box, 8.f, C_EDGE, 1.f); }
         if (n == 0) {
             if (g && s.selDev >= 0)
-                TxtWrap(g, T(L"Esse dispositivo não expôs nenhum modo de vídeo (em uso por outro app? Feche OBS/Discord/navegador e clique em \"Atualizar lista\").",
-                             L"This device exposed no video mode at all (in use by another app? Close OBS/Discord/your browser and click \"Refresh list\")."),
+                TxtWrap(g, T(L"Esse aparelho não ofereceu nenhuma resolução. Outro programa pode estar usando a placa: feche OBS, Discord ou o navegador e clique em \"Atualizar lista\".",
+                             L"This device offered no resolution at all. Another program may be using the card: close OBS, Discord or your browser and click \"Refresh list\"."),
                         fItemSub, C_DIM, RectF(box.X + 16, box.Y + 10, box.Width - 32, box.Height - 16));
         } else {
             const REAL wRol = (n > vis) ? 12.f : 0.f;
@@ -1024,31 +1633,67 @@ static int Render(Graphics* g) {
     }
 
     // -------- as chavinhas: so o nome curto; a explicacao e o tooltip
+    // Rodada 27 (v9, aprovado pelo dono): a chave HDR SAIU (o HDR ja e automatico - o valor do ini
+    // continua valendo); SOBREPOR, Esconder e Cursor foram para um bloco "Avancado" RECOLHIDO por
+    // padrao (clicar no titulo expande/recolhe). Ficam a vista: Tela cheia, V-Sync, FPS na tela e
+    // Anti-cheat (no Nativo so FPS na tela e Anti-cheat, como antes).
     {
-        if (g) Txt(g, T(L"OPÇÕES", L"OPTIONS"), fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+        if (g) Txt(g, T(L"OPÇÕES", L"OPTIONS"), fSec, C_DIM, RectF(L, cy, IW, 16), 0);
         cy += 22;
-        const REAL gap = 10, bw = (IW - gap * 3) / 4, bh = 42;
+        const REAL gap = 10, bw = (IW - gap * 3) / 4, bh = 40;
         const bool tela = Tela(s);
-        for (int i = 0; i < SW_N; i++) {
-            const int col = i % 4, lin = i / 4;
-            RectF r(L + col * (bw + gap), cy + lin * (bh + gap), bw, bh);
-            const bool en = (i == SW_SOBREPOR || i == SW_CURSOR || i == SW_ESCONDER) ? tela : true;
+        auto celula = [&](int i, const RectF& r) {
+            // MODO ANTI-CHEAT detectado na janela escolhida: ligada sozinha, esmaecida, nao clicavel
+            const bool detect = (i == SW_ANTICHEAT) && s.antiCheatDetectado;
+            const bool en = detect ? false : (i == SW_SOBREPOR || i == SW_CURSOR || i == SW_ESCONDER) ? tela : true;
             std::wstring tip = TipSw(i, s);
-            if (!en) tip += T(L"\n(não se aplica à câmera)", L"\n(does not apply to the camera)");
+            if (i == SW_FPS && nativo)
+                tip = TS(L"FPS NA TELA\nContador pequeno no canto do jogo: fps do jogo e, com frame generation, fps na tela.",
+                         L"FPS ON SCREEN\nSmall counter in the game's corner: game fps and, with frame generation, on-screen fps.");
+            if (!en && !detect) tip += T(L"\n(não se aplica à placa de captura)", L"\n(does not apply to the capture card)");
+            if (i == SW_ANTICHEAT && s.podeNativo) tip += T(L"\nLigado: só o modo Universal.", L"\nOn: Universal mode only.");
+            if (detect) tip += TS(L"\nLigado sozinho: anti-cheat detectado nesta fonte (",
+                                  L"\nTurned on by itself: anti-cheat detected in this source (") + s.antiCheatProduto + L").";
             int idx = Add(r, K_SW, i, en, tip);
             if (g) {
-                FillRound(g, r, 10.f, (g_hot == idx && en) ? C_ROWH : C_ROW);
-                Txt(g, NomeSw(i), i == SW_SOBREPOR ? fBadge : fChip, en ? C_BODY : C_FAINT,
+                FillRound(g, r, 6.f, (g_hot == idx && en) ? C_ROWH : C_ROW);
+                Txt(g, NomeSw(i), i == SW_SOBREPOR ? fBadge : fChip, en ? C_TXT : C_FAINT,
                     RectF(r.X + 12, r.Y, r.Width - 12 - 52, r.Height), 0, true);
-                Switch(g, RectF(r.X + r.Width - 48, r.Y + (bh - 22) / 2, 40, 22), s.sw[i] && en, en);
+                Switch(g, RectF(r.X + r.Width - 52, r.Y, 40, r.Height), detect || (s.sw[i] && en), en || detect);
+            }
+        };
+        int vis[4]; int nVis = 0;
+        const int principais[4] = { SW_TELACHEIA, SW_VSYNC, SW_FPS, SW_ANTICHEAT };
+        for (int i : principais) if (!nativo || i == SW_ANTICHEAT || i == SW_FPS) vis[nVis++] = i;
+        for (int k = 0; k < nVis; k++) celula(vis[k], RectF(L + k * (bw + gap), cy, bw, bh));
+        cy += bh + 10;
+        // o bloco Avancado (so fora do Nativo: as tres sao da pelicula)
+        if (!nativo) {
+            const wchar_t* tAv = T(L"Avançado", L"Advanced");
+            const REAL wAv = LarguraTexto(tAv, fChip) + 34.f;
+            RectF rAv(L, cy, wAv, 28.f);
+            const int iAv = Add(rAv, K_AVANCADO, 0, true,
+                TS(L"Avançado\nSobrepor, Esconder e Cursor — o jeito como a película fica na tela. Clique para mostrar ou esconder.",
+                   L"Advanced\nOverlay, Hide and Cursor — how the overlay sits on screen. Click to show or hide."));
+            if (g) {
+                if (g_hot == iAv) FillRound(g, rAv, 4.f, C_ROWH);
+                Txt(g, g_selAvancado ? L"▾" : L"▸", fChip, C_DIM, RectF(rAv.X + 4, rAv.Y, 16, rAv.Height), 1);
+                Txt(g, tAv, fChip, C_BODY, RectF(rAv.X + 22, rAv.Y, rAv.Width - 22, rAv.Height), 0);
+            }
+            cy += 28.f + 6.f;
+            if (g_selAvancado) {
+                const int avancadas[3] = { SW_SOBREPOR, SW_ESCONDER, SW_CURSOR };
+                for (int k = 0; k < 3; k++) celula(avancadas[k], RectF(L + k * (bw + gap), cy, bw, bh));
+                cy += bh + 10;
             }
         }
-        cy += bh * 2 + gap + 16;
+        cy += 6;
     }
 
     // -------- a placa que roda o filtro: informa com uma, pergunta com duas ou mais
-    {
-        if (g) Txt(g, T(L"PLACA DE VÍDEO QUE RODA O FILTRO", L"GRAPHICS CARD THAT RUNS THE FILTER"), fLbl, C_FAINT, RectF(L, cy, IW, 16), 0);
+    // (E3: nao no Nativo - a ponte exige a mesma placa do jogo)
+    if (!nativo) {
+        if (g) Txt(g, T(L"PLACA DE VÍDEO QUE RODA O FILTRO", L"GRAPHICS CARD THAT RUNS THE FILTER"), fSec, C_DIM, RectF(L, cy, IW, 16), 0);
         cy += 22;
         const std::wstring tipG = TS(
             L"PLACA QUE RODA O FILTRO\nO modelo neural roda nesta placa. Com uma só placa na máquina não há o que "
@@ -1075,7 +1720,7 @@ static int Render(Graphics* g) {
                 const bool sel = (s.selPlaca == i);
                 int idx = Add(r, K_GPU, i, true, tipG);
                 if (g) {
-                    FillRound(g, r, 10.f, sel ? C_ACC : (g_hot == idx) ? C_ROWH : C_ROW);
+                    FillRound(g, r, 6.f, sel ? C_ACC : (g_hot == idx) ? C_ROWH : C_ROW);
                     const PlacaOpcao& p = g_placas[s.placasIdx[i]];
                     Txt(g, p.nome.c_str(), fBadge, sel ? C_DARK : C_BODY, RectF(r.X + 12, r.Y + 3, r.Width - 24, 18), 0, true);
                     Txt(g, p.dlss ? L"DLSS 5 ok" : T(L"sem DLSS 5", L"no DLSS 5"), fItemSub, sel ? C_DARK : C_FAINT,
@@ -1092,10 +1737,17 @@ static int Render(Graphics* g) {
         const REAL bh = 12 + th + 10 + 30 + 12;
         RectF r(L, cy, IW, bh);
         if (g) {
-            FillRound(g, r, 12.f, C_AMB_BG);
-            StrokeRound(g, r, 12.f, Color(160, 251, 146, 60), 1.f);
+            FillRound(g, r, 8.f, C_AMB_BG);
+            StrokeRound(g, r, 8.f, C_WARN, 1.f);
             FillRound(g, RectF(r.X, r.Y + 14, 5.f, r.Height - 28), 2.f, C_WARN);
             TxtWrap(g, s.faltaTxt.c_str(), fChip, C_AMB_TX, RectF(r.X + 20, r.Y + 12, IW - 40, th + 4));
+        }
+        // QUANDO O AVISO E "A BUILD NAO COBRE ESTA PLACA", o texto da faixa e curto de
+        // proposito e o detalhe - quais sm ela tem e qual baixar - fica aqui, na dica. Area
+        // so do texto: os dois botoes abaixo tem as dicas deles e nao podem ser cobertos.
+        {
+            const std::wstring tipSm = DlssnrDicaFaixa();
+            if (!tipSm.empty()) Add(RectF(r.X + 20, r.Y + 12, IW - 40, th + 4), K_INFO, 0, false, tipSm);
         }
         const wchar_t* b1 = g_moduloAmd ? T(L"Baixar o mod", L"Get the mod") : T(L"Baixar os arquivos", L"Get the files");
         const wchar_t* b2 = T(L"Abrir a pasta", L"Open the folder");
@@ -1105,10 +1757,83 @@ static int Render(Graphics* g) {
         int i1 = Add(r1, K_BAIXAR, 0, true, TS(L"Abre no navegador a página de onde baixar.", L"Opens the download page in your browser."));
         int i2 = Add(r2, K_PASTA, 0, true, TS(L"Abre a pasta do app — é aqui que os arquivos têm de ficar.", L"Opens the app folder — this is where the files must go."));
         if (g) {
-            FillRound(g, r1, 9.f, g_hot == i1 ? C_ACC2 : C_WARN); Txt(g, b1, fBadge, C_DARK, r1, 1);
-            FillRound(g, r2, 9.f, g_hot == i2 ? C_ROWH : C_OFF);  Txt(g, b2, fBadge, C_BODY, r2, 1);
+            FillRound(g, r1, 4.f, g_hot == i1 ? C_ACC2 : C_WARN); Txt(g, b1, fBadge, C_DARK, r1, 1);
+            FillRound(g, r2, 4.f, g_hot == i2 ? C_ROWH : C_OFF);  Txt(g, b2, fBadge, C_BODY, r2, 1);
         }
         cy += bh + 14;
+    }
+
+    // -------- a faixa do DIAGNOSTICO (N3, 16/09/2026)
+    //
+    // MESMA ROUPA DA FAIXA DE CIMA, e de proposito: quem ja viu o aviso dos arquivos que
+    // faltam reconhece esta na hora. A diferenca e que ela nao tem botao - nao ha um arquivo
+    // para baixar nem uma pasta para abrir, ha uma frase e o que fazer, e o que fazer fica
+    // na dica. So aparece com veredito; sem evidencia, silencio (ver o bloco do Diag).
+    //
+    // SO ENTRA SE A OUTRA NAO ESTIVER FALANDO DO MESMO ASSUNTO: com a build do dlssnr
+    // errada, a faixa de cima ja diz isso e com mais detalhe. Duas tarjas ambar seguidas
+    // dizendo a mesma coisa e o tipo de tela que ninguem le ate o fim.
+    if (!Diag::FaixaTexto().empty() &&
+        !(Diag::Atual().regra == Diag::V_DLSSNR_PLACA && s.falta.smRuim)) {
+        const std::wstring& txt = Diag::FaixaTexto();
+        const REAL th = AlturaTexto(txt.c_str(), fChip, IW - 40);
+        RectF r(L, cy, IW, 12 + th + 12);
+        if (g) {
+            FillRound(g, r, 8.f, C_AMB_BG);
+            StrokeRound(g, r, 8.f, C_WARN, 1.f);
+            FillRound(g, RectF(r.X, r.Y + 12, 5.f, r.Height - 24), 2.f, C_WARN);
+            TxtWrap(g, txt.c_str(), fChip, C_AMB_TX, RectF(r.X + 20, r.Y + 12, IW - 40, th + 4));
+        }
+        Add(RectF(r.X + 20, r.Y + 12, IW - 40, th + 4), K_INFO, 0, false, Diag::FaixaDica());
+        cy += r.Height + 14;
+    }
+
+    // -------- sec. 23: a barra "Rede neural: X ms de Y ms" nesta tela SAIU em 24/09/2026
+    // (item 8 do dono): o dono achou a barra do MENU END (dentro da sessao, com numeros
+    // medidos de verdade) realista e util, e a desta tela de escolha (so estimativa, antes
+    // de comecar) redundante. BarraDaTela() (a versao so-estimativa) foi removida junto.
+
+
+    // -------- sec. 22: "REINICIAR VIDEO DO WINDOWS" (pedido do dono, 23/09 noite)
+    //
+    // Ultimo recurso MANUAL depois de a placa resetar: Win+Ctrl+Shift+B por SendInput, com confirmacao, nunca com jogo em
+    // tela cheia aberto, e 3 s depois a sonda D3D12 num processo novo diz se a placa aceita um dispositivo novo. REALCADO
+    // (ambar) so quando o ini tem reset registrado depois do ultimo boot; sem isso fica discreto, mas continua clicavel.
+    // O aviso honesto vai no texto e na dica: o atalho recria a imagem do DWM, e reiniciar o driver e efeito colateral.
+    {
+        const ULONGLONG desde = GpuReset::SegundosDesdeUltimo();
+        const bool resetNoBoot = desde != ~0ull && desde < GetTickCount64() / 1000ull;
+        const wchar_t* tB = T(L"Reiniciar vídeo do Windows", L"Restart Windows video");
+        const wchar_t* tD = T(L"— recupera o desempenho após a placa resetar. Pode fechar um jogo aberto.",
+                              L"— recovers performance after the card resets. May close an open game.");
+        const REAL bw = LarguraTexto(tB, fBadge) + 30, bh = 30;
+        const REAL dW = IW - bw - 12;
+        const REAL dh = AlturaTexto(tD, fItemSub, dW);
+        const REAL rowH = dh + 4 > bh ? dh + 4 : bh;
+        RectF rb(L, cy + (rowH - bh) / 2, bw, bh);
+        const int ib = Add(rb, K_VIDEO, 0, !g_videoTestando,
+            TS(L"REINICIAR VÍDEO DO WINDOWS\nEnvia Win+Ctrl+Shift+B, o atalho do Windows que recria a imagem da tela. Serve para recuperar o "
+               L"desempenho depois de a placa de vídeo resetar (o app registra quando isso acontece; aí o botão fica em destaque).\n\n"
+               L"A tela pisca e pode ficar preta por 1–2 s, e um jogo aberto pode fechar — por isso ele não dispara com jogo em tela cheia.\n\n"
+               L"Aviso honesto: reiniciar o driver da placa é efeito colateral desse atalho e nem sempre acontece. 3 s depois o app testa "
+               L"a placa num processo novo e diz o resultado; se não resolver, reinicie o PC.",
+               L"RESTART WINDOWS VIDEO\nSends Win+Ctrl+Shift+B, the Windows shortcut that rebuilds the screen image. It is for recovering "
+               L"performance after the graphics card resets (the app records when that happens; then the button is highlighted).\n\n"
+               L"The screen blinks and may go black for 1–2 s, and an open game may close — so it does not fire with a full-screen game open.\n\n"
+               L"Honest note: restarting the graphics driver is a side effect of that shortcut and does not always happen. 3 s later the app "
+               L"tests the card in a new process and tells you the result; if it does not help, restart the PC."));
+        if (g) {
+            FillRound(g, rb, 4.f, g_videoTestando ? C_OFF : resetNoBoot ? (g_hot == ib ? C_ACC2 : C_WARN) : (g_hot == ib ? C_ROWH : C_OFF));
+            Txt(g, tB, fBadge, g_videoTestando ? C_FAINT : resetNoBoot ? C_DARK : C_BODY, rb, 1);
+            TxtWrap(g, tD, fItemSub, resetNoBoot ? C_AMB_TX : C_FAINT, RectF(rb.X + bw + 12, cy + (rowH - dh) / 2, dW, dh + 4));
+        }
+        cy += rowH;
+        if (!g_videoMsg.empty()) {
+            const REAL mh = AlturaTexto(g_videoMsg.c_str(), fItemSub, IW);
+            if (g) TxtWrap(g, g_videoMsg.c_str(), fItemSub, C_WARN, RectF(L, cy + 6, IW, mh + 4));
+            cy += 6 + mh;
+        }
+        cy += 14;
     }
 
     // -------- rodape: atualizar, atalhos, o resumo das teclas e o INICIAR
@@ -1120,8 +1845,8 @@ static int Render(Graphics* g) {
         const wchar_t* tK = T(L"Atalhos...", L"Shortcuts...");
         RectF ra(L, cy, LarguraTexto(tA, fChip) + 32, bh);
         RectF rk(ra.X + ra.Width + 8, cy, LarguraTexto(tK, fChip) + 32, bh);
-        int ia = Add(ra, K_ATUALIZAR, 0, true, TS(L"ATUALIZAR LISTA\nProcura de novo as janelas, monitores ou câmeras. Use depois de abrir o jogo ou ligar um aparelho.",
-                                                  L"REFRESH LIST\nLooks for windows, monitors or cameras again. Use it after opening the game or plugging a device in."));
+        int ia = Add(ra, K_ATUALIZAR, 0, true, TS(L"ATUALIZAR LISTA\nProcura de novo as janelas, monitores, placas de captura e câmeras. Use depois de abrir o jogo ou ligar a placa.",
+                                                  L"REFRESH LIST\nLooks for windows, monitors, capture cards and cameras again. Use it after opening the game or plugging the card in."));
         int ik = Add(rk, K_ATALHOS, 0, true, TS(L"ATALHOS\nVer e mudar as teclas do app (painel, liga/desliga) e a tecla que abre o ReShade.",
                                                 L"SHORTCUTS\nSee and change the app's keys (panel, on/off) and the key that opens ReShade."));
         const bool pode = AlvoValido(s);
@@ -1148,13 +1873,8 @@ static int Render(Graphics* g) {
 
 // a moldura: sombra macia e o cartao (igual a do painel, na largura desta tela)
 static void Moldura(Graphics& g, int cardH) {
-    for (int i = SH; i >= 1; i--) {
-        RectF r((REAL)(SH - i), (REAL)(SH - i + 5), (REAL)(CW + 2 * i), (REAL)(cardH + 2 * i));
-        FillRound(&g, r, 16.f + i, Color((BYTE)(3 + (SH - i)), 0, 0, 0));
-    }
-    RectF card((REAL)SH, (REAL)SH, (REAL)CW, (REAL)cardH);
-    FillRound(&g, card, 16.f, C_CARD);
-    StrokeRound(&g, card, 16.f, C_EDGE, 1.f);
+    // Rodada 27 (v9): a moldura do painel v8 (sombra, cartao #1E1E1E, borda #333, cantos de 8)
+    Hud::MolduraSimples8(g, (REAL)SH, (REAL)SH, (REAL)CW, (REAL)cardH);
 }
 
 // ------------------------------------------------------------------ o tooltip
@@ -1257,6 +1977,13 @@ static void Paint() {
     Hud::UpdateScale(g_s->wnd);
     g_scale = Hud::g_scale;
     const int cardH = Render(nullptr);
+    // Rodada 27 (v9): o TAMANHO DA INTERFACE (o mesmo [ultima] tamanho_ui do painel) - DPI x fator,
+    // limitado ao teto desta tela: a janela cabe INTEIRA na area util do monitor em que esta.
+    {
+        const REAL dpi = g_scale;
+        g_scale = Hud::EscalaComTeto(g_s->wnd, dpi, 1.f, (REAL)(CW + SH * 2), (REAL)(cardH + SH * 2), &g_selFatorMax);
+        g_selFatorUsado = g_scale / dpi;
+    }
     int W = (int)((CW + SH * 2) * g_scale + 0.5f), H = (int)((cardH + SH * 2) * g_scale + 0.5f);
     // se nao couber no monitor (150% numa tela 1080p), encolhe ate caber - nunca abaixo
     // de 70%, senao vira ilegivel
@@ -1339,6 +2066,26 @@ static void Iniciar() {
     s.ch.hdrTreat = s.sw[SW_HDR];
     s.ch.fpsTela = s.sw[SW_FPS];
     s.ch.placa = (s.selPlaca >= 0 && s.selPlaca < (int)s.placasIdx.size()) ? s.placasIdx[s.selPlaca] : -1;
+    // E1: o modo vai ao arranque como --modo. Janela que nao pode usar o Nativo (ou Modo anti-cheat
+    // ligado) fica em Universal; Automatico sem upscaler no jogo e com upscaling escolhido tambem,
+    // porque so a pelicula amplia. As chaves escondidas no Nativo nao mudam (voltam no Universal).
+    s.ch.modo.clear(); s.ch.camposNativo = false;
+    if (s.fonte == SRC_WINDOW) {
+        if (!EscolhaDeModo(s)) s.ch.modo = L"universal";
+        else {
+            IniSet(L"modo_processamento", NomeModoProcW(s.modo));
+            s.ch.camposNativo = CamposNativo(s);
+            // I6: o Upstream e o Nativo (transporte) com a rede antes do upscaling; o arranque
+            // le a escolha no [ultima] modo_processamento e decide o resto (UpstreamAbrir)
+            if (s.modo == MODO_NATIVO || s.modo == MODO_UPSTREAM) s.ch.modo = L"nativo";
+            else if (s.modo == MODO_UNIVERSAL || (!s.temUpscaler && AmpliaPelaPelicula(s))) s.ch.modo = L"universal";
+        }
+        Log("seletor: INICIAR - modo escolhido %s, abre com %ls%s%s%ls", EscolhaDeModo(s) ? NomeModoProc(s.modo) : "(sem escolha)",
+            s.ch.modo.empty() ? L"automatico" : s.ch.modo.c_str(), s.ch.camposNativo ? " (campos do Nativo)" : "",
+            !EscolhaDeModo(s) ? "" : !s.gancho ? " - sem chip Upstream (jogo sem DLSS/FSR/XeSS com gancho)"
+                              : !ChipUpstream(s) ? " - sem chip Upstream (caiu duas vezes neste jogo), gancho " : " - gancho ",
+            (EscolhaDeModo(s) && s.gancho) ? s.gancho : L"");
+    }
     if (s.fonte == SRC_CAMERA) {
         s.ch.dev = s.selDev; s.ch.mode = s.selModo;
     } else if (s.fonte == SRC_WINDOW) {
@@ -1350,6 +2097,7 @@ static void Iniciar() {
         s.ch.overlay = s.sw[SW_SOBREPOR];
         if (s.ch.overlay) s.ch.hideSelf = true;   // sem isso e espelho infinito
     }
+    // sec. 23 (dono: sem popup): a memoria de resets e so o texto sob a barra "Rede neural" desta tela
     s.ok = true;
     DestroyWindow(s.wnd);
 }
@@ -1403,6 +2151,13 @@ static void Ativar(const It it) {
         DestroyWindow(s.wnd);   // o wWinMain reabre o seletor ja no idioma novo
         return;
     }
+    // Rodada 27 (v9): o tamanho da interface - 0 Auto, 1 "-", 2 "+" (o passo parte do fator que
+    // esta tela esta USANDO e o "+" para no teto dela). O break repinta: o Paint le o tamanho novo
+    // e redimensiona a janela na hora.
+    case K_TAMUI:
+        Hud::DefinirTamanhoUi(it.val == 0 ? 0 : Hud::PassoTamanhoUi(g_selFatorUsado, g_selFatorMax, it.val == 1 ? -1 : +1));
+        break;
+    case K_AVANCADO: g_selAvancado = !g_selAvancado; break;   // Rodada 27: expande/recolhe o bloco "Avancado"
     case K_FONTE: TrocarFonte((SourceKind)it.val); break;
     case K_ALVO: {
         int& sel = SelAlvo(s);
@@ -1411,6 +2166,43 @@ static void Ativar(const It it) {
     }
     case K_MODO: s.selModo = it.val; break;
     case K_RECORTE: s.clientOnly = (it.val == 0); break;
+    // E1: grava no perfil do jogo na hora (o g_perfilExe aponta para ele, ver MedirNativo)
+    case K_MODOPROC:
+        // v2.0 (dono): para Nativo/Upstream, a janela dos modos antes (uma vez por sessao; ver namespace Risco).
+        // Cancelar = fica no que estava (o Universal, de fabrica).
+        if (s.modo != it.val && !Risco::PerguntarModal(s.wnd, s.modo, it.val, s.antiCheatDetectado, s.perfilExe)) {
+            Log("seletor: modo %s cancelado na janela dos modos", NomeModoProc(it.val));
+            break;
+        }
+        if (s.modo != it.val) {
+            // I7 ("so a mao do jogador muda"): a troca a mao zera as marcas de falha do jogo,
+            // para ele ter uma chance limpa - Upstream e Nativo (cadeia A8/A9)
+            ModoZerarFalhas("seletor");
+            s.upstreamFalhas = 0;
+        }
+        s.modo = it.val;
+        IniSet(L"modo_processamento", NomeModoProcW(it.val));
+        Log("seletor: modo -> %s", NomeModoProc(it.val));
+        break;
+    // E4: uma tentativa por clique, sem laco; o Render le de novo o que o jogo aceitou
+    case K_EXIBICAO:
+        if (s.selWin >= 0 && s.selWin < (int)s.wins.size()) {
+            WinTarget& w = s.wins[s.selWin];
+            s.exibPedida = it.val;
+            AplicarExibicao(w.hwnd, it.val);
+            RECT rc{};
+            if (GetClientRect(w.hwnd, &rc)) { w.w = rc.right - rc.left; w.h = rc.bottom - rc.top; }
+        }
+        break;
+    // E2: as chaves do card "DLSS do jogo"; o arranque manda para a DLL quando a ponte liga
+    case K_DLSSQUAL:
+        s.dlssQualidade = kQualJogo[it.val].chave;
+        IniSet(L"dlss_qualidade", s.dlssQualidade);
+        break;
+    case K_DLSSPRESET:
+        s.dlssPreset = kDlssPresets[it.val];
+        IniSet(L"dlss_preset", s.dlssPreset);
+        break;
     // ANTES DE COMECAR: os quatro gravam no ini na hora do clique (e nao so no Iniciar), para
     // a escolha sobreviver a um "Cancelar" ou a um fechamento - a pessoa ja decidiu.
     case K_JOGORES:
@@ -1457,6 +2249,8 @@ static void Ativar(const It it) {
     case K_SW: {
         bool& v = s.sw[it.val];
         v = !v;
+        // MODO ANTI-CHEAT: persistente, chave propria, gravada na hora (nao e opcao de sessao).
+        if (it.val == SW_ANTICHEAT) { IniSet(L"anticheat", v ? L"1" : L"0"); Log("seletor: modo anti-cheat %s ([ultima] anticheat)", v ? "LIGADO" : "desligado"); break; }
         // DESLIGAR O SOBREPOR PEDE CONFIRMACAO. Sem sobrepor o filtro nao aparece em cima do
         // jogo, e quem desliga sem querer conclui que "o programa nao faz nada". O aviso diz
         // o que muda e para que serve; "Nao" devolve a chavinha ligada.
@@ -1501,6 +2295,36 @@ static void Ativar(const It it) {
         ShowAtalhosDialog(s.wnd, s.inst);
         break;
     case K_INICIAR: Iniciar(); return;
+    case K_VIDEO: {   // sec. 22
+        EsconderTip();
+        if (g_videoTestando) return;
+        std::wstring jogo;
+        if (ReinicioAuto::JanelaTelaCheiaAlheia(&jogo)) {
+            Log("seletor: Reiniciar video do Windows - ha uma janela em tela cheia (\"%s\"): NAO disparo, peco para fechar o jogo antes", U8(jogo).c_str());
+            g_videoMsg = TS(L"Feche o jogo antes: \"", L"Close the game first: \"") + jogo +
+                         TS(L"\" está em tela cheia, e o atalho do Windows pode fechá-lo.", L"\" is in full screen, and the Windows shortcut may close it.");
+            break;
+        }
+        const int r = MessageBoxW(s.wnd,
+            T(L"Reiniciar o vídeo do Windows?\n\nA tela pisca e pode ficar preta por 1–2 s, e um jogo aberto pode fechar.\n\n"
+              L"Aviso honesto: este atalho do Windows (Win+Ctrl+Shift+B) recria a imagem da área de trabalho; reiniciar o driver da placa "
+              L"é efeito colateral e nem sempre acontece. 3 s depois o app testa a placa e diz o resultado.",
+              L"Restart Windows video?\n\nThe screen blinks and may go black for 1–2 s, and an open game may close.\n\n"
+              L"Honest note: this Windows shortcut (Win+Ctrl+Shift+B) rebuilds the desktop image; restarting the graphics driver "
+              L"is a side effect and does not always happen. 3 s later the app tests the card and tells you the result."),
+            APP_TITLE, MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2);
+        if (r != IDYES) { Log("seletor: Reiniciar video do Windows - cancelado na confirmacao"); return; }
+        const UINT n = ReinicioAuto::DispararAtalhoVideo();
+        IniSet(L"video_reiniciado_em", std::to_wstring(ReinicioAuto::Agora1601()));
+        Log("seletor: Reiniciar video do Windows - Win+Ctrl+Shift+B enviado por SendInput (%u de 8 eventos aceitos); reset registrado no ini: %s; sonda em 3 s",
+            n, IniGet(L"gpu_reset_em").empty() ? "nao" : "sim");
+        g_videoTestando = true;
+        g_videoMsg = n == 8 ? TS(L"Atalho enviado — a tela pisca. Testando a placa em 3 s…", L"Shortcut sent — the screen blinks. Testing the card in 3 s…")
+                            : TS(L"O Windows não aceitou o atalho enviado pelo programa: aperte você mesmo Win+Ctrl+Shift+B. Testando a placa em 3 s…",
+                                 L"Windows did not accept the shortcut sent by the program: press Win+Ctrl+Shift+B yourself. Testing the card in 3 s…");
+        SetTimer(s.wnd, kTimerVideo, 3000, nullptr);
+        break;
+    }
     default: return;
     }
     if (g_s && IsWindow(g_s->wnd)) Paint();
@@ -1527,7 +2351,15 @@ static LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         POINT p{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         SetFocus(h);
         const int hit = HitTest(p);
-        if (hit >= 0 && g_it[hit].enabled) return 0;   // e um controle: o LBUTTONUP resolve
+        if (hit >= 0 && g_it[hit].enabled) {
+            // Rodada 27 (v10): o "-"/"+" do tamanho da interface repete enquanto o botao fica
+            // apertado (o mesmo ritmo do painel: 420 ms para comecar, um passo a cada 110 ms)
+            if (g_it[hit].kind == K_TAMUI && g_it[hit].val >= 1) {
+                g_repIt = g_it[hit]; g_repAtivo = true; g_repVezes = 0;
+                SetTimer(h, kTimerRepeteSel, 420, nullptr);
+            }
+            return 0;   // e um controle: o LBUTTONUP resolve
+        }
         if (!NoTopo(p)) return 0;
         RECT wr{}; GetWindowRect(h, &wr);
         POINT cur{}; GetCursorPos(&cur);
@@ -1566,6 +2398,39 @@ static LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
             if (g_hot >= 0 && g_hot < (int)g_it.size()) MostrarTip(g_hot);
             return 0;
         }
+        if (wp == kTimerRepeteSel) {   // Rodada 27 (v10): segurar o "-"/"+" repete
+            if (!g_repAtivo || !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) { KillTimer(h, kTimerRepeteSel); g_repAtivo = false; return 0; }
+            g_repVezes++;
+            Ativar(g_repIt);
+            SetTimer(h, kTimerRepeteSel, 110, nullptr);
+            return 0;
+        }
+        if (wp == kTimerTopo) {   // I3: continua por cima do jogo
+            SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            return 0;
+        }
+        if (wp == kTimerVideo) {   // sec. 22: 3 s depois do Win+Ctrl+Shift+B, a sonda num processo novo
+            KillTimer(h, kTimerVideo);
+            std::wstring luid;
+            if (g_s && g_s->selPlaca >= 0 && g_s->selPlaca < (int)g_s->placasIdx.size()) {
+                const int pi = g_s->placasIdx[g_s->selPlaca];
+                if (pi >= 0 && pi < (int)g_placas.size()) {
+                    wchar_t b[40]; _snwprintf(b, 40, L"%08lX:%08lX", (unsigned long)g_placas[pi].luid.HighPart, (unsigned long)g_placas[pi].luid.LowPart); b[39] = 0; luid = b;
+                }
+            }
+            std::string det;
+            const int cod = ReinicioAuto::RodarSonda(luid, &det);
+            Log("seletor: Reiniciar video do Windows - sonda D3D12 em processo novo: codigo %d (%s)", cod, det.c_str());
+            g_videoTestando = false;
+            g_videoMsg = cod == 0
+                ? TS(L"Teste num processo novo: a placa aceitou um dispositivo novo. Se o desempenho não voltar, reinicie o PC — o atalho nem sempre reinicia o driver.",
+                     L"Test in a new process: the card accepted a new device. If performance does not come back, restart the PC — the shortcut does not always restart the driver.")
+                : TS(L"Teste num processo novo: a placa ainda NÃO aceita (", L"Test in a new process: the card still does NOT accept it (") +
+                  std::wstring(det.begin(), det.end()) +
+                  TS(L"). Reinicie o PC — o atalho nem sempre reinicia o driver.", L"). Restart the PC — the shortcut does not always restart the driver.");
+            Paint();
+            return 0;
+        }
         break;
     case WM_MOUSELEAVE:
         KillTimer(h, kTimerTip);
@@ -1591,6 +2456,8 @@ static LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         }
         POINT p{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         const int hit = HitTest(p);
+        // soltar depois de um repique nao e mais um passo (o botao ja acionou enquanto segurado)
+        if (g_repAtivo) { KillTimer(h, kTimerRepeteSel); g_repAtivo = false; if (g_repVezes > 0) return 0; }
         if (hit >= 0 && g_it[hit].enabled) { KillTimer(h, kTimerTip); EsconderTip(); Ativar(g_it[hit]); }
         return 0;
     }
@@ -1635,9 +2502,16 @@ static LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         VerificarResolucaoWindows();
         Paint();
         return 0;
+    // H7: a busca do upscaler na raiz do jogo Unreal terminou (thread do MedirNativo)
+    case kWmSelUnreal:
+        if (g_s && AplicarUnreal(*g_s, reinterpret_cast<AchadoUnreal*>(lp))) Paint();
+        else if (!g_s) delete reinterpret_cast<AchadoUnreal*>(lp);
+        return 0;
     case WM_CLOSE: Cancelar(); return 0;
     case WM_DESTROY:
         KillTimer(h, kTimerTip);
+        KillTimer(h, kTimerTopo);
+        KillTimer(h, kTimerVideo);   // sec. 22
         if (g_tip) { DestroyWindow(g_tip); g_tip = nullptr; }
         g_tipItem = -1;
         PostQuitMessage(0);
@@ -1665,43 +2539,14 @@ static void PrepararEstado(Estado& s, const std::wstring& wantKind, bool wantFs,
     // ANTES DE COMECAR: le do ini o que ja estava escolhido. A fonte da verdade e o ini -
     // as duas telas (seletor e painel) leem e escrevem as MESMAS chaves, entao o estado e um
     // so e o que se muda num lugar aparece no outro.
-    {
-        s.jogoRes = _wtoi(IniGet(L"jogo_resolucao").c_str());
-        // kJogoRes vem de main.cpp - fonte unica, para os degraus nunca divergirem entre a
-        // validacao aqui e os chips desenhados mais abaixo.
-        bool ok = false;
-        for (int i = 0; i < kNJogoRes; i++) if (s.jogoRes == kJogoRes[i]) ok = true;
-        if (!ok) s.jogoRes = 0;
-
-        std::wstring r = IniGet(L"reconstrucao");
-        for (auto& c : r) c = (wchar_t)towlower(c);
-        if (r.empty()) r = L"monitor";   // o mesmo padrao do arranque
-        s.reconstrucao = (r == L"monitor") ? -1 : (r == L"captura" || r == L"nativo") ? 0 : _wtoi(r.c_str());
-        // kReconstAlt vem de main.cpp - mesma razao (0 e -1 sao sempre validos; os demais
-        // sao os degraus fixos 1080/1440/2160/3240/4320).
-        bool okr = (s.reconstrucao == 0 || s.reconstrucao == -1);
-        for (int i = 0; i < kNReconst; i++) if (s.reconstrucao == kReconstAlt[i]) okr = true;
-        if (!okr) s.reconstrucao = -1;
-
-        std::wstring t = IniGet(L"ritmo");
-        for (auto& c : t) c = (wchar_t)towlower(c);
-        s.ritmo = (t == L"livre" || t == L"solto") ? 1 : (t == L"limite" || t == L"personalizado") ? 2 : 0;
-
-        s.curto = (IniGet(L"caminho_curto") == L"1");
-        s.iaOrdem = (IniGet(L"ia_ordem") == L"depois") ? 1 : 0;
-        {
-            const std::wstring vn = IniGet(L"nitidez_ia");
-            int k = vn.empty() ? 80 : _wtoi(vn.c_str());
-            if (k < 0 || k > 100) k = 80;
-            s.nitidez = k;
-        }
-    }
+    LerEscolhas(s);   // E1: a cada janela escolhida o perfil dela vem por cima (MedirNativo)
     s.sw[SW_TELACHEIA] = wantFs;
     s.sw[SW_VSYNC] = wantVsync;
     s.sw[SW_HDR] = wantHdr;
     // A chavinha do FPS le o ReShade.ini: a escolha salva em [ultima] fps_tela ja foi
     // aplicada la na abertura (ver wWinMain). Chave ausente = padrao do ReShade, ligado.
     s.sw[SW_FPS] = (FpsNaTelaNoReShadeIni() != 0);
+    s.sw[SW_ANTICHEAT] = (IniGet(L"anticheat") == L"1");   // MODO ANTI-CHEAT: persistente, chave propria
     MontarPlacas(s);
 }
 } // namespace Sel
@@ -1739,6 +2584,17 @@ static bool ShowSelector(HINSTANCE hi, std::vector<Device>& devs, Choice& out,
     ShowWindow(st.wnd, SW_SHOW);
     SetForegroundWindow(st.wnd);
     SetFocus(st.wnd);
+    // I3: com um jogo em tela cheia ja aberto, esta tela sobe por cima dele - primeiro plano
+    // de verdade (o jogo le o mouse e o Windows pode recusar o SetForegroundWindow simples),
+    // topmost, e o timer reafirma o topo enquanto a tela viver.
+    if (HWND jogo = JogoEmTelaCheia(st)) {
+        wchar_t cls[64]{}; GetClassNameW(jogo, cls, 64);
+        const bool ok = Hud::ForcarPrimeiroPlano(st.wnd);
+        SetWindowPos(st.wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetTimer(st.wnd, kTimerTopo, kTopoMs, nullptr);
+        Log("seletor: ha um jogo em tela cheia aberto (classe %s) - a tela sobe por cima dele (primeiro plano: %s)",
+            U8(cls).c_str(), ok ? "sim" : "o Windows recusou; fica no topo mesmo assim");
+    }
     {
         RECT wr{}; GetWindowRect(st.wnd, &wr);
         Log("seletor aberto em %ld,%ld  %ldx%ld  escala=%.2f  fonte=%s  alvos=%d  itens=%u",
@@ -1762,8 +2618,28 @@ static bool ShowSelector(HINSTANCE hi, std::vector<Device>& devs, Choice& out,
         }
     }
 
+    // I3 (18/09/2026, pedido do dono): "subir a janela mesmo antes de selecionar a fonte com a
+    // tecla End". Enquanto esta tela vive, a tecla do painel (End; Insert no AMD) e uma hotkey
+    // global: apertada com um jogo na frente, a tela de selecao vem para o primeiro plano e para
+    // o topo, sem Alt+Tab. Id fora da faixa HK_ACAO_BASE para nao colidir com o painel, que so
+    // registra as dele depois que a fonte foi escolhida.
+    const int kHkSeletor = 0x5E1E, kHkSeletorEnd = 0x5E1F;   // o End tambem, quando a tecla do painel for outra (AMD = Insert)
+    const bool hkOk = RegisterHotKey(nullptr, kHkSeletor, g_atalhos[AT_PAINEL].mods | MOD_NOREPEAT, g_atalhos[AT_PAINEL].vk) != 0;
+    const bool hkEnd = (g_atalhos[AT_PAINEL].vk != VK_END || g_atalhos[AT_PAINEL].mods != 0) && RegisterHotKey(nullptr, kHkSeletorEnd, MOD_NOREPEAT, VK_END) != 0;
+    if (!hkOk) Log("seletor: a tecla do painel nao pode ser registrada agora (erro %lu) - a tela nao sobe por ela", (unsigned long)GetLastError());
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (msg.message == WM_HOTKEY && ((int)msg.wParam == kHkSeletor || (int)msg.wParam == kHkSeletorEnd) && st.wnd) {
+            const bool ok = Hud::ForcarPrimeiroPlano(st.wnd);
+            SetWindowPos(st.wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            SetFocus(st.wnd);
+            Log("seletor: tecla do painel - a tela de selecao sobe por cima (primeiro plano: %s)", ok ? "sim" : "o Windows recusou; fica no topo");
+            continue;
+        }
+        TranslateMessage(&msg); DispatchMessageW(&msg);
+    }
+    if (hkOk) UnregisterHotKey(nullptr, kHkSeletor);
+    if (hkEnd) UnregisterHotKey(nullptr, kHkSeletorEnd);
     g_s = nullptr;
     g_it.clear();
     SoltarFontes();
@@ -1812,22 +2688,30 @@ static bool SaveShot(const wchar_t* path, bool comTooltip) {
     }
     st.sw[SW_SOBREPOR] = Tela(st);
     st.sw[SW_ESCONDER] = (st.fonte == SRC_MONITOR);
+    // v2.0: DLSS5_SELETOR_SHOT_MODO=1 mostra a linha "Modo" (a janela de amostra nao tem processo para
+    // medir; finge um jogo de 64 bits que aceita o Nativo). O modo marcado e o de fabrica: Universal.
+    { wchar_t mo[4]{}; if (GetEnvironmentVariableW(L"DLSS5_SELETOR_SHOT_MODO", mo, 4) > 0 && mo[0] == L'1') st.podeNativo = true; }
     g_s = &st; g_hot = -1;
     // A faixa so existe depois de alguem PERGUNTAR o que falta; o caminho da foto ia
     // direto para o Render e o aviso nunca aparecia, mesmo com a chave ligada.
     if (!st.ignorarFalta) AtualizarFalta(st);
-    g_scale = 1.f;   // o PNG sai sempre em 96 dpi, do tamanho de projeto
+    // o PNG sai em 96 dpi, no TAMANHO DA INTERFACE escolhido (Rodada 27; Automatico = Medio)
+    const REAL sFoto = Hud::FatorUiFoto();
+    g_scale = sFoto;
+    g_selFatorUsado = sFoto; g_selFatorMax = (REAL)Hud::kTamUiMax / 100.f;   // o valor mostrado no "Aa - N% +"
+    { wchar_t av[4]{}; g_selAvancado = GetEnvironmentVariableW(L"DLSS5_SELETOR_SHOT_AVANCADO", av, 4) > 0 && av[0] == L'1'; }   // foto com o bloco Avancado aberto
     int cardH = Render(nullptr);
     int tipItem = -1;
     if (comTooltip)
         for (size_t i = 0; i < g_it.size(); i++) if (g_it[i].kind == K_SW && g_it[i].val == SW_SOBREPOR) { g_hot = (int)i; tipItem = (int)i; }
-    const int W = CW + SH * 2, H = cardH + SH * 2;
+    const int W = (int)((CW + SH * 2) * sFoto + 0.5f), H = (int)((cardH + SH * 2) * sFoto + 0.5f);
     Bitmap bmp(W, H, PixelFormat32bppARGB);
     Graphics g(&bmp);
     {
         LinearGradientBrush bg(Point(0, 0), Point(W, H), Color(255, 58, 64, 78), Color(255, 26, 28, 36));
         g.FillRectangle(&bg, 0, 0, W, H);
     }
+    g.ScaleTransform(sFoto, sFoto);
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetTextRenderingHint(TextRenderingHintAntiAlias);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);

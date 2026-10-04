@@ -26,7 +26,7 @@ namespace FpsLimit {
 
 // 'D5FL' em ASCII. Primeira coisa conferida dos dois lados; se nao bater, o bloco nao e nosso.
 static const uint32_t kMagic   = 0x4C463544u;
-static const uint32_t kVersao  = 1u;
+static const uint32_t kVersao  = 2u;   // 2 (N1): acrescenta a ancora de fase no fim do bloco
 
 // Os unicos limites que a interface oferece. Valor fora desta lista e tratado como 0 (livre),
 // porque memoria compartilhada e escrita por outro processo e nao se confia em numero que
@@ -97,6 +97,23 @@ struct Bloco {
     // Motivo da desistencia, em texto, para o painel mostrar sem traduzir codigo de erro.
     // Escrito UMA VEZ, quando o estado vira algo diferente de ATIVO. UTF-16, terminado em 0.
     wchar_t  motivo[128];
+
+    /* ---- VERSAO 2 (N1, 20/09/2026): A FONTE EM FASE COM A SAIDA. Do APP para a PECA.
+       Ate aqui o limitador acumulava o alvo num QPC solto enquanto o apresentador ancorava o
+       tique no vblank: DOIS RELOGIOS LIVRES, e a diferenca entre eles e o tremor `j` da
+       chegada - o mesmo numero que infla a folga `D` da fila (K-RITMO, a equacao por maquina).
+       E a peca do desenho que a NVIDIA chama de Reflex (a chegada nasce do relogio da saida) e
+       que a AMD, por nao ter, paga com margem de seguranca e media movel.
+       Com `ancora` em 1 a peca passa a soltar o quadro em t_k = vblank_0 + k*T + fase, com o
+       vblank lido POR ELA MESMA (DwmGetCompositionTiming: o mesmo compositor e o mesmo QPC que
+       o apresentador usa, e nenhum campo novo atravessando a ponte) e T = 1/limite_fps
+       quantizado a um numero inteiro de vblanks.
+       `fase_us` e o phi: o app manda -D, porque o quadro tem de CHEGAR ao apresentador com a
+       folga D antes do prazo dele. 0 = rede sem deslocamento.
+       OS DOIS SAO UM PEDIDO, NAO UMA ORDEM: a peca ignora a ancora quando o periodo nao e
+       comensuravel com o vblank, e nesse caso volta ao acumulador de sempre. */
+    volatile uint32_t ancora;          // 1 = prenda a liberacao do quadro a rede do vblank
+    volatile int32_t  fase_us;         // phi em microssegundos (pode ser negativo)
 };
 
 // Nome do bloco. UM POR PROCESSO HOSPEDEIRO, com o pid no nome: a pessoa pode ter dois jogos

@@ -52,6 +52,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <cwctype>
+#include <mutex>
 
 namespace Desempenho {
 
@@ -134,9 +135,24 @@ static bool PrioridadeGpu(int prio, int* anterior = nullptr, HANDLE proc = GetCu
 // O DWM (o compositor do Windows) roda nessa mesma classe: a pelicula E o caminho da
 // imagem ate a tela, faz sentido ela ter a vez do compositor. O jogo nao para: perde a
 // fatia que a pelicula usa, e com o teto de fps da pelicula (30/60) essa fatia e pequena.
+// RODADA7 (23/09/2026, PLANO-FLUIDEZ item 2 / PESQ-GPU-CONVIVENCIA §0.7): o PADRAO agora e HIGH.
+// REALTIME com HAGS deu STALLs de 50-140 ms no jogo (rodada 4) e a OBS abandonou o REALTIME
+// com HAGS pelo mesmo motivo. REALTIME so por escolha explicita: `[ultima] prio_gpu=realtime`
+// ou DLSS5_PRIO_GPU=realtime/5. NAO ha escalada automatica: a escada do otimizador chama esta
+// funcao e recebe a MESMA classe escolhida (se HIGH ja esta, o degrau e pulado).
+static bool g_prioRealtimePedido = false;   // definido pelo host ANTES da primeira chamada
+static const char* NomePrioGpu(int p) {
+    switch (p) { case 0: return "IDLE"; case 1: return "BELOW_NORMAL"; case 2: return "NORMAL";
+                 case 3: return "ABOVE_NORMAL"; case 4: return "HIGH"; case 5: return "REALTIME"; }
+    return "?";
+}
 static bool PrioridadeGpuMaxima(int* anterior = nullptr) {
-    if (PrioridadeGpu(PRIO_GPU_REALTIME, anterior)) return true;
-    return PrioridadeGpu(PRIO_GPU_HIGH, anterior);
+    bool ok = PrioridadeGpu(g_prioRealtimePedido ? PRIO_GPU_REALTIME : PRIO_GPU_HIGH, anterior);
+    if (!ok && g_prioRealtimePedido) ok = PrioridadeGpu(PRIO_GPU_HIGH, anterior);   // recusou REALTIME: HIGH (rebaixa, nunca sobe)
+    const int ef = PrioridadeGpuAtual();
+    Logf("prioridade de gpu EFETIVA: %s (%d)%s", NomePrioGpu(ef), ef,
+         g_prioRealtimePedido ? " - REALTIME pedido pela chave prio_gpu/DLSS5_PRIO_GPU" : " - padrao HIGH (REALTIME so pela chave prio_gpu=realtime)");
+    return ok;
 }
 
 // HAGS ("Agendamento de GPU acelerado por hardware"): SO LEITURA, via D3DKMTQueryAdapterInfo
@@ -232,7 +248,7 @@ typedef Status (__cdecl* PFN_DeleteSetting)(Sessao, Perfil, U32 id);
 typedef Status (__cdecl* PFN_GetBaseProfile)(Sessao, Perfil*);
 
 struct Api {
-    HMODULE dll = nullptr; bool tentado = false, ok = false;
+    HMODULE dll = nullptr; bool ok = false;
     PFN_Init Init = nullptr; PFN_Unload Unload = nullptr; PFN_ErrMsg ErrMsg = nullptr;
     PFN_CreateSession CreateSession = nullptr; PFN_DestroySession DestroySession = nullptr;
     PFN_LoadSettings LoadSettings = nullptr; PFN_SaveSettings SaveSettings = nullptr;
@@ -242,9 +258,12 @@ struct Api {
     PFN_GetSetting GetSetting = nullptr; PFN_SetSetting SetSetting = nullptr;
     PFN_DeleteSetting DeleteSetting = nullptr; PFN_GetBaseProfile GetBaseProfile = nullptr;
 
-    bool Carregar() {
-        if (tentado) return ok;
-        tentado = true;
+    // B8 (17/09/2026): o laco (painel) e a thread da conferencia podem pedir a primeira carga ao
+    // mesmo tempo. Antes o `tentado` virava true antes de terminar e o segundo lia ok=false ("NvAPI
+    // indisponivel" uma vez); agora quem chega junto espera a carga acabar.
+    std::once_flag umaVez;
+    bool Carregar() { std::call_once(umaVez, [this] { CarregarAgora(); }); return ok; }
+    bool CarregarAgora() {
         dll = LoadLibraryW(L"nvapi64.dll");
         if (!dll) { Logf("nvapi: nvapi64.dll nao existe (sem driver NVIDIA) - limite do jogo indisponivel"); return false; }
         auto q = Proc<PFN_Query>(dll, "nvapi_QueryInterface");
@@ -292,9 +311,17 @@ static std::wstring DeUStr(const U16* s) { std::wstring r; for (size_t i = 0; i 
 // Uma sessao DRS aberta e carregada. Vive so o tempo de uma operacao: a base de
 // perfis muda por fora (painel da NVIDIA, Profile Inspector) e uma sessao velha estaria
 // desatualizada.
+// B2 (16/09/2026): a conferencia do perfil roda numa thread (Desempenho::g_conf); B5: a gravacao
+// do limite tambem. A trava (recursiva) impede duas sessoes DRS ao mesmo tempo e serializa quem
+// mexe em g_lim/g_jan (LimiteJogoAplicar/Restaurar a seguram do comeco ao fim).
+struct TravaDrs { CRITICAL_SECTION cs; TravaDrs() { InitializeCriticalSection(&cs); } };
+static TravaDrs g_travaDrs;
+// B5: segura uma CRITICAL_SECTION pelo escopo.
+struct Segura { CRITICAL_SECTION* c; explicit Segura(CRITICAL_SECTION& x) : c(&x) { EnterCriticalSection(c); } ~Segura() { LeaveCriticalSection(c); } };
 struct Sessao_ {
     Sessao s = nullptr; bool ok = false;
     Sessao_() {
+        EnterCriticalSection(&g_travaDrs.cs);
         if (!g_api.Carregar()) return;
         Status st = g_api.CreateSession(&s);
         if (st != OK) { Logf("nvapi: CreateSession -> %s", g_api.Erro(st).c_str()); return; }
@@ -302,7 +329,7 @@ struct Sessao_ {
         if (st != OK) { Logf("nvapi: LoadSettings -> %s", g_api.Erro(st).c_str()); return; }
         ok = true;
     }
-    ~Sessao_() { if (s) g_api.DestroySession(s); }
+    ~Sessao_() { if (s) g_api.DestroySession(s); LeaveCriticalSection(&g_travaDrs.cs); }
     bool Salvar() {
         Status st = g_api.SaveSettings(s);
         if (st != OK) Logf("nvapi: SaveSettings -> %s", g_api.Erro(st).c_str());
@@ -375,6 +402,136 @@ struct Sessao_ {
 static std::wstring g_iniPath;
 static void IniSetD(const wchar_t* k, const std::wstring& v) { if (!g_iniPath.empty()) WritePrivateProfileStringW(L"desempenho", k, v.empty() ? nullptr : v.c_str(), g_iniPath.c_str()); }
 static std::wstring IniGetD(const wchar_t* k) { wchar_t b[512] = {}; if (!g_iniPath.empty()) GetPrivateProfileStringW(L"desempenho", k, L"", b, 512, g_iniPath.c_str()); return b; }
+// =====================================================================================
+//  PARTE B (Rodada 21, 24/09/2026): "DESEMPENHO MAXIMO" - chave nova no submenu Avancado
+//  do painel (main.cpp, E_DESEMPMAX), ligada por padrao, valendo ENQUANTO A PELICULA
+//  ESTIVER ATIVA. O main chama Max::PeliculaLigou() uma vez, ao validar a fonte e comecar a
+//  processar de verdade (o mesmo lugar de sempre de Desempenho::Iniciar(), e so na CAMADA 1 -
+//  MESMA REGRA do limite do jogo: duas camadas escrevendo no mesmo perfil do driver desfariam
+//  uma a gravacao da outra). O desligamento e o Restaurar() chamado por Desempenho::Encerrar()
+//  (saida normal) e EmergenciaRestaurar() (crash) - nao ha um hook por "a pelicula parou no
+//  meio da sessao", que teria de cobrir todo caminho de duas placas/uma placa/Nativo e nao
+//  valeria o risco de esquecer algum. Duas alavancas INDEPENDENTES - uma pode falhar sem afetar a outra:
+//
+//    1. GPU: NVAPI DRS, SO no perfil do NOSSO exe (nunca o do jogo nem o perfil global) -
+//       reusa a mesma sessao/perfil de PerfilDoExe(), so que o exe pedido e sempre o nosso
+//       proprio. Grava PREFERRED_PSTATE_ID (0x1057EB71, conferido no NvApiDriverSettings.h
+//       oficial da NVIDIA, github.com/NVIDIA/nvapi) = PREFERRED_PSTATE_PREFER_MAX (1)
+//       ("Preferir desempenho maximo" no Painel da NVIDIA). Desligar apaga so essa chave do
+//       nosso perfil. Sem NVIDIA (nvapi64.dll ausente), falha silenciosa - so a CPU muda.
+//       Se GRAVAR pedir administrador (perfil novo, num Windows que restringe a escrita do
+//       DRS), o app NAO se eleva: fica no log e numa linha discreta no painel (PrecisaAdmin()).
+//    2. CPU: SetProcessInformation(ProcessPowerThrottling) tira o EcoQoS/throttling do
+//       NOSSO processo (sem admin) e timeBeginPeriod(1) (winmm carregado em tempo de
+//       execucao, como o despertador do apresentador em apresentador_gpu.h - winmm nao
+//       entra no link). Os dois desfazem sozinhos com o processo, mas sao desfeitos
+//       explicitamente ao desligar a chave ou ao a pelicula parar, para nao segurar o
+//       Windows num estado "sem economia de energia" o tempo todo, so enquanto vale.
+// =====================================================================================
+namespace Max {
+    static const nv::U32 kPreferredPstateId = 0x1057EB71u;
+    enum { kPreferMax = 1 };
+
+    static bool g_gpuAplicado = false;   // true = o NOSSO perfil tem PREFERRED_PSTATE=PREFER_MAX gravado agora
+    static bool g_cpuAplicado = false;   // true = throttling desligado + timeBeginPeriod(1) pedidos nesta sessao
+    static bool g_pelicula    = false;   // a pelicula esta de pe agora? (g_apres.Iniciar/Parar)
+    // PRECISA DE ADMIN PARA GRAVAR NO DRIVER? So um bool aqui (sem texto pronto): quem monta a
+    // frase bilingue e o painel (main.cpp, que tem T()/TS()) - este modulo e header-only e
+    // compila sozinho sem idioma.h (ver o comentario grande no topo do arquivo), entao nao
+    // pode chamar TS() aqui dentro.
+    static bool g_precisaAdmin = false;
+
+    static HMODULE g_winmm = nullptr;
+    typedef UINT (WINAPI *PfnPeriodo)(UINT);
+    static PfnPeriodo g_timeBeginPeriod = nullptr, g_timeEndPeriod = nullptr;
+
+    static std::wstring NomeDoNossoExe() {
+        wchar_t buf[MAX_PATH]{};
+        const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+        if (!n) return std::wstring();
+        std::wstring caminho(buf, n < MAX_PATH ? n : MAX_PATH - 1);
+        const size_t b = caminho.find_last_of(L"\\/");
+        return (b == std::wstring::npos) ? caminho : caminho.substr(b + 1);
+    }
+
+    // Grava (ligar=true) ou apaga (ligar=false) PREFERRED_PSTATE no perfil do NOSSO exe.
+    static bool GpuAplicar(bool ligar) {
+        const std::wstring exe = NomeDoNossoExe();
+        if (exe.empty()) { Logf("desempenho maximo: nao consegui o nome do proprio exe - GPU nao ajustada"); return false; }
+        nv::Segura trava(nv::g_travaDrs.cs);   // a mesma trava do limite do jogo: uma sessao DRS por vez (recursiva, mesmo thread)
+        nv::Sessao_ s;
+        if (!s.ok) { if (ligar) Logf("desempenho maximo: nvapi indisponivel (sem placa NVIDIA?) - so a CPU foi ajustada"); return false; }
+        bool criado = false; std::wstring nomePerfil;
+        nv::Perfil p = s.PerfilDoExe(exe, /*criarSeFaltar=*/ligar, &criado, &nomePerfil);
+        if (!p) {
+            if (ligar) Logf("desempenho maximo: sem perfil de driver para %s - nada gravado", U8(exe).c_str());
+            return false;
+        }
+        bool ok;
+        if (ligar) {
+            nv::Setting st{}; st.version = nv::SETTING_VER1; st.settingId = kPreferredPstateId;
+            st.settingType = nv::TIPO_DWORD; st.u32Current = (nv::U32)kPreferMax;
+            const nv::Status r = nv::g_api.SetSetting(s.s, p, &st);
+            ok = (r == nv::OK);
+            if (!ok) Logf("desempenho maximo: SetSetting(PREFERRED_PSTATE) -> %s", nv::g_api.Erro(r).c_str());
+        } else {
+            const nv::Status r = nv::g_api.DeleteSetting(s.s, p, kPreferredPstateId);
+            ok = (r == nv::OK || r == nv::SETTING_NOT_FOUND);
+        }
+        const bool salvou = s.Salvar();   // Sessao_::Salvar ja loga o erro do SaveSettings, se houver
+        if (!salvou) {
+            // Medido: SaveSettings pede administrador quando o perfil e CRIADO agora e o
+            // Windows restringe a escrita do DRS - nao elevamos o app inteiro por isto.
+            g_precisaAdmin = true;
+            Logf("desempenho maximo: gravar no driver pediu mais privilegio do que o app tem - "
+                 "ative \"Preferir desempenho maximo\" para %s no Painel de Controle NVIDIA", U8(exe).c_str());
+            return false;
+        }
+        if (ligar && ok) g_precisaAdmin = false;
+        Logf("desempenho maximo: GPU (perfil '%s' de %s) PREFERRED_PSTATE %s", U8(nomePerfil.empty() ? exe : nomePerfil).c_str(),
+             U8(exe).c_str(), ligar ? "= preferir desempenho maximo" : "removido");
+        return ok;
+    }
+
+    static void CpuAplicar(bool ligar) {
+        PROCESS_POWER_THROTTLING_STATE pt{};
+        pt.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+        pt.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+        pt.StateMask = ligar ? 0ul : pt.ControlMask;   // StateMask 0 nas duas alavancas = throttling DESLIGADO
+        const BOOL ok = SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pt, sizeof(pt));
+        if (!ok) Logf("desempenho maximo: SetProcessInformation(ProcessPowerThrottling) falhou (erro %lu)", (unsigned long)GetLastError());
+        if (ligar) {
+            if (!g_winmm) g_winmm = LoadLibraryW(L"winmm.dll");
+            if (g_winmm && !g_timeBeginPeriod) g_timeBeginPeriod = (PfnPeriodo)(void*)GetProcAddress(g_winmm, "timeBeginPeriod");
+            if (g_winmm && !g_timeEndPeriod)   g_timeEndPeriod   = (PfnPeriodo)(void*)GetProcAddress(g_winmm, "timeEndPeriod");
+            if (g_timeBeginPeriod) g_timeBeginPeriod(1);
+        } else if (g_timeEndPeriod) g_timeEndPeriod(1);
+        Logf("desempenho maximo: CPU power throttling %s%s", ligar ? "DESLIGADO" : "religado ao padrao do Windows",
+             ligar ? (g_timeBeginPeriod ? " + timeBeginPeriod(1)" : " (sem winmm: timeBeginPeriod indisponivel)") : "");
+    }
+
+    static bool ChaveLigada() { return IniGetD(L"desempenho_maximo") != L"0"; }   // ausente = ligado (padrao)
+    // Para o painel montar a linha discreta (bilingue, com T()/TS()): so dados, sem texto pronto.
+    static bool PrecisaAdmin() { return g_precisaAdmin; }
+    static std::wstring NossoExe() { return NomeDoNossoExe(); }
+    static bool GpuAtiva() { return g_gpuAplicado; }
+    static bool CpuAtiva() { return g_cpuAplicado; }
+
+    // Aplica ou desfaz as duas alavancas conforme "a pelicula esta de pe" x "a chave esta ligada".
+    static void Sincronizar() {
+        const bool quer = g_pelicula && ChaveLigada();
+        if (quer != g_cpuAplicado) { CpuAplicar(quer); g_cpuAplicado = quer; }
+        if (quer != g_gpuAplicado) g_gpuAplicado = GpuAplicar(quer) ? quer : g_gpuAplicado;
+    }
+    static void PeliculaLigou()    { g_pelicula = true;  Sincronizar(); }
+    // O painel: a pessoa ligou/desligou a chave "Desempenho maximo" (E_DESEMPMAX).
+    static void ChaveMudou(bool ligar) { IniSetD(L"desempenho_maximo", ligar ? L"1" : L"0"); Sincronizar(); }
+    // Encerrar/crash: garante que nada fica gravado no driver nem no processo depois que o app sai.
+    static void Restaurar() {
+        if (g_cpuAplicado) { CpuAplicar(false); g_cpuAplicado = false; }
+        if (g_gpuAplicado) { GpuAplicar(false); g_gpuAplicado = false; }
+    }
+} // namespace Max
 
 struct LimiteJogo {
     std::wstring exe;            // vazio = nenhum limite nosso aplicado
@@ -391,6 +548,11 @@ struct LimiteJogo {
     unsigned long pidAoAplicar = 0;
 };
 static LimiteJogo g_lim;
+// B5: g_lim/g_jan sao escritos pela thread da conferencia (sob a trava DRS) e lidos pelo painel no
+// laco sem ela. Esta trava so cobre a troca dos campos (microssegundos), nunca uma chamada ao driver:
+// quem escreve a segura so na atribuicao; o laco a segura para copiar (EstadoDoLimite).
+struct TravaDados { CRITICAL_SECTION cs; TravaDados() { InitializeCriticalSection(&cs); } };
+static TravaDados g_travaDados;
 
 // Em que pe esta o limite que aplicamos. A funcao EstadoDoLimite() fica logo depois de
 // kLimiteAoVivo, mais abaixo, porque depende dela.
@@ -473,15 +635,16 @@ static std::wstring ExeDoPid(unsigned long pid) {
 }
 // O processo VIVO do jogo nasceu enquanto a chave existia no perfil? (resposta cacheada por pid:
 // e chamada a cada repintura do painel). O pid que ja estava aberto quando aplicamos nao conta.
-static bool NasceuLimitado(unsigned long pid) {
+// B5: recebe uma copia de g_jan (tirada sob g_travaDados), nao le o global.
+static bool NasceuLimitado(unsigned long pid, const JanelaLimite& jan) {
     static unsigned long cPid = 0; static bool cRes = false; static unsigned long long cAte = 0;
-    if (pid == cPid && cAte == g_jan.ate) return cRes;
-    cPid = pid; cAte = g_jan.ate; cRes = false;
-    if (!pid || g_jan.exe.empty() || !g_jan.de || pid == g_jan.pid) return false;
-    if (Minusculas(ExeDoPid(pid)) != Minusculas(g_jan.exe)) return false;
+    if (pid == cPid && cAte == jan.ate) return cRes;
+    cPid = pid; cAte = jan.ate; cRes = false;
+    if (!pid || jan.exe.empty() || !jan.de || pid == jan.pid) return false;
+    if (Minusculas(ExeDoPid(pid)) != Minusculas(jan.exe)) return false;
     const unsigned long long c = HoraCriacao(pid);
     if (!c) return false;
-    cRes = c >= g_jan.de && (g_jan.ate == 0 || c <= g_jan.ate);
+    cRes = c >= jan.de && (jan.ate == 0 || c <= jan.ate);
     return cRes;
 }
 
@@ -501,6 +664,7 @@ static int LimiteJogoAtual(const std::wstring& exe) {
 // Restaura o que havia antes de nos (idempotente; usa o que esta no ini, entao funciona
 // tambem na abertura seguinte a uma queda). true = nada pendente ou restaurado.
 static bool LimiteJogoRestaurar() {
+    nv::Segura trava(nv::g_travaDrs.cs);   // B5: a thread da conferencia (chip, sincDesempenho, e desde o B6 o otimizador) e o laco (saida) chegam aqui
     if (g_lim.exe.empty()) return true;
     nv::Sessao_ s; if (!s.ok) { Logf("limite do jogo: nvapi indisponivel - %s continua com %d fps no driver", U8(g_lim.exe).c_str(), g_lim.aplicado); return false; }
     nv::Perfil p = s.PerfilDoExe(g_lim.exe, false, nullptr, nullptr);
@@ -520,10 +684,13 @@ static bool LimiteJogoRestaurar() {
     if (ok) {
         Logf("limite do jogo: %s restaurado (%s)", U8(g_lim.exe).c_str(),
              g_lim.perfilCriado ? "perfil nosso apagado" : g_lim.original < 0 ? "chave apagada" : "valor original de volta");
-        g_lim = LimiteJogo{};
+        {
+            nv::Segura dados(g_travaDados.cs);
+            g_lim = LimiteJogo{};
+            // A janela fecha AGORA, mas a memoria dela fica: quem nasceu dentro dela segue limitado.
+            if (!g_jan.exe.empty() && g_jan.ate == 0) g_jan.ate = AgoraFt();
+        }
         LimiteGravarIni();
-        // A janela fecha AGORA, mas a memoria dela fica: quem nasceu dentro dela segue limitado.
-        if (!g_jan.exe.empty() && g_jan.ate == 0) g_jan.ate = AgoraFt();
         JanelaGravarIni();
     }
     return ok;
@@ -555,6 +722,7 @@ static bool LimiteJogoAplicar(const std::wstring& exe, int fps, std::wstring* er
                               unsigned long pidAlvo = 0) {
     if (fps <= 0) return LimiteJogoRestaurar();
     if (exe.empty()) { if (erro) *erro = L"sem exe do alvo"; return false; }
+    nv::Segura trava(nv::g_travaDrs.cs);   // B5: ver LimiteJogoRestaurar
     // Trocou de jogo com um limite nosso pendurado no anterior? Devolve o anterior primeiro.
     if (!g_lim.exe.empty() && Minusculas(g_lim.exe) != Minusculas(exe)) LimiteJogoRestaurar();
     nv::Sessao_ s;
@@ -563,20 +731,25 @@ static bool LimiteJogoAplicar(const std::wstring& exe, int fps, std::wstring* er
     nv::Perfil p = s.PerfilDoExe(exe, true, &criado, &nomePerfil);
     if (!p) { if (erro) *erro = L"nao achei nem criei o perfil do jogo no driver"; return false; }
     if (g_lim.exe.empty()) {
-        g_lim.exe = exe; g_lim.perfilCriado = criado; g_lim.original = criado ? -1 : s.LerFrl(p);
-        g_lim.aplicado = fps;
-        g_jan = JanelaLimite{}; g_jan.exe = exe; g_jan.fps = fps; g_jan.de = AgoraFt(); g_jan.pid = pidAlvo;
+        const int original = criado ? -1 : s.LerFrl(p);
+        {
+            nv::Segura dados(g_travaDados.cs);
+            g_lim.exe = exe; g_lim.perfilCriado = criado; g_lim.original = original;
+            g_lim.aplicado = fps;
+            g_jan = JanelaLimite{}; g_jan.exe = exe; g_jan.fps = fps; g_jan.de = AgoraFt(); g_jan.pid = pidAlvo;
+        }
         LimiteGravarIni();          // ANTES de gravar no driver: se cairmos agora, a proxima abertura desfaz
         JanelaGravarIni();
         LancarGuardiao();           // ...e se cairmos de vez, o guardiao desfaz
     }
     // O pid vale para ESTA aplicacao, mesmo trocando so o valor (60 -> 30) sem soltar o limite:
     // o novo valor tambem so pega na proxima abertura, entao a pendencia recomeca daqui.
-    g_lim.pidAoAplicar = pidAlvo;
+    { nv::Segura dados(g_travaDados.cs); g_lim.pidAoAplicar = pidAlvo; }
     if (!s.GravarFrl(p, fps)) { if (erro) *erro = L"o driver recusou o limite"; return false; }
     if (!s.Salvar()) { if (erro) *erro = L"o driver nao salvou o perfil"; return false; }
-    g_lim.aplicado = fps; LimiteGravarIni();
-    g_jan.fps = fps; JanelaGravarIni();
+    { nv::Segura dados(g_travaDados.cs); g_lim.aplicado = fps; g_jan.fps = fps; }
+    LimiteGravarIni();
+    JanelaGravarIni();
     Logf("limite do jogo: %s -> %d fps no perfil '%s' (original %d%s)", U8(exe).c_str(), fps, U8(nomePerfil).c_str(),
          g_lim.original, g_lim.perfilCriado ? ", perfil criado por nos" : "");
     return true;
@@ -595,11 +768,19 @@ static const bool kWorkResAoVivo = true;
 
 // Em que pe esta o limite que aplicamos. `pidAlvo` e o pid do jogo AGORA (0 = nao sabemos).
 // Mora aqui, e nao junto do struct LimiteJogo, porque depende do kLimiteAoVivo acima.
+// B5: chamada pelo laco enquanto a thread da conferencia pode estar gravando: copia sob g_travaDados.
 static int EstadoDoLimite(unsigned long pidAlvo) {
-    if (g_lim.exe.empty() || g_lim.aplicado <= 0) return NasceuLimitado(pidAlvo) ? LIM_HERDADO : LIM_NENHUM;
+    bool semLimite; unsigned long pidAoAplicar; JanelaLimite jan;
+    {
+        nv::Segura dados(g_travaDados.cs);
+        semLimite = g_lim.exe.empty() || g_lim.aplicado <= 0;
+        pidAoAplicar = g_lim.pidAoAplicar;
+        if (semLimite) jan = g_jan;
+    }
+    if (semLimite) return NasceuLimitado(pidAlvo, jan) ? LIM_HERDADO : LIM_NENHUM;
     if (kLimiteAoVivo) return LIM_VALENDO;                 // se um dia pegar ao vivo, nao ha pendencia
-    if (!g_lim.pidAoAplicar || !pidAlvo) return LIM_INDEFINIDO;
-    return (pidAlvo == g_lim.pidAoAplicar) ? LIM_PENDENTE : LIM_VALENDO;
+    if (!pidAoAplicar || !pidAlvo) return LIM_INDEFINIDO;
+    return (pidAlvo == pidAoAplicar) ? LIM_PENDENTE : LIM_VALENDO;
 }
 
 // Navegadores: o video no Edge/Chrome/Firefox e composto pelo processo de GPU do
@@ -640,8 +821,26 @@ static void ModoLerIni() {
 // explicita no painel. Antes o 3x ligava JOGO_IGUAL sozinho e gravava no perfil do jogo sem
 // ninguem pedir; um jogo aberto naquela janela ficava a 30 mesmo depois do app "soltar".
 static int ModoPadrao(int) { return JOGO_LIVRE; }
-// O modo em vigor: o escolhido, ou o padrao pelas camadas.
-static int ModoAtual(int camadas) { return g_modoEscolhido ? g_modo : ModoPadrao(camadas); }
+// A BASE DA FLUIDEZ INTERPOLADA (X-FG-QUALIDADE, 19/09/2026; ESTUDO-LS §5.2). A regra numero um
+// do Lossless Scaling e "limite o jogo a 1/2, 1/3 ou 1/4 do refresh": sem isso a captura do
+// monitor chega em rajadas (COD do dono: 33 fps com p95 de 46 ms num painel de 240 Hz livre) e
+// nenhum ritmo do apresentador conserta. Quando a Interpolada liga, o app pede uma base
+// (refresh / divisor, o divisor comecando no multiplicador e subindo enquanto a chegada nao
+// alcanca) POR ESTE CAMPO - e ela vale como um chip automatico: so enquanto a pessoa NAO
+// escolheu chip nenhum (g_modoEscolhido), e so nesta sessao (nao vai ao ini). Passa pelos dois
+// motores de sempre (a peca no jogo na hora; o perfil do driver na reabertura) e e desfeita
+// pelos mesmos caminhos (Interpolada desligada -> 0 -> LimiteJogoRestaurar; Encerrar; guardiao).
+// AVISO: isto e uma excecao a "PADRAO = LIVRE SEMPRE" (14/09) - o driver e gravado sem clique,
+// so quando a Interpolada esta ligada; [fluidez] base_auto=0 no ini desliga (ver main.cpp).
+static int  g_baseAuto = 0;
+static void BaseAutomatica(int fps) {
+    const int v = fps > 0 ? fps : 0;
+    if (v == g_baseAuto) return;
+    g_baseAuto = v;
+    Logf("limite do jogo: base da fluidez interpolada = %d fps (%s)", v, v ? (g_modoEscolhido ? "a pessoa escolheu um chip: o chip vale, a base nao" : "vale como chip automatico enquanto nenhum chip for escolhido") : "desligada");
+}
+// O modo em vigor: o escolhido, ou a base da Interpolada, ou o padrao pelas camadas.
+static int ModoAtual(int camadas) { return g_modoEscolhido ? g_modo : (g_baseAuto > 0 ? g_baseAuto : ModoPadrao(camadas)); }
 // O limite que o modo pede para o jogo dado o teto da camada (0 = nenhum).
 static int LimitePedido(int modo, int tetoCamada) { return modo == JOGO_IGUAL ? (tetoCamada > 0 ? tetoCamada : 0) : modo > 0 ? modo : 0; }
 
@@ -694,58 +893,23 @@ namespace Txt {
 // (d), numa maquina mais forte o ideal e mais alto. Por isso a frase diz que travar ajuda, que
 // 60 e um bom ponto de PARTIDA, e que o melhor valor e o maior que a maquina segura. Esse texto
 // ja e o texto certo se (d) ganhar, e continua verdadeiro se (a) ganhar.
-static const wchar_t* Explicacao(bool en) {
-    // Segunda frase e o AVISO HONESTO (14/09/2026): a trava e gravada no perfil NVIDIA do jogo,
-    // so vale quando o jogo abre, e o app a devolve ao sair (um guardiao cobre queda/kill).
-    return en ? L"Capping the game at a fixed rate makes the filter steadier. Written to the game's NVIDIA profile, applies when the game opens, undone when this app closes."
-              : L"Travar o jogo numa taxa fixa deixa o filtro mais regular. Grava no perfil NVIDIA do jogo, vale quando o jogo abre e é desfeito quando este app fecha.";
-}
-// A orientacao de valor, em linha propria. "Comeco" e nao "ideal": ver o bloco acima.
-static const wchar_t* PontoDePartida(bool en) {
-    return en ? L"60 is a good start — the best value is the highest your machine holds"
-              : L"60 é um bom começo — o melhor é o maior que a sua máquina segura";
-}
-// A negativa, desenhada numa linha propria pelo painel. Mesmo motivo da negativa do teto do
-// filtro: quem chega aqui procurando outra coisa le a legenda como se falasse dessa outra
-// coisa, e dizer o que o controle NAO faz custa uma linha.
-static const wchar_t* NaoMexeNoFiltro(bool en) {
-    return en ? L"it does not change the filter's fps" : L"não mexe no fps do filtro";
-}
-static const wchar_t* RotuloSecao(bool en) { return en ? L"GAME FPS" : L"FPS DO JOGO"; }
-static const wchar_t* ChipLivre(bool en)   { return en ? L"Free" : L"Livre"; }
+// Explicacao(), PontoDePartida(), NaoMexeNoFiltro(), RotuloSecao(), ChipLivre(),
+// SemLimiteNavegador(), Botao(), BotaoSub(), BotaoParar(), SemNvidia() e BotaoSubPendente()
+// (mais abaixo) SAIRAM em 24/09/2026 (item 7, Rodada 21): eram texto so da secao "FPS DO
+// JOGO" removida do menu End. ChipIgual() ja estava sem uso desde antes (chip que saiu dos
+// controles em 06/09/2026) e continua so por historico/migracao de ini antigo.
 static const wchar_t* ChipIgual(bool en)   { return en ? L"Same as layer" : L"Igual à película"; }
-static const wchar_t* SemLimiteNavegador(bool en) { return en ? L"video in the browser: no cap available" : L"vídeo no navegador: sem limite disponível"; }
-static const wchar_t* Botao(bool en)       { return en ? L"OPTIMIZE PERFORMANCE" : L"OTIMIZAR DESEMPENHO"; }
-static const wchar_t* BotaoSub(bool en)    { return en ? L"measures 5 s per step and only goes as far as needed" : L"mede 5 s por degrau e só vai até onde precisa"; }
-static const wchar_t* BotaoParar(bool en)  { return en ? L"Optimizing… click to stop" : L"Otimizando… clique para parar"; }
-static const wchar_t* SemNvidia(bool en)   { return en ? L"not available on this card yet" : L"não disponível nesta placa ainda"; }
 static const wchar_t* ProximaAbertura(bool en) { return en ? L"takes effect when the game is reopened" : L"vale quando o jogo for reaberto"; }
 // O OPOSTO DELA, para quando a peca esta no jogo e respondendo. Existe porque o contrario -
 // nao dizer nada - deixa a pessoa sem saber se precisa reabrir: ela acabou de ler essa
 // exigencia em outras telas do programa, e silencio aqui ela le como "entao tambem preciso".
 static const wchar_t* JaValendo(bool en) { return en ? L"already in effect — no need to reopen the game" : L"já está valendo — não precisa reabrir o jogo"; }
-// A TARJA, que fica no painel enquanto o limite esperar a reabertura. O cartaz de 4 s ja
-// existia e ja dizia a coisa certa, mas some: a pessoa le, volta para o jogo, olha o contador,
-// nao ve mudanca, e a explicacao ja saiu da tela. Aviso que some e aviso que nao existiu no
-// momento em que fez falta. Por isso a tarja e persistente, e so sai quando o limite pega.
-static std::wstring TarjaPendente(bool en, int fps) {
-    return (en ? L"Game capped at " : L"Jogo limitado a ") + std::to_wstring(fps) +
-           (en ? L" fps — waiting for the game to be reopened" : L" fps — esperando você reabrir o jogo");
-}
-// E o cartaz do momento em que passa a valer, que fecha o ciclo: a pessoa fica sabendo sem ter
-// de descobrir por tentativa.
-// A TARJA DO HERDADO (14/09/2026): nao ha limite nosso AGORA, mas o processo vivo do jogo nasceu
-// com a chave e o driver o segura ate ele ser reaberto. O painel dizia "Livre" aqui - e o
-// contador do jogo mostrava 30. Fica ate o jogo ser reaberto (o pid muda e a tarja sai sozinha).
-static std::wstring TarjaHerdado(bool en, int fps) {
-    return (en ? L"The game opened with the driver cap of " : L"O jogo abriu com o limite de ") + std::to_wstring(fps) +
-           (en ? L" fps — reopen the game to free it" : L" fps do driver — reabra o jogo para soltar");
-}
+// TarjaPendente(), TarjaHerdado() e BotaoSubPendente() SAIRAM em 24/09/2026 junto com a secao
+// "FPS DO JOGO" (item 7, Rodada 21) - eram as tarjas que aquele painel mostrava.
 static std::wstring AgoraValendo(bool en, int fps) {
     return (en ? L"The game cap is now in effect: " : L"O limite do jogo está valendo agora: ") +
            std::to_wstring(fps) + L" fps";
 }
-static const wchar_t* BotaoSubPendente(bool en) { return en ? L"the game cap only applies when the game is reopened" : L"o limite do jogo só vale quando o jogo for reaberto"; }
 }
 
 // ------------------------------------------------------------------ 3+4. a escada
@@ -767,6 +931,12 @@ enum Degrau { D_NADA = 0, D_BASE, D_PRIO, D_WORK80, D_WORK67, D_JOGO60, D_JOGO30
 static const int kAmostrasPorDegrau = 5;   // 5 s de medicao por degrau
 static const int kDescartar = 1;           // o 1o segundo depois de mexer e descartado
 
+// B6 (16/09/2026): os degraus do limite do jogo gravam no driver (~100 ms) pela thread da conferencia,
+// como o chip (B5). Pedir devolve o numero do pedido; 0 = sem thread, rodou aqui e *ok/*erro ja valem.
+// fps 0 = restaurar. Definidas mais abaixo, junto da thread.
+static unsigned PedirLimiteOtimizador(const std::wstring& exe, int fps, bool* ok, std::wstring* erro);
+static bool RespostaLimiteOtimizador(unsigned seq, bool* ok, std::wstring* erro);
+
 struct Otimizador {
     Contexto ctx;
     int    degrau = D_NADA;
@@ -782,6 +952,9 @@ struct Otimizador {
     bool   prioAntesOk = false; int prioAntes = -1;
     std::wstring feito;           // resumo do que ficou aplicado (separado por virgula)
     std::wstring feitoAntes;      // o resumo como estava antes DESTE degrau (desfazer volta a ele)
+    unsigned esperaSeq = 0;       // B6: pedido ao driver cuja resposta este degrau espera (0 = nenhum)
+    int    esperaFps = 0;
+    double esperaMedia = 0.0;     // a media com que Proximo foi chamado, para seguir depois da resposta
 
     bool Ativo() const { return degrau != D_NADA && degrau != D_FIM; }
     void Toast(const std::wstring& s, UINT ms = 2500) { if (ctx.toast) ctx.toast(s, ms); }
@@ -799,7 +972,7 @@ struct Otimizador {
     void Iniciar(const Contexto& c) {
         ctx = c;
         degrau = D_BASE; idx = -1; amostras = 0; descartadas = 0; soma = 0.0; mediaAnterior = 0.0;
-        feito.clear(); feitoAntes.clear();
+        feito.clear(); feitoAntes.clear(); esperaSeq = 0;
         workResAntes = workResPrevio = ctx.workResAtual;
         // A ORDEM DEPENDE DO QUE PEGA AO VIVO. Medir so faz sentido em degrau que muda algo
         // agora; o limite do jogo, quando so vale na reabertura, fica por ultimo e encerra
@@ -829,6 +1002,7 @@ struct Otimizador {
     // Chamar UMA VEZ POR SEGUNDO com o fps apresentado pela camada (o pfps do laco).
     void Amostra1s(double fpsCamada) {
         if (!Ativo()) return;
+        if (esperaSeq) return;                     // B6: o driver ainda nao respondeu o degrau: nada a medir
         if (descartadas < kDescartar) { descartadas++; return; }
         soma += fpsCamada; amostras++;
         if (amostras < kAmostrasPorDegrau) return;
@@ -853,7 +1027,9 @@ struct Otimizador {
     void Desfazer(int d) {
         switch (d) {
         case D_PRIO:   if (prioAntesOk) PrioridadeGpu(prioAntes < 0 ? PRIO_GPU_NORMAL : prioAntes); g_est.prioAlta = false; break;
-        case D_JOGO60: case D_JOGO30: LimiteJogoRestaurar(); g_est.jogoLimite = 0; break;
+        // B6: a restauracao vai para a thread e ninguem espera (o retorno ja era ignorado). A fila
+        // garante que ela roda antes do degrau seguinte, se ele tambem gravar.
+        case D_JOGO60: case D_JOGO30: { bool ok = false; std::wstring e; PedirLimiteOtimizador(ctx.exeAlvo, 0, &ok, &e); g_est.jogoLimite = 0; break; }
         // volta ao valor do DEGRAU ANTERIOR, nao ao do inicio da escada: se 80 ajudou e 67
         // piorou, quem fica e o 80.
         case D_WORK80: case D_WORK67: if (ctx.aplicarWorkRes) { ctx.aplicarWorkRes(workResPrevio); ctx.workResAtual = workResPrevio; } break;
@@ -901,22 +1077,47 @@ struct Otimizador {
                 if (!ctx.nvidia || ctx.exeAlvo.empty() || EhNavegador(ctx.exeAlvo)) continue;
                 if (fps < ctx.alvoFps) continue;                    // jogo a 30 nunca leva a pelicula a 60 (ela apresenta no maximo o que captura)
                 if (!ctx.limiteAoVivo && degrau == D_JOGO60 && ctx.alvoFps <= 30) continue;   // sem medir, vai direto ao que a pelicula precisa
-                std::wstring erro;
-                if (!LimiteJogoAplicar(ctx.exeAlvo, fps, &erro)) { Logf("otimizar: limite %d nao aplicado: %s", fps, U8(erro).c_str()); continue; }
-                g_est.jogoLimite = fps;
-                Feito((ctx.en ? L"game at " : L"jogo a ") + std::to_wstring(fps) + L" fps");
-                if (!ctx.limiteAoVivo) {
-                    // O driver so aplica na proxima abertura do jogo: nao adianta medir.
-                    Terminar(false, mediaAtual, true);
-                    return;
-                }
-                Toast((ctx.en ? L"Optimizing… game capped at " : L"Otimizando… jogo limitado a ") + std::to_wstring(fps) + L" fps");
+                std::wstring erro; bool ok = false;
+                const unsigned seq = PedirLimiteOtimizador(ctx.exeAlvo, fps, &ok, &erro);
+                // B6: com a thread, a escada fica parada neste degrau ate o driver responder (Pulso)
+                if (seq) { esperaSeq = seq; esperaFps = fps; esperaMedia = mediaAtual; return; }
+                if (!DepoisDoLimite(fps, ok, erro, mediaAtual)) continue;
                 return;
             }
             default:
                 continue;
             }
         }
+    }
+
+    // O resto do degrau D_JOGO* depois que o driver respondeu. false = nao aplicou (o degrau e pulado).
+    bool DepoisDoLimite(int fps, bool ok, const std::wstring& erro, double mediaAtual) {
+        if (!ok) { Logf("otimizar: limite %d nao aplicado: %s", fps, U8(erro).c_str()); return false; }
+        g_est.jogoLimite = fps;
+        Feito((ctx.en ? L"game at " : L"jogo a ") + std::to_wstring(fps) + L" fps");
+        if (!ctx.limiteAoVivo) {
+            // O driver so aplica na proxima abertura do jogo: nao adianta medir.
+            Terminar(false, mediaAtual, true);
+            return true;
+        }
+        Toast((ctx.en ? L"Optimizing… game capped at " : L"Otimizando… jogo limitado a ") + std::to_wstring(fps) + L" fps");
+        return true;
+    }
+
+    // B6: chamar a cada volta do laco (a thread o acorda quando o driver responde).
+    void Pulso() {
+        if (!esperaSeq) return;
+        bool ok = false; std::wstring erro;
+        if (!RespostaLimiteOtimizador(esperaSeq, &ok, &erro)) return;
+        const int fps = esperaFps; esperaSeq = 0;
+        if (!Ativo()) {
+            // parada enquanto o driver gravava: o limite ficou, o painel mostra
+            Logf("otimizar: limite %d %s depois da parada", fps, ok ? "gravado" : "nao aplicado");
+            if (ok) g_est.jogoLimite = fps;
+        } else if (!DepoisDoLimite(fps, ok, erro, esperaMedia)) {
+            Proximo(esperaMedia);
+        }
+        if (ctx.repintar) ctx.repintar();
     }
 
     void Terminar(bool chegou, double media, bool pendente = false) {
@@ -956,42 +1157,48 @@ static Otimizador g_otim;
 // frase mandaria a pessoa reabrir o jogo a toa. O driver continua sendo gravado do mesmo
 // jeito - ele e a rede para quando a peca sair -, so a frase muda. O host sabe disso e este
 // arquivo nao, por isso vem por parametro. Ver MotorAtual() no main.cpp.
-static std::wstring Sincronizar(const std::wstring& exe, int camadas, int tetoCamada, bool en,
-                                unsigned long pidAlvo = 0, bool aoVivo = false) {
-    const int modo = ModoAtual(camadas);
+//
+// B5 (16/09/2026): a gravacao no driver (~100 ms) saiu do laco. Sincronizar() e Manual() so postam
+// o pedido para a thread da conferencia (g_conf); ela roda SincronizarAgora() sob a trava DRS e
+// devolve o cartaz, que o laco pega em RespostaSincronizar() e mostra. Pedidos seguidos antes de a
+// thread acordar viram um so (vale o ultimo; o cartaz de "nada mudou" do chip nao se perde).
+static volatile LONG g_reconferir = 0;   // B2: o limite mudou - a proxima Situacao confere o perfil de novo
+struct RespostaSinc { std::wstring msg, erro; int jogoLimite = 0; bool falhou = false; };
+static RespostaSinc SincronizarAgora(const std::wstring& exe, int modo, int tetoCamada, bool en,
+                                     unsigned long pidAlvo, bool aoVivo, bool manual) {
+    RespostaSinc r;
     int pedido = LimitePedido(modo, tetoCamada);
     if (exe.empty() || EhNavegador(exe) || !LimiteJogoDisponivel()) pedido = 0;
     const int atual = (!g_lim.exe.empty() && Minusculas(g_lim.exe) == Minusculas(exe)) ? g_lim.aplicado : 0;
-    if (pedido == atual) { g_est.jogoLimite = atual; return L""; }
+    if (pedido == atual) {
+        r.jogoLimite = atual;
+        // Chip manual "Jogo: Livre / 60 / 30 / Igual a pelicula" sem mudanca: diz por que.
+        if (manual) {
+            if (EhNavegador(exe)) r.msg = en ? L"Video in the browser: no cap available" : L"Vídeo no navegador: sem limite disponível";
+            else if (modo == JOGO_IGUAL && tetoCamada == 0) r.msg = en ? L"Game follows the layer: no cap while the layer is free" : L"Jogo igual à película: sem limite enquanto a película estiver livre";
+            else r.msg = en ? L"Game: no change" : L"Jogo: nada mudou";
+        }
+        return r;
+    }
+    InterlockedExchange(&g_reconferir, 1);
     std::wstring erro;
     if (pedido == 0) {
-        LimiteJogoRestaurar(); g_est.jogoLimite = 0;
-        if (aoVivo) return en ? L"Game: free again" : L"Jogo: livre de novo";
-        return en ? L"Game: free again\nit stays capped until it is reopened" : L"Jogo: livre de novo\ncontinua limitado até ser reaberto";
+        LimiteJogoRestaurar(); r.jogoLimite = 0;
+        if (aoVivo) r.msg = en ? L"Game: free again" : L"Jogo: livre de novo";
+        else r.msg = en ? L"Game: free again\nit stays capped until it is reopened" : L"Jogo: livre de novo\ncontinua limitado até ser reaberto";
+        return r;
     }
     if (!LimiteJogoAplicar(exe, pedido, &erro, pidAlvo)) {
-        g_est.linha = erro; g_est.linhaAviso = true;
-        return (en ? L"Could not cap the game: " : L"Não deu para limitar o jogo: ") + erro;
+        r.falhou = true;     // o painel continua mostrando o limite que ja estava
+        r.erro = erro;
+        r.msg = (en ? L"Could not cap the game: " : L"Não deu para limitar o jogo: ") + erro;
+        return r;
     }
-    g_est.jogoLimite = pedido;
-    std::wstring r = (en ? L"Game capped at " : L"Jogo limitado a ") + std::to_wstring(pedido) + L" fps";
-    if (modo == JOGO_IGUAL) r += en ? L" (same as the layer)" : L" (igual à película)";
-    if (!kLimiteAoVivo && !aoVivo) r += std::wstring(L"\n") + Txt::ProximaAbertura(en);
-    if (aoVivo)         r += std::wstring(L"\n") + Txt::JaValendo(en);
-    return r;
-}
-
-// Chip manual "Jogo: Livre / 60 / 30 / Igual a pelicula". Grava a escolha e sincroniza.
-static std::wstring Manual(const std::wstring& exe, int modo, int camadas, int tetoCamada, bool en,
-                           unsigned long pidAlvo = 0, bool aoVivo = false) {
-    g_modo = modo; g_modoEscolhido = true; ModoGravarIni();
-    Logf("limite do jogo: modo %s escolhido no painel", modo == JOGO_IGUAL ? "igual a pelicula" : modo == 60 ? "60" : modo == 30 ? "30" : "livre");
-    std::wstring r = Sincronizar(exe, camadas, tetoCamada, en, pidAlvo, aoVivo);
-    if (r.empty()) {
-        if (EhNavegador(exe)) return en ? L"Video in the browser: no cap available" : L"Vídeo no navegador: sem limite disponível";
-        if (modo == JOGO_IGUAL && tetoCamada == 0) return en ? L"Game follows the layer: no cap while the layer is free" : L"Jogo igual à película: sem limite enquanto a película estiver livre";
-        return en ? L"Game: no change" : L"Jogo: nada mudou";
-    }
+    r.jogoLimite = pedido;
+    r.msg = (en ? L"Game capped at " : L"Jogo limitado a ") + std::to_wstring(pedido) + L" fps";
+    if (modo == JOGO_IGUAL) r.msg += en ? L" (same as the layer)" : L" (igual à película)";
+    if (!kLimiteAoVivo && !aoVivo) r.msg += std::wstring(L"\n") + Txt::ProximaAbertura(en);
+    if (aoVivo)         r.msg += std::wstring(L"\n") + Txt::JaValendo(en);
     return r;
 }
 
@@ -1004,10 +1211,14 @@ static std::wstring Manual(const std::wstring& exe, int modo, int camadas, int t
 static void EmergenciaRestaurar(const char* de) {
     static volatile LONG dentro = 0;
     if (InterlockedCompareExchange(&dentro, 1, 0) != 0) return;   // reentrada (crash dentro do proprio restaurar)
-    if (!g_lim.exe.empty()) {
-        Logf("limite do jogo: saida de emergencia (%s) com %s a %d fps no driver - restaurando", de, U8(g_lim.exe).c_str(), g_lim.aplicado);
-        LimiteJogoRestaurar();
+    {
+        nv::Segura trava(nv::g_travaDrs.cs);   // B5: a thread da conferencia pode estar gravando o limite agora
+        if (!g_lim.exe.empty()) {
+            Logf("limite do jogo: saida de emergencia (%s) com %s a %d fps no driver - restaurando", de, U8(g_lim.exe).c_str(), g_lim.aplicado);
+            LimiteJogoRestaurar();
+        }
     }
+    Max::Restaurar();   // Parte B: um crash com "Desempenho maximo" ligado nao pode deixar PREFERRED_PSTATE gravado
     InterlockedExchange(&dentro, 0);
 }
 static LPTOP_LEVEL_EXCEPTION_FILTER g_filtroAnterior = nullptr;
@@ -1021,6 +1232,26 @@ static LONG WINAPI FiltroCrash(EXCEPTION_POINTERS* ep) {
 // nosso nome ("DLSS5ForAll - exe") ou valor igual ao ultimo que gravamos sem registro de
 // restauracao: orfa -> apaga e loga. Qualquer outro valor: NAO mexe (pode ser do painel da
 // NVIDIA) - loga e avisa no painel.
+// B2: roda na thread da conferencia (ver g_conf); o aviso do painel volta pelo laco.
+struct Conferencia {
+    CRITICAL_SECTION cs;              // protege o pedido e o aviso
+    HANDLE ev = nullptr, th = nullptr;
+    volatile LONG parar = 0;
+    std::wstring exe, aviso;
+    unsigned long pid = 0; int est = 0, hz = 0;
+    bool varrer = false, pedido = false;
+    // B5: o pedido de gravacao do limite (ver Sincronizar) e a resposta para o laco
+    struct Sinc { bool tem = false, manual = false, en = false, aoVivo = false; std::wstring exe; int modo = 0, teto = 0; unsigned long pid = 0; DWORD tidLaco = 0; };
+    Sinc sinc;
+    RespostaSinc resposta; bool temResposta = false;
+    // B6: os pedidos do botao "Otimizar", em FILA (restaurar e aplicar em seguida nao podem virar um so),
+    // e a resposta do ultimo que rodou, com o numero dele
+    struct PedidoOtim { unsigned seq = 0; std::wstring exe; int fps = 0; DWORD tidLaco = 0; };
+    std::vector<PedidoOtim> otim;
+    unsigned otimSeq = 0, otimRespSeq = 0; bool otimRespOk = false; std::wstring otimRespErro;
+    Conferencia() { InitializeCriticalSection(&cs); }
+};
+static Conferencia g_conf;
 static void VarrerPerfil(const std::wstring& exe) {
     if (exe.empty() || EhNavegador(exe) || !LimiteJogoDisponivel()) return;
     nv::Sessao_ s; if (!s.ok) return;
@@ -1036,31 +1267,181 @@ static void VarrerPerfil(const std::wstring& exe) {
         if (ok) ok = s.Salvar();
         Logf("limite do jogo: chave orfa apagada - perfil '%s' de %s tinha FRL=%d sem registro de restauracao (%s)%s",
              U8(nomePerfil).c_str(), U8(exe).c_str(), frl, perfilNosso ? "perfil criado por nos" : "valor igual ao ultimo que gravamos", ok ? "" : " - FALHOU");
-        if (ok && g_jan.ate == 0 && !g_jan.exe.empty()) { g_jan.ate = AgoraFt(); JanelaGravarIni(); }
+        if (ok && g_jan.ate == 0 && !g_jan.exe.empty()) { { nv::Segura dados(g_travaDados.cs); g_jan.ate = AgoraFt(); } JanelaGravarIni(); }
         return;
     }
     Logf("varredura: o perfil '%s' de %s ja tem FRL=%d SEM registro nosso - nao mexi (painel da NVIDIA?)", U8(nomePerfil).c_str(), U8(exe).c_str(), frl);
-    g_est.linha = L"O driver já limita este jogo a " + std::to_wstring(frl) + L" fps (perfil NVIDIA, não é nosso)";
-    g_est.linhaAviso = true;
+    EnterCriticalSection(&g_conf.cs);
+    g_conf.aviso = L"O driver já limita este jogo a " + std::to_wstring(frl) + L" fps (perfil NVIDIA, não é nosso)";
+    LeaveCriticalSection(&g_conf.cs);
 }
 
-// A LINHA DE PROVA, a cada 10 s (14/09/2026), junto do LAT 10s do screen_capture.h: o que o driver
-// tem no perfil AGORA (1 GetSetting/10 s), quando o pid nasceu, em que pe o limite esta e o
-// refresh medido. E o que separa "o jogo esta a 30 pelo driver" de "a captura esta a 30".
-// Chamar a cada 1 s do laco principal com o exe/pid do alvo; ela mesma se limita a 10 s.
+// A LINHA DE PROVA (14/09/2026): o que o driver tem no perfil AGORA, quando o pid nasceu, em que
+// pe o limite esta e o refresh medido. E o que separa "o jogo esta a 30 pelo driver" de "a captura
+// esta a 30".
+// B2 (16/09/2026): era a cada 10 s NO LACO DE RENDER, e cada Sessao_ (CreateSession + LoadSettings
+// da base DRS inteira) levava ~100 ms: 6 quadros da ponte perdidos e um STALL de 120 ms no feed a
+// cada 10 s, nos dois modos. Agora a thread abaixo faz a varredura e a leitura, e so quando o pid
+// do jogo muda ou o limite e mexido (g_reconferir). O laco so posta o pedido e le o aviso.
+// B5: roda um pedido de Sincronizar e guarda o cartaz. A checagem de `parar` fica DENTRO da trava
+// DRS: se o Encerrar ja pediu a parada, a restauracao dele vem depois e nada novo e gravado.
+static void SincronizarNaThread(const Conferencia::Sinc& p) {
+    RespostaSinc r; bool rodou = false;
+    {
+        nv::Segura trava(nv::g_travaDrs.cs);
+        if (!g_conf.parar) { r = SincronizarAgora(p.exe, p.modo, p.teto, p.en, p.pid, p.aoVivo, p.manual); rodou = true; }
+    }
+    if (!rodou) return;
+    EnterCriticalSection(&g_conf.cs);
+    // Resposta ainda nao lida pelo laco: junta. Cartaz vazio nao apaga o anterior; o erro fica ate
+    // ser lido; o limite mostrado e o da ultima gravacao que deu certo.
+    RespostaSinc& a = g_conf.resposta;
+    if (!g_conf.temResposta) a = RespostaSinc{};
+    if (!r.msg.empty()) a.msg = r.msg;
+    if (r.falhou) a.erro = r.erro;
+    else { a.jogoLimite = r.jogoLimite; a.falhou = false; }
+    if (!g_conf.temResposta && r.falhou) a.falhou = true;   // so falha: o painel nao mexe no limite
+    g_conf.temResposta = true;
+    LeaveCriticalSection(&g_conf.cs);
+    if (p.tidLaco) PostThreadMessageW(p.tidLaco, WM_NULL, 0, 0);   // acorda o laco (MsgWaitForMultipleObjects)
+}
+// B6: um degrau do "Otimizar" (fps 0 = restaurar), como o Otimizador fazia no laco antes.
+static bool LimiteOtimizadorAgora(const std::wstring& exe, int fps, std::wstring* erro) {
+    if (fps <= 0) return LimiteJogoRestaurar();
+    return LimiteJogoAplicar(exe, fps, erro);
+}
+// B6: roda a fila do "Otimizar" em ordem. Mesma regra do SincronizarNaThread: `parar` e conferido
+// dentro da trava DRS, entao depois do Encerrar nada novo e gravado.
+static void OtimizadorNaThread(const std::vector<Conferencia::PedidoOtim>& fila) {
+    for (const auto& p : fila) {
+        bool ok = false, rodou = false; std::wstring erro;
+        {
+            nv::Segura trava(nv::g_travaDrs.cs);
+            if (!g_conf.parar) { ok = LimiteOtimizadorAgora(p.exe, p.fps, &erro); rodou = true; }
+        }
+        if (!rodou) return;
+        EnterCriticalSection(&g_conf.cs);
+        g_conf.otimRespSeq = p.seq; g_conf.otimRespOk = ok; g_conf.otimRespErro = erro;
+        LeaveCriticalSection(&g_conf.cs);
+        if (p.tidLaco) PostThreadMessageW(p.tidLaco, WM_NULL, 0, 0);
+    }
+}
+static DWORD WINAPI ConferenciaThread(LPVOID) {
+    LimiteJogoDisponivel();   // B8: a primeira carga da nvapi sai aqui, nunca no laco (com o Iniciar ja feita, nao custa nada)
+    for (;;) {
+        WaitForSingleObject(g_conf.ev, INFINITE);
+        if (g_conf.parar) return 0;
+        EnterCriticalSection(&g_conf.cs);
+        const bool tem = g_conf.pedido;
+        const std::wstring exe = g_conf.exe;
+        const unsigned long pid = g_conf.pid; const int est = g_conf.est, hz = g_conf.hz; const bool varrer = g_conf.varrer;
+        g_conf.pedido = g_conf.varrer = false;
+        const Conferencia::Sinc sinc = g_conf.sinc;
+        g_conf.sinc = Conferencia::Sinc{};
+        std::vector<Conferencia::PedidoOtim> otim; otim.swap(g_conf.otim);
+        LeaveCriticalSection(&g_conf.cs);
+        if (sinc.tem) SincronizarNaThread(sinc);
+        if (!otim.empty()) OtimizadorNaThread(otim);
+        if (g_conf.parar) return 0;
+        if (!tem) continue;
+        if (varrer) VarrerPerfil(exe);
+        if (g_conf.parar) return 0;
+        const int frl = LimiteJogoAtual(exe);
+        const char* nome = est == LIM_PENDENTE ? "pendente" : est == LIM_VALENDO ? "valendo" : est == LIM_HERDADO ? "herdado" : est == LIM_INDEFINIDO ? "indefinido" : "livre";
+        char frlTxt[16]; if (frl < 0) snprintf(frlTxt, sizeof frlTxt, "ausente"); else snprintf(frlTxt, sizeof frlTxt, "%d", frl);
+        Logf("jogo: %s pid %lu nasceu %s | FRL no perfil agora=%s | estado=%s herdado=%s | refresh %d Hz",
+             U8(exe).c_str(), pid, HoraLocal(HoraCriacao(pid)).c_str(), frlTxt, nome, est == LIM_HERDADO ? "sim" : "nao", hz);
+    }
+}
+static bool GarantirThreadConferencia() {
+    if (!g_conf.th) {
+        if (!g_conf.ev) g_conf.ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        g_conf.th = g_conf.ev ? CreateThread(nullptr, 0, ConferenciaThread, nullptr, 0, nullptr) : nullptr;
+    }
+    return g_conf.th != nullptr;
+}
+// B8: onde o Iniciar nao roda (camada de cima, host da ponte do add-on), a primeira carga da nvapi
+// saia no laco, no primeiro desenho do painel. Chamar no arranque: a thread da conferencia nasce
+// e carrega. Sem thread, fica como antes (carga na primeira chamada).
+static void CarregarApiForaDoLaco() { GarantirThreadConferencia(); }
+// Chamar a cada 1 s do laco principal com o exe/pid do alvo. Nao bloqueia: sem mudanca, so compara.
 static void Situacao(const std::wstring& exe, unsigned long pid, int (*refreshHz)()) {
-    static ULONGLONG ultimo = 0; static std::wstring exeVarrido;
+    static std::wstring exeVarrido; static unsigned long pidVisto = 0;
     if (exe.empty()) return;
-    if (Minusculas(exe) != exeVarrido) { exeVarrido = Minusculas(exe); VarrerPerfil(exe); ultimo = 0; }
-    const ULONGLONG agora = GetTickCount64();
-    if (ultimo && agora - ultimo < 10000) return;
-    ultimo = agora;
-    const int frl = LimiteJogoAtual(exe);
+    if (TryEnterCriticalSection(&g_conf.cs)) {
+        if (!g_conf.aviso.empty()) { g_est.linha = g_conf.aviso; g_est.linhaAviso = true; g_conf.aviso.clear(); }
+        LeaveCriticalSection(&g_conf.cs);
+    }
+    const bool novoExe = Minusculas(exe) != exeVarrido;
+    if (!novoExe && pid == pidVisto && !g_reconferir) return;
+    if (!GarantirThreadConferencia()) return;   // sem thread nao confere: nunca no laco
+    exeVarrido = Minusculas(exe); pidVisto = pid; InterlockedExchange(&g_reconferir, 0);
     const int est = EstadoDoLimite(pid);
-    const char* nome = est == LIM_PENDENTE ? "pendente" : est == LIM_VALENDO ? "valendo" : est == LIM_HERDADO ? "herdado" : est == LIM_INDEFINIDO ? "indefinido" : "livre";
-    char frlTxt[16]; if (frl < 0) snprintf(frlTxt, sizeof frlTxt, "ausente"); else snprintf(frlTxt, sizeof frlTxt, "%d", frl);
-    Logf("jogo: %s pid %lu nasceu %s | FRL no perfil agora=%s | estado=%s herdado=%s | refresh %d Hz",
-         U8(exe).c_str(), pid, HoraLocal(HoraCriacao(pid)).c_str(), frlTxt, nome, est == LIM_HERDADO ? "sim" : "nao", refreshHz ? refreshHz() : 0);
+    const int hz = refreshHz ? refreshHz() : 0;
+    EnterCriticalSection(&g_conf.cs);
+    g_conf.exe = exe; g_conf.pid = pid; g_conf.est = est; g_conf.hz = hz;
+    g_conf.varrer = g_conf.varrer || novoExe; g_conf.pedido = true;
+    LeaveCriticalSection(&g_conf.cs);
+    SetEvent(g_conf.ev);
+}
+
+// B5: poe o driver de acordo com o modo em vigor (ver o comentario de SincronizarAgora). Nao
+// bloqueia: o cartaz chega depois por RespostaSincronizar. Sem thread, roda aqui como antes.
+static void Sincronizar(const std::wstring& exe, int camadas, int tetoCamada, bool en,
+                        unsigned long pidAlvo = 0, bool aoVivo = false, bool manual = false) {
+    Conferencia::Sinc p;
+    p.tem = true; p.manual = manual; p.en = en; p.aoVivo = aoVivo;
+    p.exe = exe; p.modo = ModoAtual(camadas); p.teto = tetoCamada; p.pid = pidAlvo; p.tidLaco = GetCurrentThreadId();
+    if (!GarantirThreadConferencia()) { p.tidLaco = 0; SincronizarNaThread(p); return; }
+    EnterCriticalSection(&g_conf.cs);
+    p.manual = p.manual || (g_conf.sinc.tem && g_conf.sinc.manual);   // o chip clicado ainda merece o cartaz dele
+    g_conf.sinc = p;
+    LeaveCriticalSection(&g_conf.cs);
+    SetEvent(g_conf.ev);
+}
+
+// B6: ver a declaracao, antes do Otimizador.
+static unsigned PedirLimiteOtimizador(const std::wstring& exe, int fps, bool* ok, std::wstring* erro) {
+    if (!GarantirThreadConferencia()) { *ok = LimiteOtimizadorAgora(exe, fps, erro); return 0; }
+    Conferencia::PedidoOtim p;
+    p.exe = exe; p.fps = fps; p.tidLaco = GetCurrentThreadId();
+    EnterCriticalSection(&g_conf.cs);
+    if (++g_conf.otimSeq == 0) ++g_conf.otimSeq;   // 0 quer dizer "rodou aqui"
+    p.seq = g_conf.otimSeq;
+    g_conf.otim.push_back(p);
+    LeaveCriticalSection(&g_conf.cs);
+    SetEvent(g_conf.ev);
+    return p.seq;
+}
+// B6: true = o pedido `seq` ja rodou (*ok/*erro dele). Nao bloqueia.
+static bool RespostaLimiteOtimizador(unsigned seq, bool* ok, std::wstring* erro) {
+    if (!TryEnterCriticalSection(&g_conf.cs)) return false;
+    const bool tem = g_conf.otimRespSeq == seq;
+    if (tem) { *ok = g_conf.otimRespOk; *erro = g_conf.otimRespErro; }
+    LeaveCriticalSection(&g_conf.cs);
+    return tem;
+}
+
+// Chip manual "Jogo: Livre / 60 / 30 / Igual a pelicula". Grava a escolha e sincroniza.
+static void Manual(const std::wstring& exe, int modo, int camadas, int tetoCamada, bool en,
+                   unsigned long pidAlvo = 0, bool aoVivo = false) {
+    g_modo = modo; g_modoEscolhido = true; ModoGravarIni();
+    Logf("limite do jogo: modo %s escolhido no painel", modo == JOGO_IGUAL ? "igual a pelicula" : modo == 60 ? "60" : modo == 30 ? "30" : "livre");
+    Sincronizar(exe, camadas, tetoCamada, en, pidAlvo, aoVivo, true);
+}
+
+// B5: o laco chama a cada volta. true = chegou resposta; *msg = cartaz (vazio = nada a dizer).
+static bool RespostaSincronizar(std::wstring* msg) {
+    if (!TryEnterCriticalSection(&g_conf.cs)) return false;
+    const bool tem = g_conf.temResposta;
+    RespostaSinc r;
+    if (tem) { r = g_conf.resposta; g_conf.resposta = RespostaSinc{}; g_conf.temResposta = false; }
+    LeaveCriticalSection(&g_conf.cs);
+    if (!tem) return false;
+    if (!r.falhou) g_est.jogoLimite = r.jogoLimite;
+    if (!r.erro.empty()) { g_est.linha = r.erro; g_est.linhaAviso = true; }
+    if (msg) *msg = r.msg;
+    return true;
 }
 
 // O GUARDIAO (ver LancarGuardiao). Chamar na PRIMEIRA linha do wWinMain, antes do mutex de
@@ -1108,6 +1489,17 @@ static void Iniciar(const std::wstring& iniPath) {
     LimiteLerIni();
     JanelaLerIni();
     ModoLerIni();
+    // MIGRACAO (24/09/2026, Rodada 21, item 7 do dono): os chips "FPS do jogo" sairam do menu
+    // End porque limitar o fps do jogo pelo driver causava problemas ao ligar. Quem tinha
+    // escolhido um chip (chave [desempenho] modo= gravada por sessoes anteriores) continuaria
+    // tendo o limite reaplicado sozinho pelo Sincronizar() do laco, sem UI nenhuma para ver ou
+    // desligar isso - por isso a escolha e desfeita aqui, uma vez, no arranque.
+    if (g_modoEscolhido) {
+        Logf("limite do jogo: a opcao 'FPS do jogo' saiu do menu - desfazendo a escolha anterior (modo=%d) do ini",
+             g_modo);
+        g_modoEscolhido = false; g_modo = JOGO_LIVRE;
+        ModoGravarIni();   // apaga a chave [desempenho] modo= (ModoGravarIni grava "" quando !g_modoEscolhido)
+    }
     const std::wstring gr = IniGetD(L"guardiao_restaurou");
     if (!gr.empty()) { Logf("limite do jogo: o guardiao restaurou %s depois que o app morreu sem fechar direito (ver dlss5forall.guardiao.log)", U8(gr).c_str()); IniSetD(L"guardiao_restaurou", L""); }
     if (!g_lim.exe.empty()) {
@@ -1124,7 +1516,13 @@ static void Iniciar(const std::wstring& iniPath) {
 // Ao sair (caminho normal): devolve o driver como estava. A prioridade de GPU morre com o processo.
 static void Encerrar() {
     if (g_otim.Ativo()) g_otim.Cancelar();
+    if (g_conf.th) {   // B2: a conferencia termina antes da restauracao (a trava DRS garante a ordem mesmo se estourar; B5: um limite na fila nao e mais gravado)
+        InterlockedExchange(&g_conf.parar, 1); SetEvent(g_conf.ev);
+        WaitForSingleObject(g_conf.th, 3000);
+        CloseHandle(g_conf.th); g_conf.th = nullptr;
+    }
     LimiteJogoRestaurar();
+    Max::Restaurar();
     if (nv::g_api.ok && nv::g_api.Unload) nv::g_api.Unload();
 }
 

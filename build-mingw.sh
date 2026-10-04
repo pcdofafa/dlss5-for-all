@@ -26,6 +26,17 @@ OUT=${1:-DLSS5ForAll.exe}
 # icone e melhor que nenhum exe. Mas avisa alto, porque publicar sem icone e o tipo de
 # coisa que so se descobre depois do zip pronto.
 RES_OBJ=""
+# v2.0: O LAUNCHER VEM ANTES. O app.rc embute portable-launcher\DLSS5ForAll.exe, a
+# WebView2Loader.dll e o versao.txt (a copia de seguranca da porta, ver ConferirLancamento):
+# compilar o launcher aqui garante que o embutido e o do mesmo build. SKIP_LAUNCHER=1 reaproveita
+# o launcher ja compilado (o hash do embutido continua batendo com o da raiz do pacote).
+if [ -z "${SKIP_LAUNCHER:-}" ]; then
+  bash portable-launcher/build-launcher.sh || { echo "falhou ao compilar o launcher"; exit 1; }
+fi
+[ -f portable-launcher/DLSS5ForAll.exe ] && [ -f portable-launcher/WebView2Loader.dll ] || { echo "falta o launcher ou a WebView2Loader.dll em portable-launcher/"; exit 1; }
+VERSAO_TXT=$(sed -n 's/^#define DLSS5_VERSAO L"\([0-9.]*\)".*/\1/p' versao.h)
+[ -n "$VERSAO_TXT" ] || { echo "versao.h sem #define DLSS5_VERSAO"; exit 1; }
+printf '%s\r\n' "$VERSAO_TXT" > portable-launcher/versao.txt
 if [ -f app.rc ]; then
   if [ ! -f marca/DLSS5ForAll.ico ]; then
     echo "AVISO: marca/DLSS5ForAll.ico nao existe - o exe vai sair SEM icone."
@@ -48,10 +59,14 @@ fi
 # virtual num handler COM, indentacao enganosa) eram defeitos de verdade.
 # -Ifeeder-amd/...: os cabecalhos ffx-api (FidelityFX SDK 1.1.4) do fg_ffx.h - so cabecalhos;
 # a DLL e carregada em tempo de execucao e so quando o modo interpolado esta ligado.
-"$CXX" -std=c++17 -O2 -municode -mwindows -Wall -Wextra -Ifeeder-amd/src-feeder/external/ffx -Iexternal/ffmpeg-lgpl/include main.cpp $RES_OBJ -o "$OUT" \
+# v2.0: DEV=1 compila o build de DESENVOLVIMENTO (-DDLSS5_DEV): o app abre direto da bancada,
+# sem o launcher (ver ConferirLancamento no main.cpp). O de distribuicao e o padrao, sem DEV.
+DEVFLAG=""
+[ "${DEV:-}" = "1" ] && { DEVFLAG="-DDLSS5_DEV"; echo "AVISO: build de DESENVOLVIMENTO (DLSS5_DEV) - nao distribuir"; }
+"$CXX" -std=c++17 -O2 -municode -mwindows -Wall -Wextra $DEVFLAG -Ifeeder-amd/src-feeder/external/ffx -Iexternal/ffmpeg-lgpl/include main.cpp $RES_OBJ -o "$OUT" \
   -ld3d11 -ld3d12 -ldxgi -ldxguid \
   -lmfplat -lmf -lmfreadwrite -lmfuuid \
-  -lole32 -loleaut32 -lcomctl32 -ldwmapi -lruntimeobject -lgdiplus -lgdi32 \
+  -lole32 -loleaut32 -lcomctl32 -ldwmapi -lruntimeobject -lgdiplus -lgdi32 -lbcrypt \
   -static -static-libgcc -static-libstdc++
 # O ADD-ON JUNTO. Publicar exe novo com .addon64 velho e silencioso e caro: o resolve()
 # do reshade_bridge.h recusa protocolo diferente sem dizer nada, e a LUT e a nitidez

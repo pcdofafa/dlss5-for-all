@@ -29,9 +29,9 @@
        texOrig[i] -> cross[i]             cross[i] -> texDest[i]
              | Signal fX (cross-adapter)      | Signal fB
 
-   Anel de kSlots quadros: o produtor nunca espera. Se o anel esta cheio
-   (o destino ainda usa o slot), o quadro e DESCARTADO e contado - nunca
-   se trava o laco que a pessoa esta vendo.
+   Anel de kSlots quadros. RODADA7: com o anel cheio o produtor ESPERA (Enviar(tex, esperarMs),
+   ver EsperarSlot); so com esperarMs = 0 (ou o destino sem largar o slot no prazo) o quadro e
+   DESCARTADO e contado.
 
    Duas direcoes sao duas instancias: uma leva a captura (Radeon -> GeForce),
    outra leva a saida da cadeia (GeForce -> Radeon). A classe nao sabe qual
@@ -64,6 +64,7 @@
    ===================================================================== */
 #pragma once
 
+#include "saida_rapida.h"   // Saida::Teto: nenhuma espera de GPU passa de 200 ms no encerramento
 #include <windows.h>
 #include <d3d11_4.h>
 #include <d3d12.h>
@@ -560,7 +561,50 @@ public:
     /* Lado da ORIGEM. Copia `tex` (mesmo tamanho e formato) para o proximo slot e enfileira
        as duas travessias. Devolve false quando o anel esta cheio (quadro descartado) ou
        quando a ponte nao esta de pe. Nunca espera a GPU. */
-    bool Enviar(ID3D11Texture2D* tex) {
+    /* RODADA7 (PLANO-FLUIDEZ item 2, MAPA-FLUXO §3 #10): ANEL CHEIO = O PRODUTOR ESPERA, nao descarta.
+       `esperarMs` > 0 (o main passa quando o consumidor esta de pe e nao pausado): se o slot do quadro
+       n-kSlots ainda nao foi largado pelo destino, a CPU espera a fence dele (evento, sem girar) em fatias,
+       conta em Esperas() e anota a pior; esperas >= 100 ms ficam em EsperasLongas()/UltimaEsperaLongaMs()
+       para o main logar AVISO. So se o destino nao largar o slot em `esperarMs` (consumidor morto/placa
+       travada: nao ha o que esperar) o quadro cai - contado em Descartados(), como antes, e dito no log.
+       Com esperarMs = 0 o comportamento e o de antes (a ponte de entrada, cujo consumidor e esta mesma
+       thread, nao pode esperar). */
+    uint64_t Esperas() const { return m_esperas.load(std::memory_order_relaxed); }
+    uint64_t EsperasLongas() const { return m_esperasLongas.load(std::memory_order_relaxed); }
+    double   UltimaEsperaLongaMs() const { return m_ultEsperaLongaMs; }
+    double   EsperaPiorMsReset() { const double v = m_esperaPiorMs; m_esperaPiorMs = 0.0; return v; }
+    // true = o slot do quadro `velho` esta livre (ja estava, ou ficou dentro do prazo)
+    bool SlotLivre(uint64_t velho) const {
+        if (m_direto) return m_fLivreA11->GetCompletedValue() >= velho;
+        return m_fX->GetCompletedValue() >= velho && m_fB->GetCompletedValue() >= velho && m_fLivre->GetCompletedValue() >= velho;
+    }
+    bool EsperarSlot(uint64_t velho, DWORD esperarMs) {
+        if (SlotLivre(velho)) return true;
+        if (!esperarMs) return false;
+        if (!m_evEspera) m_evEspera = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!m_evEspera) return false;
+        LARGE_INTEGER f, t0, t1; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
+        m_esperas.fetch_add(1, std::memory_order_relaxed);
+        bool livre = false; double ms = 0.0;
+        for (;;) {
+            // a ultima fence da cadeia do slot: fLivre (o destino largou). Nas duas placas as outras
+            // (fX, fB) vem antes dela na ordem da GPU; o laco reconfere as tres a cada fatia.
+            HRESULT hr = m_direto ? m_fLivreA11->SetEventOnCompletion(velho, m_evEspera)
+                                  : m_fLivre->SetEventOnCompletion(velho, m_evEspera);
+            if (FAILED(hr)) break;
+            WaitForSingleObject(m_evEspera, Saida::Teto(20));
+            QueryPerformanceCounter(&t1);
+            ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)f.QuadPart;
+            if (SlotLivre(velho)) { livre = true; break; }
+            if (ms >= (double)esperarMs || Saida::Saindo()) break;
+        }
+        QueryPerformanceCounter(&t1);
+        ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)f.QuadPart;
+        if (ms > m_esperaPiorMs) m_esperaPiorMs = ms;
+        if (ms >= 100.0) { m_esperasLongas.fetch_add(1, std::memory_order_relaxed); m_ultEsperaLongaMs = ms; }
+        return livre;
+    }
+    bool Enviar(ID3D11Texture2D* tex, DWORD esperarMs = 0) {
         if (!m_ok || !tex) return false;
         if (m_modo == PonteGpu::Codec) return EnviarCodec(tex);
         // ---- travessia DIRETA (mesma placa): uma copia VRAM->VRAM e uma fence. Nada de
@@ -568,7 +612,7 @@ public:
         if (m_direto) {
             const uint64_t n = m_enviados + 1;
             const int i = (int)(n % kSlots);
-            if (n > (uint64_t)kSlots && m_fLivreA11->GetCompletedValue() < n - kSlots) { m_descartados++; return false; }
+            if (n > (uint64_t)kSlots && !EsperarSlot(n - kSlots, esperarMs)) { m_descartados++; return false; }
             m_ctxA->CopyResource(m_texOrig[i], tex);
             m_ctxA->Signal(m_fA11, n);
             m_ctxA->Flush();   // sem o Flush o Signal so sai no proximo Present: 1 quadro de atraso
@@ -582,8 +626,7 @@ public:
             // o slot i foi do quadro n-kSlots: as duas copias dele ja sairam e o destino ja
             // o largou? Se nao, este quadro cai fora - conferido na CPU, sem esperar.
             const uint64_t velho = n - kSlots;
-            if (m_fX->GetCompletedValue() < velho || m_fB->GetCompletedValue() < velho ||
-                m_fLivre->GetCompletedValue() < velho) {
+            if (!EsperarSlot(velho, esperarMs)) {   // RODADA7: espera (esperarMs > 0) em vez de descartar
                 m_descartados++;
                 return false;
             }
@@ -657,6 +700,34 @@ public:
         if (quadro) *quadro = n;
         return m_texDest[i];
     }
+    /* RODADA5 (23/09/2026, OCLUSAO-2309 sec. 12): o PROXIMO quadro EM ORDEM, e nao o mais novo.
+       Regra do dono: nenhum quadro do jogo e descartado - o que chegou atrasado sai no proximo
+       vblank possivel, nunca e pulado. O Receber() de cima pega o mais novo e, se dois quadros foram
+       publicados entre duas voltas do apresentador, o de tras sumia sem conta nenhuma. Aqui ele sai
+       na vez dele. `fila` = quantos ainda esperam DEPOIS deste (0 = em dia); `pulados` = quantos
+       ficaram para tras mesmo assim (so acontece se o anel ja reescreveu o slot - nao deveria,
+       porque o produtor nao reescreve um slot que o destino nao Liberou). Mesmas regras de GPU do
+       Receber(): a espera pela copia vai para a fila do destino, a CPU nao para. */
+    ID3D11Texture2D* ReceberSeguinte(uint64_t* quadro, uint64_t* fila, uint64_t* pulados) {
+        if (fila) *fila = 0;
+        if (pulados) *pulados = 0;
+        if (!m_ok) return nullptr;
+        const uint64_t pronto = m_pronto.load(std::memory_order_acquire);
+        if (pronto == 0 || pronto <= m_recebidoUltimo) return nullptr;
+        uint64_t n = m_recebidoUltimo + 1;
+        // primeiro quadro da sessao, ou o anel ja deu a volta por cima do proximo: pega o mais
+        // velho que ainda esta no anel (e conta o que ficou para tras)
+        if (m_recebidoUltimo == 0) n = pronto;
+        else if (pronto - n >= (uint64_t)kSlots) { const uint64_t n2 = pronto - (uint64_t)kSlots + 1; if (pulados) *pulados = n2 - n; n = n2; }
+        m_recebidoUltimo = n;
+        m_recebidos++;
+        if (fila) *fila = pronto - n;
+        if (m_modo != PonteGpu::Codec) m_ctxB->Wait(m_fB11, n);
+        const int i = (int)(n % kSlots);
+        if (!m_direto && m_modo != PonteGpu::Max) Decodificar(i);
+        if (quadro) *quadro = n;
+        return m_texDest[i];
+    }
     /* Depois de enfileirar o uso da textura no contexto do destino: avisa que o slot pode
        ser reescrito quando esse uso terminar (na GPU). */
     void Liberar(uint64_t quadro) {
@@ -700,6 +771,7 @@ public:
         Soltar(m_fA11); Soltar(m_fB11); Soltar(m_fLivre11);
         Soltar(m_fXB);
         Soltar(m_fA); Soltar(m_fX); Soltar(m_fB); Soltar(m_fLivre);
+        if (m_evEspera) { CloseHandle(m_evEspera); m_evEspera = nullptr; }   // RODADA7
         for (int i = 0; i < kSlots; i++) {
             Soltar(m_crossA[i]); Soltar(m_crossB[i]);
             Soltar(m_resOrig12[i]); Soltar(m_resDest12[i]);
@@ -722,6 +794,29 @@ public:
         m_pronto.store(0); m_recebidoUltimo = 0;
     }
     ~Ponte() { Parar(); }
+    /* MGR-2309 item 3: espera as duas filas D3D12 da ponte terminarem o que ja foi mandado, com
+       prazo (o mesmo pedaco que o Parar() faz, mas sem soltar nada - para o encerramento medir e
+       logar antes de desmontar). Devolve ms; 0 = sem filas; -1 = alguma estourou o prazo. */
+    double DrenarGpu(DWORD tetoMs) {
+        LARGE_INTEGER a, b, q; QueryPerformanceCounter(&a); QueryPerformanceFrequency(&q);
+        bool ok = true, algo = false;
+        for (Lado12* l : { &m_A, &m_B }) {
+            if (!l->fila || !l->dev) continue;
+            algo = true;
+            ID3D12Fence* f = nullptr;
+            if (FAILED(l->dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&f)) || !f) continue;
+            HANDLE ev = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            bool este = SUCCEEDED(l->fila->Signal(f, 1)) && f->GetCompletedValue() >= 1;
+            if (!este && ev && SUCCEEDED(f->SetEventOnCompletion(1, ev)))
+                este = WaitForSingleObject(ev, tetoMs) == WAIT_OBJECT_0 || f->GetCompletedValue() >= 1;
+            if (ev) CloseHandle(ev);
+            f->Release();
+            ok = ok && este;
+        }
+        QueryPerformanceCounter(&b);
+        if (!algo) return 0.0;
+        return ok ? 1000.0 * (double)(b.QuadPart - a.QuadPart) / (double)q.QuadPart : -1.0;
+    }
 
 private:
     /* ============================ o caminho do nivel Codec ============================
@@ -1034,7 +1129,7 @@ private:
             HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
             if (ev) {
                 if (m_fA11->GetCompletedValue() < m_enviados && SUCCEEDED(m_fA11->SetEventOnCompletion(m_enviados, ev)))
-                    WaitForSingleObject(ev, 2000);
+                    WaitForSingleObject(ev, Saida::Teto(2000));
                 CloseHandle(ev);
             }
         }
@@ -1090,7 +1185,7 @@ private:
         HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (ev) {
             fila->Signal(f, 1);
-            if (f->GetCompletedValue() < 1) { f->SetEventOnCompletion(1, ev); WaitForSingleObject(ev, 2000); }
+            if (f->GetCompletedValue() < 1) { f->SetEventOnCompletion(1, ev); WaitForSingleObject(ev, Saida::Teto(2000)); }
             CloseHandle(ev);
         }
         f->Release();
@@ -1145,6 +1240,10 @@ private:
     ID3D12Fence* m_fLivre = nullptr; ID3D11Fence* m_fLivre11 = nullptr;
 
     uint64_t m_enviados = 0, m_descartados = 0, m_recebidos = 0;
+    // RODADA7: produtor esperando vaga no anel (em vez de descartar)
+    HANDLE m_evEspera = nullptr;
+    std::atomic<uint64_t> m_esperas{ 0 }, m_esperasLongas{ 0 };
+    double m_esperaPiorMs = 0.0, m_ultEsperaLongaMs = 0.0;
     std::atomic<uint64_t> m_pronto{ 0 };
     uint64_t m_recebidoUltimo = 0;
 };
@@ -1243,7 +1342,16 @@ class SondaBanda {
               ID3D12CommandList* ls[] = { lD[i] }; qD->Wait(fXD, n); qD->ExecuteCommandLists(1, ls); qD->Signal(fD, n); }
             return n;
         }
-        void Esperar(UINT64 v) { if (fD && fD->GetCompletedValue() < v) { fD->SetEventOnCompletion(v, ev); WaitForSingleObject(ev, 5000); } }
+        // NS-2309 item 5(a): `ev` e auto-reset e reusado; limpa antes e so sai com a fence no valor
+        // (uma espera anterior que estourou acordaria esta cedo - NeuralScreen v1.7.1, ideia, codigo proprio).
+        void Esperar(UINT64 v) {
+            if (!fD || !ev || fD->GetCompletedValue() >= v) return;
+            ResetEvent(ev);
+            fD->SetEventOnCompletion(v, ev);
+            const ULONGLONG fim = GetTickCount64() + Saida::Teto(5000);
+            for (ULONGLONG ag = GetTickCount64(); fD->GetCompletedValue() < v && ag < fim; ag = GetTickCount64())
+                WaitForSingleObject(ev, (DWORD)(fim - ag));
+        }
         void Destruir() {
             if (fD && n) Esperar(n);
             if (ev) { CloseHandle(ev); ev = nullptr; }

@@ -39,6 +39,10 @@
 //  colunas. Faltando qualquer um, a tela e a de sempre (uma coluna) e o launcher.log diz o
 //  motivo ("vitrine=off motivo=...").
 //
+//  A PORTA UNICA (v2.0, lancamento.h): o app confere que foi aberto por este launcher - um
+//  bilhete com o PID dele, publicado com o app ainda suspenso - e, aberto direto pelo bin\,
+//  devolve a pessoa para ca. Por isso Abrir() espera o "conferido" do app antes de sair.
+//
 //  Compilado por build-launcher.sh (MinGW-w64). O icone entra pelo launcher.rc.
 // =====================================================================================
 #ifndef _WIN32_WINNT
@@ -56,6 +60,7 @@
 #include "../splash_ofertas.h"
 #include "../atualizacao.h"
 #include "../vitrine.h"
+#include "../lancamento.h"   // v2.0: o bilhete que o app confere (o app so abre por esta tela)
 
 static std::wstring PastaDoExe() {
     wchar_t p[32768];
@@ -64,6 +69,10 @@ static std::wstring PastaDoExe() {
     const size_t k = s.find_last_of(L"\\/");
     return (k == std::wstring::npos) ? L"" : s.substr(0, k + 1);
 }
+
+// v2.0 (--raiz): onde moram o estado, o log e o cache deste launcher. Normalmente a raiz do pacote;
+// rodando do LOCALAPPDATA com uma raiz sem escrita (ver wWinMain), a pasta deste exe.
+static std::wstring g_pastaDados;
 
 static bool Existe(const std::wstring& caminho) {
     return GetFileAttributesW(caminho.c_str()) != INVALID_FILE_ATTRIBUTES;
@@ -198,7 +207,11 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
     STARTUPINFOW si{}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     std::wstring buf = linha;   // CreateProcessW pode escrever no buffer
-    if (!CreateProcessW(alvo.c_str(), &buf[0], nullptr, nullptr, FALSE, 0, nullptr,
+    // v2.0: O APP SO ABRE POR ESTA TELA (lancamento.h). Ele nasce SUSPENSO para o bilhete
+    // existir, com o PID dele no nome, antes de a primeira linha do app rodar; depois a
+    // thread segue e este processo espera o "conferido" (ate 10 s) para sair - o app confere
+    // que o pai e este exe, entao o pai tem de estar vivo durante a conferencia.
+    if (!CreateProcessW(alvo.c_str(), &buf[0], nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr,
                         pasta.c_str(), &si, &pi)) {
         const DWORD e = GetLastError();
         MessageBoxW(nullptr,
@@ -207,7 +220,19 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
             L"DLSS5 For All", MB_ICONERROR | MB_OK);
         return 1;
     }
+    HANDLE ev = nullptr, mapa = nullptr;
+    const bool bilhete = Lancamento::PublicarBilhete(pi.dwProcessId, &ev, &mapa);
+    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
+    const ULONGLONG t0 = GetTickCount64();
+    const bool conferiu = bilhete && Lancamento::EsperarConferido(pi.hProcess, pi.dwProcessId, 10000);
+    DWORD saida = STILL_ACTIVE;
+    GetExitCodeProcess(pi.hProcess, &saida);
+    atualizacao::Anotar(g_pastaDados + L"launcher.log", L"app: pid %lu, bilhete %ls, conferido %ls em %llu ms%ls",
+                        (unsigned long)pi.dwProcessId, bilhete ? L"publicado" : L"FALHOU", conferiu ? L"sim" : L"NAO",
+                        (unsigned long long)(GetTickCount64() - t0), saida == STILL_ACTIVE ? L"" : L" (o app ja saiu)");
+    if (ev) CloseHandle(ev);
+    if (mapa) CloseHandle(mapa);
     CloseHandle(pi.hProcess);
     return 0;
 }
@@ -216,9 +241,41 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // COM de apartamento unico: e o que o WebView2 (vitrine.h) exige - e a tela ja tem o laco
     // de mensagens que ele precisa. Inofensivo para todo o resto.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    const std::wstring raiz   = PastaDoExe();
-    const std::wstring binNv  = raiz + L"bin\\";
-    const std::wstring binAmd = raiz + L"bin-amd\\";
+    // v2.0: --raiz "<pasta>" - este exe e a COPIA do launcher que o app guarda dentro dele, extraida
+    // no LOCALAPPDATA porque a pasta do pacote nao aceita escrita (Arquivos de Programas sem admin,
+    // pasta so leitura). O pacote de verdade (bin\, ofertas.ini, versao.txt) e o de --raiz; o estado,
+    // o log e o cache ficam la se ela aceitar escrita, senao aqui. Sem --raiz: tudo como sempre.
+    std::wstring raizApp = PastaDoExe();
+    bool comRaiz = false;
+    {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        for (int i = 1; argv && i + 1 < argc; i++)
+            if (std::wstring(argv[i]) == L"--raiz") {
+                std::wstring r = argv[i + 1];
+                while (!r.empty() && (r.back() == L'\\' || r.back() == L'/')) r.pop_back();
+                if (!r.empty() && Existe(r + L"\\bin")) { raizApp = r + L"\\"; comRaiz = true; }
+                break;
+            }
+        if (argv) LocalFree(argv);
+    }
+    bool raizGravavel = true;
+    if (comRaiz) {
+        const std::wstring teste = raizApp + L"dlss5-teste-escrita.tmp";
+        HANDLE h = CreateFileW(teste.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+        raizGravavel = (h != INVALID_HANDLE_VALUE);
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    }
+    const std::wstring raiz   = raizGravavel ? raizApp : PastaDoExe();   // estado/log/cache/ofertas.ini lidos daqui
+    g_pastaDados = raiz;
+    // a raiz sem escrita: o ofertas.ini dela (a configuracao do pacote) vem para a pasta de dados a cada abertura
+    if (comRaiz && !raizGravavel && Existe(raizApp + L"ofertas.ini"))
+        CopyFileW((raizApp + L"ofertas.ini").c_str(), (raiz + L"ofertas.ini").c_str(), FALSE);
+    const std::wstring binNv  = raizApp + L"bin\\";
+    const std::wstring binAmd = raizApp + L"bin-amd\\";
+    if (comRaiz)
+        atualizacao::Anotar(raiz + L"launcher.log", L"--raiz %ls (%ls): estado/log/cache em %ls",
+                            raizApp.c_str(), raizGravavel ? L"aceita escrita" : L"SEM escrita", raiz.c_str());
 
     // O IDIOMA. E o que a pessoa escolheu - no app ou nesta tela -, e ele fica no
     // dlss5forall.ini do modulo, na mesma chave que o app le ([idioma] lingua=). Sem escolha
@@ -245,12 +302,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             if (a == L"--amd")      { direto = 2; continue; }
             if (a == L"--sem-dlss") { direto = 3; continue; }
             if (a.rfind(L"--atualizado=", 0) == 0) { versaoAnterior = a.substr(13); continue; }
+            if (a == L"--raiz") { ++i; continue; }   // v2.0: deste launcher, nao segue para o app
             if (!resto.empty()) resto += L" ";
             const bool aspas = a.find(L' ') != std::wstring::npos;
             resto += aspas ? (L"\"" + a + L"\"") : a;
         }
         if (argv) LocalFree(argv);
-        args = (direto || !versaoAnterior.empty()) ? resto : ArgumentosSemPrograma();
+        args = (direto || !versaoAnterior.empty() || comRaiz) ? resto : ArgumentosSemPrograma();
     }
     // O modulo AMD recebe --amd: o app tambem detecta o modulo pelos arquivos do mod ao lado
     // do exe, mas a flag deixa isso explicito antes mesmo de o mod estar instalado (faixa certa
@@ -349,8 +407,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // dlss5forall.ini, entao gravar num so deixaria o outro no idioma antigo. Grava nos dois
     // que existirem (a pasta ausente e o pacote que nao traz aquele modulo).
     info.aoTrocarIdioma = [&](Lingua l) {
-        if (Existe(raiz + L"bin"))     GravarIdioma(iniNv, l);
-        if (Existe(raiz + L"bin-amd")) GravarIdioma(iniAmd, l);
+        if (Existe(raizApp + L"bin"))     GravarIdioma(iniNv, l);
+        if (Existe(raizApp + L"bin-amd")) GravarIdioma(iniAmd, l);
         montarEstadoHardware();   // a linha do topo tambem e texto, e tambem tem que trocar
         // A COLUNA DA VITRINE TAMBEM. Ela e uma pagina web que recebeu o idioma na query
         // quando abriu; sem este aviso, trocar para ingles deixava metade da tela em
@@ -531,7 +589,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         const wchar_t* modulo = e == ofertas::detail::ESC_NVIDIA ? L"nvidia" : e == ofertas::detail::ESC_AMD ? L"amd" : L"sem";
         const wchar_t* flag   = e == ofertas::detail::ESC_NVIDIA ? L"--nvidia" : e == ofertas::detail::ESC_AMD ? L"--amd" : L"--sem-dlss";
         atualizacao::SalvarModulo(raiz, modulo);
-        if (verif.pronto.load() == 1) {
+        // v2.0: com --raiz sem escrita nao ha como trocar os arquivos do pacote: nao oferece a atualizacao
+        if (verif.pronto.load() == 1 && raizGravavel) {
             bool automatica = verif.automatica;
             int resposta;
             if (automatica && verif.podeAuto) {

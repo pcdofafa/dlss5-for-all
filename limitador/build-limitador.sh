@@ -49,7 +49,7 @@ echo "== dlss5-fpslimit.dll (a peca) =="
   "$AQUI/fpslimit_dll.cpp" "${MH_OBJ[@]}" \
   -o "$OUT/dlss5-fpslimit.dll" \
   -static -static-libgcc -static-libstdc++ \
-  -ld3d11 -ldxgi -lpsapi -Wl,--enable-stdcall-fixup
+  -ld3d11 -ldxgi -lpsapi -ldwmapi -Wl,--enable-stdcall-fixup
 echo "  ok -> $OUT/dlss5-fpslimit.dll"
 
 echo "== dxgi.dll (a casca) =="

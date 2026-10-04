@@ -110,7 +110,23 @@ static void SegurarQuadro() {
 
     const uint32_t fps = ValorPermitido(g_bloco->limite_fps);
     g_bloco->pulso_peca++;
-    if (g_ritmo.Esperar(fps)) g_bloco->quadros_segurados++;
+    /* N1: a ancora e a fase sao um PEDIDO do app (ver fpslimit_shared.h). Nada aqui confia no
+       numero que chegou de fora: a fase e cortada em um periodo para os dois lados, que e o
+       maximo que um deslocamento de fase pode significar - acima disso ela so daria a volta. */
+    const bool  ancora = g_bloco->ancora != 0;
+    double      faseMs = (double)(int32_t)g_bloco->fase_us / 1000.0;
+    const double tetoFase = fps ? 1000.0 / (double)fps : 0.0;
+    if (faseMs >  tetoFase) faseMs =  tetoFase;
+    if (faseMs < -tetoFase) faseMs = -tetoFase;
+    if (g_ritmo.Esperar(fps, ancora, faseMs)) g_bloco->quadros_segurados++;
+    // UMA linha no log quando a ancora muda de estado, e nunca mais. Isto roda dentro do jogo.
+    static int ultAncora = -1;
+    const int agoraAncora = g_ritmo.Ancorada() ? 1 : 0;
+    if (ancora && agoraAncora != ultAncora) {
+        ultAncora = agoraAncora;
+        if (agoraAncora) Logf("ritmo em fase com o vblank: %u fps = %u vblank(s) por quadro, fase %.2f ms", fps, g_ritmo.VblanksPorQuadro(), faseMs);
+        else             Logf("ritmo SEM ancora no vblank (%u fps nao cabe num numero inteiro de vblanks) - acumulador livre", fps);
+    }
 }
 
 static HRESULT STDMETHODCALLTYPE MeuPresent(IDXGISwapChain* sc, UINT intervalo, UINT flags) {

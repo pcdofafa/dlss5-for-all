@@ -216,8 +216,23 @@ static int Instalar(const std::wstring& pastaOrigem, const std::wstring& exeJogo
         LogH("limitador: ja existe um dxgi.dll que nao e nosso em %ls - recusando", pasta.c_str());
         return INST_OCUPADO;
     }
-    // Ja estava so quando esta INTEIRO. Meia instalacao cai adiante e e completada.
-    if (CascaEhNossaMesmo(pasta, pastaOrigem) && Existe(pasta + kNomePeca)) return INST_JA_ESTAVA;
+    /* Ja estava so quando esta INTEIRO **e a peca e a DESTA versao do app**. A casca quase nunca
+       muda; a peca muda a cada versao do contrato (fpslimit_shared.h, `kVersao`), e uma peca
+       velha na pasta do jogo faz o app RECUSAR o bloco (Conversa::Abrir) - o limitador ao vivo
+       some sem que ninguem tenha desinstalado nada. Entao aqui a peca tambem e comparada byte a
+       byte, e so ela e recopiada quando difere.
+       Se a copia falhar (o jogo esta aberto e segura a DLL), isto NAO vira erro: a instalacao
+       antiga continua de pe, o limitador ao vivo fica indisponivel ate o jogo reabrir, e e
+       exatamente o que a pessoa ja teria sem este remendo. */
+    if (CascaEhNossaMesmo(pasta, pastaOrigem) && Existe(pasta + kNomePeca)) {
+        if (ArquivosIguais(pasta + kNomePeca, origPeca)) return INST_JA_ESTAVA;
+        if (CopyFileW(origPeca.c_str(), (pasta + kNomePeca).c_str(), FALSE)) {
+            LogH("limitador: a peca em %ls era de outra versao - atualizada (vale na proxima abertura do jogo)", pasta.c_str());
+            return INST_OK;
+        }
+        LogH("limitador: a peca em %ls e de outra versao e nao deu para trocar (erro %lu; o jogo esta aberto?) - feche o jogo e instale de novo", pasta.c_str(), GetLastError());
+        return INST_JA_ESTAVA;
+    }
 
     // A peca PRIMEIRO, a casca por ultimo. A ordem importa: a casca e quem faz o jogo carregar a
     // peca, entao enquanto ela nao existir nao ha meio caminho em que o jogo procure uma peca
@@ -393,6 +408,19 @@ struct Conversa {
 
     void Pedir(uint32_t fps) { if (b) b->limite_fps = ValorPermitido(fps); }
     void Desligar()          { if (b) { b->desligar = 1; b->limite_fps = 0; } }
+
+    /* N1 - A FONTE EM FASE COM A SAIDA. Chamada uma vez por segundo, do mesmo ponto do Pulsar:
+       a fase nao muda a cada quadro (ela sai de `D`, que e uma media movel), e escrever mais
+       vezes so poria o caminho quente do jogo para ler um valor mudando debaixo dele.
+       `faseMs` e o phi em milissegundos, negativo quando o quadro tem de ser solto ANTES do
+       vblank - que e o caso normal, porque o apresentador precisa dele `D` antes do prazo. */
+    void Fase(bool ancora, double faseMs) {
+        if (!b) return;
+        if (faseMs >  1000.0) faseMs =  1000.0;
+        if (faseMs < -1000.0) faseMs = -1000.0;
+        b->fase_us = (int32_t)(faseMs * 1000.0);
+        b->ancora  = ancora ? 1u : 0u;
+    }
 
     uint32_t Estado() const   { return b ? b->estado : (uint32_t)EST_INICIANDO; }
     uint32_t Protecao() const { return b ? b->protecao : 0u; }

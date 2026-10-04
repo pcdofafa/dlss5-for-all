@@ -189,8 +189,10 @@ int main(int argc, char** argv)
         fprintf(stderr, "[alvo] modo imagem: %dx%d de '%s'\n", imgW, imgH, argv[2]);
     }
 
-    const int W  = modoImg ? imgW : ((argc >= 3) ? atoi(argv[1]) : 1280);
-    const int H  = modoImg ? imgH : ((argc >= 3) ? atoi(argv[2]) : 720);
+    // W/H deixaram de ser const em 15/09/2026 (A5): o laco os atualiza quando a janela e
+    // redimensionada (ver o bloco RESIZE, no laco). O tamanho de NASCIMENTO continua vindo daqui.
+    int W  = modoImg ? imgW : ((argc >= 3) ? atoi(argv[1]) : 1280);
+    int H  = modoImg ? imgH : ((argc >= 3) ? atoi(argv[2]) : 720);
     const float PXQ = modoImg ? 0.0f : ((argc >= 4) ? (float)atof(argv[3]) : 8.0f);   // pixels por quadro
     // vsync=0 destrava a fonte. Serve para MEDIR A CAMADA: preso ao vblank, o alvo entrega
     // 60 quadros por segundo e a camada acompanha sem esforco -- o custo real dela fica
@@ -306,6 +308,28 @@ int main(int argc, char** argv)
             TranslateMessage(&msg); DispatchMessageW(&msg);
         }
         if (g_sair) break;
+
+        // RESIZE (A5, 15/09/2026, para o T6 da ponte integrada): a janela mudou de tamanho ->
+        // o swapchain acompanha (ResizeBuffers). Ate aqui o alvo ignorava o tamanho novo e so
+        // esticava o backbuffer de nascimento; o ReShade (e o dlss5-feed.addon32 dentro dele)
+        // nunca via resolucao nova, entao nao havia Build novo e a ponte nao tinha o que
+        // renegociar. Com o ResizeBuffers o ReShade refaz o runtime, o add-on manda 'B' de novo
+        // e o host renegocia (T6). A conferencia e por GetClientRect a cada volta: barata, e
+        // dispensa tratar WM_SIZE no Proc (que nao tem acesso ao swapchain).
+        {
+            RECT cr{}; GetClientRect(hwnd, &cr);
+            const int cw = cr.right - cr.left, ch = cr.bottom - cr.top;
+            if (cw > 0 && ch > 0 && (cw != W || ch != H)) {
+                ctx->OMSetRenderTargets(0, nullptr, nullptr);
+                Rel(rtv);
+                const HRESULT hr = sc->ResizeBuffers(0, (UINT)cw, (UINT)ch, DXGI_FORMAT_UNKNOWN, 0);
+                if (FAILED(hr)) { fprintf(stderr, "[alvo] ResizeBuffers %dx%d falhou 0x%08lX\n", cw, ch, (unsigned long)hr); return 9; }
+                sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb);
+                dev->CreateRenderTargetView(bb, nullptr, &rtv); Rel(bb);
+                fprintf(stderr, "[alvo] janela %dx%d -> %dx%d: swapchain refeito\n", W, H, cw, ch);
+                W = cw; H = ch;
+            }
+        }
 
         struct { float du, dv, eu, ev; } p{ desloc, 0.0f, modoImg ? 1.0f : 0.5f, 1.0f };
         D3D11_MAPPED_SUBRESOURCE m{};

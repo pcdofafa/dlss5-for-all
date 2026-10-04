@@ -117,7 +117,15 @@ $ExcluirArquivos = @(
 # '*.dmp': o despejo de falha que o feeder deixa na pasta (dlss5-feed-crash.dmp) e a memoria
 # do processo na maquina de quem publica. Achado em 11/09/2026, ja dentro do zip - vazio desta
 # vez, mas um despejo de verdade leva para o pacote publico o que estava na memoria aqui.
-$ExcluirPadroes = @('*.log', '*.log.*', '*.bak*', 'ReShade.ini.bak-*', 'renodx*', 'nvngx_*', '*.dmp')
+# 'lumenite*' (FASE4, 22/09/2026): os `lumenite_*.fx`, os `include\lumenite_*.fxh` e a textura
+# `lumenite_bluenoise256.png` sao do LumeniteFX (umar-afzaal) sob AGNYA License
+# (github.com/nvb-uy/AGNYA-License), que PROIBE redistribuicao - FONTES-ABERTAS-2209 §7.1.1.
+# Estavam indo no zip publico desde sempre, porque a copia do montar-portable.ps1 levava a
+# pasta de shaders inteira e nenhuma das duas listas daqui tinha o nome. Quem instala
+# continua com eles: o setup-dlss5.ps1, passo 4, os baixa do repositorio do autor.
+# Este padrao e a SEGUNDA barreira - a primeira e o filtro do montar-portable.ps1 -, e as duas
+# existem pelo mesmo motivo do renodx ter escapado por um digito: uma barreira so ja falhou.
+$ExcluirPadroes = @('*.log', '*.log.*', '*.bak*', 'ReShade.ini.bak-*', 'renodx*', 'nvngx_*', '*.dmp', 'lumenite*')
 $ExcluirPastas  = @('reshade-cache', 'backup-versao-anterior', 'cache')
 # AS PASTAS DE TESTE NAO VAO NO ZIP. A raiz de trabalho acumula copias inteiras do programa
 # para experimentos (bin-teste-passes, bin-teste-requiem, launcher-teste...) - em 11/09/2026
@@ -294,6 +302,20 @@ try {
         ($_.Name -match $ExcluirPastasPadraoTeste) -or ($_.Name -match $ExcluirPastasPadrao) -or ($ExcluirPastas -contains $_.Name -and $_.Name -ne 'reshade-cache')
     }
     if ($pastaRuim) { throw "pasta que nao devia ir no zip: $(($pastaRuim.FullName) -join ', ')" }
+    # FASE4 (22/09/2026): BINARIO DE TERCEIRO NAO VIAJA SEM A LICENCA DELE.
+    # O `amd_fidelityfx_dx12.dll` e da AMD sob MIT (FidelityFX SDK 1.1.4 - ver o CREDITOS.md), e
+    # a MIT exige que o aviso de copyright e o texto da licenca acompanhem a copia. Hoje o
+    # arquivo `LICENSE-FidelityFX.txt` so era copiado para o `bin-amd\`, e o zip de 22/09/2026
+    # tinha a DLL no `bin\` SEM a licenca ao lado - descumprimento da unica condicao da MIT.
+    # Vale por PASTA: a licenca tem de estar na mesma pasta que a DLL, porque e assim que a
+    # pessoa que abre o zip encontra as duas.
+    foreach ($m in $PastasDoProduto) {
+        $dll = Join-Path (Join-Path $tmp $m) 'amd_fidelityfx_dx12.dll'
+        $lic = Join-Path (Join-Path $tmp $m) 'LICENSE-FidelityFX.txt'
+        if ((Test-Path $dll) -and -not (Test-Path $lic)) {
+            throw "$m\amd_fidelityfx_dx12.dll vai no zip sem $m\LICENSE-FidelityFX.txt - a MIT do FidelityFX exige a licenca junto (copie de perfil-amd\LICENSE-FidelityFX.txt)"
+        }
+    }
     # A VERSAO ANUNCIADA TEM DE SER A QUE OS BINARIOS DECLARAM. O versao.txt do zip e escrito
     # por este script, entao ele sempre "bate"; o que nao bate sozinho e o VERSIONINFO dos
     # exe, que sai do app.rc/launcher.rc na hora de compilar. Se eles ficarem para tras, quem

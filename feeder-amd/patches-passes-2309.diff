@@ -1,0 +1,442 @@
+--- dlss5-feed.cpp.bak-passes-2309	2026-09-23 02:58:46.394146100 -0300
++++ dlss5-feed.cpp	2026-09-23 03:02:06.437114300 -0300
+@@ -1296,6 +1296,21 @@
+     int   nr_semente_direta;
+     int   nr_guias_cache;
+     int   nr_guias_recorte;
++    // PASSES-2309 (Agente B / PESQ-GPU-CONVIVENCIA §3b): o pacote da rede sai em UM envio por
++    // passe, e nao mais num so de ~9 ms com 3 passes.
++    //   nr_envio_por_passe 1 (padrao) = entre um passe e o seguinte a lista e fechada,
++    //                      executada e sinaliza uma fence propria (feed.fence.passe); a
++    //                      gravacao continua na mesma lista, no mesmo allocator. A fronteira
++    //                      de submissao e onde o escalonador consegue intercalar o jogo/DWM:
++    //                      a GPU e devolvida em <= ~4,6 ms em vez de <= ~9,2 ms. A ordem, as
++    //                      barreiras e o resultado sao os mesmos -- nada de quadro cru, nenhum
++    //                      passe cortado. 0 = o pacote unico de antes, sem espera nenhuma nova.
++    //   nr_pacotes_em_voo  2 (padrao; 0 = sem limite, 1..8) = com o envio por passe ligado,
++    //                      antes de enfileirar QUALQUER pacote nosso a CPU espera ate que no
++    //                      maximo N-1 dos anteriores ainda estejam na placa. Numa fila
++    //                      atrasada a pelicula espera; o jogo nao perde quadro.
++    int   nr_envio_por_passe;
++    int   nr_pacotes_em_voo;
+ };
+ 
+ // PERFIL POR PASSE: o perfil que a rede recebe num passe, com a heranca ja resolvida.
+@@ -1319,7 +1334,8 @@
+                      1,                       // FLUIDEZ3: ngx_init_fora -- o Init sai do Present quando o RenoDX nao esta no ar
+                      0, 0, 0,                 // ESCALA30: nr_escala_min / nr_sondar_min / nr_min_marca (0 = ninguem sondou)
+                      0, 1, 1,                 // DRIVER1: nr_remontar_vivo / nr_snippet_persistente / nr_ui_identidade
+-                     0, 1, 1, 0 };            // OTIMIZA-PASSE: nr_perfil_fino / nr_semente_direta / nr_guias_cache / nr_guias_recorte
++                     0, 1, 1, 0,              // OTIMIZA-PASSE: nr_perfil_fino / nr_semente_direta / nr_guias_cache / nr_guias_recorte
++                     1, 2 };                  // PASSES-2309: nr_envio_por_passe / nr_pacotes_em_voo
+ 
+ // RITMO2 (22/09/2026): o periodo do refresh da tela em ms, publicado pelo app no
+ // dlss5-feed.cfg (chave `refresh_ms`). 0 = o app nao informou (versao velha do app, ou
+@@ -1745,6 +1761,9 @@
+         else if (_stricmp(key, "nr_ui_identidade")       == 0) next.nr_ui_identidade       = iv;
+         // OTIMIZA-PASSE (23/09/2026): o encanamento do motor proprio.
+         else if (_stricmp(key, "nr_perfil_fino")         == 0) next.nr_perfil_fino         = iv;
++        // PASSES-2309: um envio por passe, e quantos pacotes nossos na placa ao mesmo tempo.
++        else if (_stricmp(key, "nr_envio_por_passe")     == 0) next.nr_envio_por_passe     = iv;
++        else if (_stricmp(key, "nr_pacotes_em_voo")      == 0) next.nr_pacotes_em_voo      = iv;
+         else if (_stricmp(key, "nr_semente_direta")      == 0) next.nr_semente_direta      = iv;
+         else if (_stricmp(key, "nr_guias_cache")         == 0) next.nr_guias_cache         = iv;
+         else if (_stricmp(key, "nr_guias_recorte")       == 0) next.nr_guias_recorte       = iv;
+@@ -1823,6 +1842,9 @@
+     if (next.nr_semente_direta < 0 || next.nr_semente_direta > 1)           next.nr_semente_direta = 1;
+     if (next.nr_guias_cache < 0 || next.nr_guias_cache > 1)                 next.nr_guias_cache = 1;
+     if (next.nr_guias_recorte < 0 || next.nr_guias_recorte > 1)             next.nr_guias_recorte = 0;
++    // PASSES-2309: fora da faixa volta ao PADRAO, pelo mesmo motivo das de cima.
++    if (next.nr_envio_por_passe < 0 || next.nr_envio_por_passe > 1)         next.nr_envio_por_passe = 1;
++    if (next.nr_pacotes_em_voo < 0 || next.nr_pacotes_em_voo > 8)           next.nr_pacotes_em_voo = 2;
+     // M1-FEED: a lista por passe, com a mesma faixa do `nr_escala`. Sem a chave no
+     // arquivo, ela E a dupla antiga; com a chave, o que faltou vale 100.
+     {
+@@ -2060,6 +2082,7 @@
+     // reescrita pelo overlay nao pode apagar a escolha de quem estava medindo.
+     fprintf(f, "nr_perfil_fino=%d\nnr_semente_direta=%d\nnr_guias_cache=%d\nnr_guias_recorte=%d\n",
+             g_cfg.nr_perfil_fino, g_cfg.nr_semente_direta, g_cfg.nr_guias_cache, g_cfg.nr_guias_recorte);
++    fprintf(f, "nr_envio_por_passe=%d\nnr_pacotes_em_voo=%d\n", g_cfg.nr_envio_por_passe, g_cfg.nr_pacotes_em_voo);   // PASSES-2309
+     fprintf(f, "nr_escala_min=%d\nnr_sondar_min=%d\nnr_min_marca=%d\n",
+             g_cfg.nr_escala_min, g_cfg.nr_sondar_min, g_cfg.nr_min_marca);
+     // DRIVER1: as tres chaves de volta desta leva vao ao arquivo com o resto.
+@@ -3483,6 +3506,181 @@
+ static UINT64 g_fence_ult_wait11 = 0;   // ultimo valor que a fila D3D11 esperou
+ static double g_begin_pior_ms = 0.0;    // pior espera de BeginCommands do periodo
+ 
++// ---------------------------------------------------------------------------
++// PASSES-2309 (Agente B, PESQ-GPU-CONVIVENCIA §3b/§5): UM ENVIO POR PASSE, <= N EM VOO.
++//
++// O pacote do quadro com 3 passes era UM ExecuteCommandLists de ~9,2 ms. A fronteira de
++// submissao e o unico ponto em que o escalonador do Windows sempre consegue intercalar o
++// jogo e o DWM; um pacote de 9 ms segura a placa 9 ms. Com `nr_envio_por_passe=1` a MESMA
++// lista e fechada e executada entre um passe e o seguinte (EpEnviarPasse, junto do corpo da
++// rede) e reaberta no MESMO allocator -- a ordem dos comandos e as barreiras nao mudam, so
++// ganham fronteiras. Cada envio nosso (os do meio e o do fim do quadro) sinaliza uma fence
++// PROPRIA, `feed.fence.passe`: a `feed.fence.frame` continua com um Signal por quadro, e todo
++// o codigo que prevê `g.fence_value + 1` (aneis de timestamp, sondas, recorte) continua certo.
++//
++// E antes de CADA envio a CPU espera ate que no maximo `nr_pacotes_em_voo - 1` dos nossos
++// ainda estejam na placa: numa fila atrasada a pelicula espera, em vez de empilhar 3 quadros
++// atras do jogo. Esperar NUNCA vira quadro cru: ao fim de gpu_timeout_ms a espera loga e o
++// pacote vai assim mesmo.
++// ---------------------------------------------------------------------------
++static ID3D12Fence  *g_ep_fence;          // feed.fence.passe
++static ID3D12Device *g_ep_dev;            // o device para o qual ela nasceu (nao owned)
++static HANDLE        g_ep_event;
++static UINT64        g_ep_sig;            // o ultimo valor sinalizado nela
++static bool          g_ep_off;            // nao conseguiu nascer: nao tentar a cada quadro
++static bool          g_ep_lista_fechada;  // um Reset do meio falhou: a lista do quadro ja saiu fechada
++static bool          g_ep_quebrado;       // ... e entao o envio por passe fica desligado ate o proximo device
++// Medidas, para a linha do perfil fino (nenhuma linha propria: o log nao incha).
++static int      g_ep_voo_seg;             // maior "em voo" visto no segundo corrente
++static LONGLONG g_ep_seg_t0;              // QPC do inicio do segundo corrente
++static int      g_ep_voo_hist[16];        // o maximo de cada segundo fechado, desde a ultima linha
++static int      g_ep_voo_hist_n;
++static UINT64   g_ep_envios, g_ep_meio;   // envios no periodo; quantos deles foram do meio do quadro
++static UINT64   g_ep_esperas;             // envios que tiveram de esperar vaga
++static double   g_ep_espera_pior_ms, g_ep_espera_soma_ms;
++static UINT64   g_ep_estouros;            // esperas que bateram gpu_timeout_ms (o pacote foi assim mesmo)
++static UINT64   g_ep_avisos;              // linhas de aviso de espera longa ja escritas (teto no log)
++
++static void EpRelease()
++{
++    SafeRelease(g_ep_fence);
++    g_ep_dev = nullptr;
++    if (g_ep_event != nullptr) { CloseHandle(g_ep_event); g_ep_event = nullptr; }
++    g_ep_sig = 0;
++    g_ep_off = false;
++    g_ep_lista_fechada = false;
++    g_ep_quebrado = false;
++}
++
++static bool EpEnsure()
++{
++    if (g_ep_fence != nullptr && g_ep_dev == g.dev12) return true;
++    if (g_ep_fence != nullptr) EpRelease();   // outro device: a fence velha nao serve a esta fila
++    if (g_ep_off || g.dev12 == nullptr || g.queue == nullptr) return false;
++    g_ep_off = true;   // so volta a false no fim, se tudo der certo
++    if (FAILED(g.dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), reinterpret_cast<void **>(&g_ep_fence))) ||
++        g_ep_fence == nullptr)
++    {
++        g_ep_fence = nullptr;
++        Log("[feed] envio por passe: CreateFence falhou -- o pacote do quadro segue unico, como antes");
++        return false;
++    }
++    g_ep_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
++    if (g_ep_event == nullptr) { SafeRelease(g_ep_fence); return false; }
++    D12Nomear(g_ep_fence, L"feed.fence.passe");   // DRED/PIX: o nome W diz de quem e e para que
++    g_ep_dev = g.dev12;
++    g_ep_sig = 0;
++    g_ep_off = false;
++    Log("[feed] envio por passe: no ar (fence feed.fence.passe, no maximo %d pacote(s) nosso(s) em voo%s)",
++        g_cfg.nr_pacotes_em_voo, g_cfg.nr_pacotes_em_voo <= 0 ? " -- 0 = sem limite" : "");
++    return true;
++}
++
++static double EpMsDesde(const LARGE_INTEGER &t0)
++{
++    LARGE_INTEGER t1, f;
++    QueryPerformanceCounter(&t1);
++    QueryPerformanceFrequency(&f);
++    return f.QuadPart > 0 ? 1000.0 * double(t1.QuadPart - t0.QuadPart) / double(f.QuadPart) : 0.0;
++}
++
++// Espera ate caber mais um pacote nosso na placa. Devolve false so se o device morreu.
++static bool EpEsperarVaga(const char *onde)
++{
++    if (g_cfg.nr_envio_por_passe == 0 || g_cfg.nr_pacotes_em_voo <= 0 || g_ep_quebrado) return true;
++    if (!EpEnsure()) return true;
++    const UINT64 lim = static_cast<UINT64>(g_cfg.nr_pacotes_em_voo);
++    if (g_ep_sig < lim) return true;
++    const UINT64 alvo = g_ep_sig - (lim - 1);   // completed >= alvo  <=>  em voo <= lim - 1
++    if (g_ep_fence->GetCompletedValue() >= alvo) return true;
++
++    LARGE_INTEGER t0;
++    QueryPerformanceCounter(&t0);
++    ++g_ep_esperas;
++    ResetEvent(g_ep_event);
++    if (FAILED(g_ep_fence->SetEventOnCompletion(alvo, g_ep_event))) return true;
++    const DWORD timeout = static_cast<DWORD>(g_cfg.gpu_timeout_ms);
++    bool pronto = false, aviso500 = false, aviso1000 = false;
++    for (DWORD esperado = 0; esperado < timeout && !pronto; )
++    {
++        const DWORD fatia = timeout - esperado < 250 ? timeout - esperado : 250;
++        pronto = WaitForSingleObject(g_ep_event, fatia) == WAIT_OBJECT_0 ||
++                 g_ep_fence->GetCompletedValue() >= alvo;
++        esperado += fatia;
++        if (pronto) break;
++        if (g.dev12 != nullptr)
++        {
++            const HRESULT removed = g.dev12->GetDeviceRemovedReason();
++            if (FAILED(removed))
++            {
++                Log("[feed] the D3D12 device was removed (0x%08X) while waiting for a free packet slot (%s)", removed, onde);
++                g_device_morto = removed;
++                DredRelatorio("envio por passe");
++                return false;
++            }
++        }
++        // O AVISO ANTECIPADO (item 3 do PLANO-FLUIDEZ): o watchdog do Windows e de 2 s, e o
++        // gpu_timeout_ms (2000) empata com ele. Quem le o log precisa saber a 500 ms e a
++        // 1000 ms que um pacote nosso esta preso -- e qual, pelo nome que o DRED tambem usa.
++        const bool marca500 = !aviso500 && esperado >= 500, marca1000 = !aviso1000 && esperado >= 1000;
++        if (marca500 || marca1000)
++        {
++            if (marca500) aviso500 = true;
++            if (marca1000) aviso1000 = true;
++            if (g_ep_avisos < 40 || g_ep_avisos % 100 == 0)
++                Log("[feed] AVISO envio por passe: ha %u ms esperando vaga (%s) -- %llu pacote(s) nosso(s) ainda na "
++                    "placa, limite %d; fila feed.queue.direct, lista feed.list.frame, fence feed.fence.passe "
++                    "sinal %llu completed %llu (o watchdog do Windows e de 2 s)",
++                    static_cast<unsigned>(esperado), onde,
++                    static_cast<unsigned long long>(g_ep_sig - g_ep_fence->GetCompletedValue()), g_cfg.nr_pacotes_em_voo,
++                    static_cast<unsigned long long>(g_ep_sig), static_cast<unsigned long long>(g_ep_fence->GetCompletedValue()));
++            ++g_ep_avisos;
++        }
++    }
++    const double ms = EpMsDesde(t0);
++    g_ep_espera_soma_ms += ms;
++    if (ms > g_ep_espera_pior_ms) g_ep_espera_pior_ms = ms;
++    if (!pronto)
++    {
++        ++g_ep_estouros;
++        if (g_ep_avisos < 40 || g_ep_avisos % 100 == 0)
++            Log("[feed] AVISO envio por passe: %u ms sem vaga (%s) -- o pacote vai assim mesmo (nenhum quadro "
++                "descartado); fila feed.queue.direct, fence feed.fence.passe completed %llu de %llu",
++                timeout, onde, static_cast<unsigned long long>(g_ep_fence->GetCompletedValue()),
++                static_cast<unsigned long long>(g_ep_sig));
++        ++g_ep_avisos;
++    }
++    return true;
++}
++
++// Depois de CADA ExecuteCommandLists nosso com o envio por passe ligado.
++static void EpSinalizar()
++{
++    if (g_ep_fence == nullptr || g.queue == nullptr) return;
++    const UINT64 v = ++g_ep_sig;
++    g.queue->Signal(g_ep_fence, v);
++    ++g_ep_envios;
++    const UINT64 feito = g_ep_fence->GetCompletedValue();
++    const int voo = static_cast<int>(v > feito ? v - feito : 0);   // inclui o que acabou de sair
++    LARGE_INTEGER agora, f;
++    QueryPerformanceCounter(&agora);
++    QueryPerformanceFrequency(&f);
++    if (g_ep_seg_t0 == 0) g_ep_seg_t0 = agora.QuadPart;
++    else if (agora.QuadPart - g_ep_seg_t0 >= f.QuadPart)
++    {
++        if (g_ep_voo_hist_n < static_cast<int>(sizeof(g_ep_voo_hist) / sizeof(g_ep_voo_hist[0])))
++            g_ep_voo_hist[g_ep_voo_hist_n++] = g_ep_voo_seg;
++        else
++        {
++            for (int i = 1; i < g_ep_voo_hist_n; ++i) g_ep_voo_hist[i - 1] = g_ep_voo_hist[i];
++            g_ep_voo_hist[g_ep_voo_hist_n - 1] = g_ep_voo_seg;
++        }
++        g_ep_voo_seg = 0;
++        g_ep_seg_t0 = agora.QuadPart;
++    }
++    if (voo > g_ep_voo_seg) g_ep_voo_seg = voo;
++}
++
+ static bool BeginCommands()
+ {
+     const int slot = g.frame_slot;
+@@ -3504,11 +3702,27 @@
+         // for the full timeout, three frames in a row, before latching off with the
+         // generic "repeated failures" (Starfield, issue #16).
+         bool signaled = false;
++        bool aviso500 = false, aviso1000 = false;   // PASSES-2309: aviso antecipado
+         for (DWORD waited = 0; waited < timeout && !signaled; )
+         {
+             const DWORD slice = timeout - waited < 250 ? timeout - waited : 250;
+             signaled = WaitForSingleObject(g.fence_event, slice) == WAIT_OBJECT_0;
+             waited += slice;
++            // PASSES-2309 (item 3): gpu_timeout_ms=2000 empata com o watchdog de 2 s do
++            // Windows -- NAO foi baixado (baixar so soltaria quadro cru mais cedo). O que muda
++            // e que uma espera longa aparece no log a 500 ms e a 1000 ms, antes do TDR, com os
++            // mesmos nomes que o DRED usa. So loga; o que acontece no prazo e o de sempre.
++            if (!signaled && ((!aviso500 && waited >= 500) || (!aviso1000 && waited >= 1000)))
++            {
++                if (waited >= 500)  aviso500 = true;
++                if (waited >= 1000) aviso1000 = true;
++                if (g_ep_avisos < 40 || g_ep_avisos % 100 == 0)
++                    Log("[feed] AVISO: ha %u ms esperando a placa devolver o allocator feed.alloc[%d] (fila feed.queue.direct, "
++                        "fence feed.fence.frame alvo %llu, completed %llu; prazo %u ms, watchdog do Windows 2 s)",
++                        static_cast<unsigned>(waited), slot, static_cast<unsigned long long>(retire),
++                        static_cast<unsigned long long>(g.fence12->GetCompletedValue()), timeout);
++                ++g_ep_avisos;
++            }
+             if (!signaled && g.dev12 != nullptr)
+             {
+                 const HRESULT removed = g.dev12->GetDeviceRemovedReason();
+@@ -3547,12 +3761,28 @@
+ 
+ static UINT64 EndCommands()
+ {
+-    FqFechar();   // RITMO2: o timestamp de fim e o resolve tem de entrar ANTES do Close
+-    g.list->Close();
+-    ID3D12CommandList *lists[] = { g.list };
+-    g.queue->ExecuteCommandLists(1, lists);
++    // PASSES-2309: com `nr_envio_por_passe=1` este e o ULTIMO envio do quadro (os do meio sairam
++    // em EpEnviarPasse). Espera vaga antes, sinaliza feed.fence.passe depois; a feed.fence.frame
++    // recebe o mesmo Signal de sempre, entao todo `g.fence_value + 1` continua certo.
++    const bool ep = g_cfg.nr_envio_por_passe != 0;
++    if (g_ep_lista_fechada)
++    {
++        // Um Reset do meio falhou (device morrendo): a lista ja saiu fechada e executada. Nao
++        // reexecuta -- so o Signal, para o allocator deste quadro poder ser devolvido.
++        g_ep_lista_fechada = false;
++        FqCancelar();
++    }
++    else
++    {
++        FqFechar();   // RITMO2: o timestamp de fim e o resolve tem de entrar ANTES do Close
++        g.list->Close();
++        ID3D12CommandList *lists[] = { g.list };
++        if (ep) EpEsperarVaga("fim do quadro");
++        g.queue->ExecuteCommandLists(1, lists);
++    }
+     const UINT64 v = ++g.fence_value;
+     g.queue->Signal(g.fence12, v);
++    if (ep && !g_ep_quebrado && EpEnsure()) EpSinalizar();
+     g_fence_ult_sig12 = v;   // DRIVER1: o ultimo Signal da fila D3D12, para a linha de 600 quadros
+     g.alloc_fence[g.frame_slot] = v;
+     g.frame_slot = (g.frame_slot + 1) % Feed::kFrames;
+@@ -9059,6 +9289,46 @@
+ // resultado nele e o deixou em UNORDERED_ACCESS -- como o caminho de sempre. Devolve
+ // false quando um evaluate falhou, e ai quem chama faz a passagem segura.
+ // ---------------------------------------------------------------------------
++// PASSES-2309: a fronteira entre dois passes. Chamada com a lista GRAVANDO, o SLOT_OUTPUT em
++// NON_PIXEL_SHADER_RESOURCE (e onde ele fica o quadro inteiro da rede), e so depois de um
++// passe que deu certo e que nao e o ultimo. Fecha, espera vaga, executa, sinaliza
++// feed.fence.passe e reabre a MESMA lista no MESMO allocator (reabrir uma lista cujo pacote
++// ainda esta na placa e permitido; o allocator so e resetado em BeginCommands, depois da
++// fence do quadro). Nada muda de ordem: o passe seguinte e gravado exatamente como antes.
++//
++// Por que o SLOT_OUTPUT faz ida e volta a COMMON: nos caminhos D3D11/Vulkan/GL ele e
++// ALLOW_SIMULTANEOUS_ACCESS, e textura assim DECAI para COMMON quando o ExecuteCommandLists
++// termina. Sem a ida explicita, a proxima barreira partiria de NON_PIXEL_SHADER_RESOURCE com o
++// recurso ja em COMMON. As texturas proprias da rede (g_nr_tex, g_nr_comp*, escalas) nao sao
++// simultaneas e nao decaem. Os estados de pipeline sao todos reescritos a cada NrDispatch e
++// a cada evaluate, entao a lista reaberta nao depende de nada que o Reset limpa.
++static void EpEnviarPasse(int passe_feito)
++{
++    if (g_cfg.nr_envio_por_passe == 0 || g_ep_quebrado || g.list == nullptr || g.queue == nullptr) return;
++    if (g.alloc[g.frame_slot] == nullptr || !EpEnsure()) return;
++    ID3D12Resource *const out = g.tex12[SLOT_OUTPUT];
++    Barrier(out, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COMMON);
++    g.list->Close();
++    EpEsperarVaga(passe_feito == 0 ? "depois do passe 1" : passe_feito == 1 ? "depois do passe 2" : "entre passes");
++    ID3D12CommandList *lists[] = { g.list };
++    g.queue->ExecuteCommandLists(1, lists);
++    EpSinalizar();
++    ++g_ep_meio;
++    const HRESULT hr = g.list->Reset(g.alloc[g.frame_slot], nullptr);
++    if (FAILED(hr))
++    {
++        // So acontece com o device morrendo (ou sem memoria). O resto do quadro nao tem onde ser
++        // gravado; EndCommands so da o Signal (nao reexecuta a lista fechada) e o envio por
++        // passe fica desligado ate o proximo device.
++        Log("[feed] envio por passe: Reset da lista falhou 0x%08X depois do passe %d -- o resto deste quadro nao "
++            "e gravado e o envio por passe fica desligado ate o proximo device", hr, passe_feito + 1);
++        g_ep_lista_fechada = true;
++        g_ep_quebrado = true;
++        return;
++    }
++    Barrier(out, D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++}
++
+ static bool NrMultiCorpo(int passes)
+ {
+     if (passes > g_nr_esc_passes) passes = g_nr_esc_passes;
+@@ -9165,6 +9435,7 @@
+         acc = primeiro ? 0 : 1 - acc;
+         NrPfMarcar(pslot, 2 + 4 * i + 3);   // fim do residual deste passe
+         fonte_esc = k; fonte_w = e.w; fonte_h = e.h;
++        if (i + 1 < passes) EpEnviarPasse(i);   // PASSES-2309: um envio por passe (o ultimo sai no EndCommands)
+     }
+     NrQFechar(qslot, feitos);
+ 
+@@ -9358,6 +9629,7 @@
+         dst_i = 1 - dst_i;
+         ++g_nr_win_passes;
+         ++qfeitos;
++        if (i + 1 < passes) EpEnviarPasse(i);   // PASSES-2309: um envio por passe (o ultimo sai no EndCommands)
+     }
+     NrQFechar(qslot, qfeitos);
+     g_nr_reset_history = false;
+@@ -9739,6 +10011,7 @@
+     }
+     SafeRelease(g.ctx4);
+     FqRelease();    // RITMO2: o anel de timestamps do pacote vai ANTES da fence que ele observa
++    EpRelease();    // PASSES-2309: feed.fence.passe e o evento dela
+     SafeRelease(g.fence11);
+     SafeRelease(g.fence12);
+     if (g.fence_event != nullptr) { CloseHandle(g.fence_event); g.fence_event = nullptr; }
+@@ -10963,9 +11236,39 @@
+     // semente do acumulador, a reducao, a pre-copia do recorte, a composicao residual e a
+     // copia de volta. O `encanamento` do fim e a soma de tudo o que NAO e evaluate: e esse
+     // numero que separa o que e nosso do que e da DLL da NVIDIA, sem inferencia.
++    // PASSES-2309: o envio por passe entra NESTA linha (nenhuma linha nova): quantos envios,
++    // quantos do meio do quadro, o maximo de pacotes nossos em voo em cada segundo, e as
++    // esperas por vaga. Sai no fim da linha do perfil fino; sem corpo multi-escala (sem
++    // perfil fino por passe) sai sozinho, na mesma chave.
++    char ep_txt[256]; ep_txt[0] = '\0';
++    if (g_cfg.nr_perfil_fino != 0)
++    {
++        char hist[80]; int hp = 0; hist[0] = '\0';
++        int pico = g_ep_voo_seg;
++        for (int i = 0; i < g_ep_voo_hist_n && hp < 70; ++i)
++        {
++            hp += _snprintf_s(hist + hp, sizeof(hist) - hp, _TRUNCATE, "%s%d", i ? "," : "", g_ep_voo_hist[i]);
++            if (g_ep_voo_hist[i] > pico) pico = g_ep_voo_hist[i];
++        }
++        if (g_cfg.nr_envio_por_passe == 0)
++            _snprintf_s(ep_txt, sizeof(ep_txt), _TRUNCATE, " || envio: pacote unico (nr_envio_por_passe=0)");
++        else
++            _snprintf_s(ep_txt, sizeof(ep_txt), _TRUNCATE,
++                        " || envio por passe: %llu envios (%llu do meio) | em voo max/s [%s] pico %d, limite %d | "
++                        "esperas %llu (media %.2f, pior %.1f ms, %llu no prazo)%s",
++                        static_cast<unsigned long long>(g_ep_envios), static_cast<unsigned long long>(g_ep_meio),
++                        hist[0] ? hist : "-", pico, g_cfg.nr_pacotes_em_voo,
++                        static_cast<unsigned long long>(g_ep_esperas),
++                        g_ep_esperas > 0 ? g_ep_espera_soma_ms / double(g_ep_esperas) : 0.0, g_ep_espera_pior_ms,
++                        static_cast<unsigned long long>(g_ep_estouros), g_ep_quebrado ? " | DESLIGADO (Reset falhou)" : "");
++    }
++    g_ep_voo_hist_n = 0;
++    g_ep_envios = g_ep_meio = g_ep_esperas = g_ep_estouros = 0;
++    g_ep_espera_pior_ms = g_ep_espera_soma_ms = 0.0;
+     if (g_cfg.nr_perfil_fino != 0 && g_nr_pf_n > 0 && g_nr_pf_passes > 0)
+     {
+         char pf[512]; int pos = 0;
++        char pp[96];  int ppos = 0; pp[0] = '\0';   // PASSES-2309: o passe inteiro, de GPU
+         double soma_eval = 0.0, soma_nossa = g_nr_pf_semente + g_nr_pf_saida;
+         for (int i = 0; i < g_nr_pf_passes && pos < 430; ++i)
+         {
+@@ -10973,16 +11276,23 @@
+                                "%s%d: down %.2f + pre %.2f + evaluate %.2f + resid %.2f",
+                                i ? " | " : "", i + 1,
+                                g_nr_pf_down[i], g_nr_pf_pre[i], g_nr_pf_eval[i], g_nr_pf_resid[i]);
++            if (ppos < 80)
++                ppos += _snprintf_s(pp + ppos, sizeof(pp) - ppos, _TRUNCATE, "%s%.2f", i ? "/" : "",
++                                    g_nr_pf_down[i] + g_nr_pf_pre[i] + g_nr_pf_eval[i] + g_nr_pf_resid[i]);
+             soma_eval  += g_nr_pf_eval[i];
+             soma_nossa += g_nr_pf_down[i] + g_nr_pf_pre[i] + g_nr_pf_resid[i];
+         }
+         const double tot = soma_eval + soma_nossa;
++        // Com o envio por passe, o `down` do passe 2 em diante tambem carrega o intervalo entre
++        // dois envios nossos (a placa atendendo o jogo/DWM na fronteira) -- e de proposito.
+         Log("[feed] perfil fino: semente %.2f ms | %s | saida %.2f ms -- evaluate (NVIDIA) %.2f ms, "
+-            "encanamento (nosso) %.2f ms de %.2f ms (%.0f%%), em %llu leituras",
++            "encanamento (nosso) %.2f ms de %.2f ms (%.0f%%), em %llu leituras | gpu por passe %s ms, total %.2f ms%s",
+             g_nr_pf_semente, pf, g_nr_pf_saida, soma_eval, soma_nossa, tot,
+             tot > 0.0 ? 100.0 * soma_nossa / tot : 0.0,
+-            static_cast<unsigned long long>(g_nr_pf_n));
++            static_cast<unsigned long long>(g_nr_pf_n), pp, tot, ep_txt);
+     }
++    else if (ep_txt[0] != '\0')
++        Log("[feed] perfil fino: (sem corpo multi-escala, sem partes por passe)%s", ep_txt);
+     // M2-PARALELO: p99 e mediana do intervalo, por ordenacao simples da janela.
+     double p99_ms = 0.0, med_ms = 0.0;
+     if (g.win_n > 1)

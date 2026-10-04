@@ -23,10 +23,21 @@
 //  espera curta e ocupada so no finalzinho. Espera ocupada pura daria precisao melhor ao custo
 //  de queimar um nucleo inteiro, o que num jogo que ja esta com a placa cheia e justamente o
 //  que nao se quer. A margem de giro e pequena de proposito.
+//
+//  3. (N1, 20/09/2026) O ALVO PODE SER PRESO A REDE DO VBLANK. O acumulador acima mantem a
+//     TAXA exata, mas nao a FASE: o alvo nasce onde o primeiro quadro calhou de cair e fica ali,
+//     livre em relacao ao relogio que de fato poe imagem na tela. Do outro lado da nossa cadeia
+//     o apresentador ancora o tique dele no vblank do DWM, e a diferenca entre os dois relogios
+//     aparece como tremor da chegada (`j` na equacao do K-RITMO) - que infla a folga da fila e
+//     a latencia junto. Com a ancora ligada o quadro e solto em t_k = vblank_0 + k*T + fase, o
+//     mesmo relogio dos dois lados. E o que o Reflex faz pela DLSS-G, e a razao de ele ser
+//     obrigatorio la. Ver fpslimit_shared.h, campos `ancora` e `fase_us`.
 // =====================================================================================
 #pragma once
 #include <windows.h>
+#include <dwmapi.h>
 #include <stdint.h>
+#include <math.h>
 
 namespace FpsLimit {
 
@@ -40,6 +51,20 @@ static const double kMaxAtrasoPeriodos = 4.0;
 // girando. 0,4 ms cobre a granularidade tipica do temporizador de alta resolucao sem gastar
 // nucleo: a 60 fps sao 2,4% de um nucleo, e a 120 fps 4,8%.
 static const double kMargemGiroMs = 0.4;
+
+// N1 - quanto o alvo pode DESLIZAR por quadro para entrar em fase com a rede do vblank. E o
+// mesmo teto do apresentador (K-RITMO C1): 3% de meio intervalo. O ponto nao e chegar rapido,
+// e nunca pular: um salto de fase aparece como um solavanco, que e justamente o que se conserta.
+static const double kFracaoDeslize = 1.0 / 32.0;
+
+// N1 - o periodo do limitador so se prende ao vblank quando cabe num numero INTEIRO deles com
+// erro abaixo disto. 120 fps em 240 Hz = 2 vblanks exatos e entra; 45 em 100 Hz = 2,22 e nao
+// entra - ali a quantizacao pioraria o que deveria consertar. Mesma regra do C2 do K-RITMO.
+static const double kTolComensuravel = 0.05;
+
+// N1 - de quanto em quanto tempo o vblank e relido do compositor. Um segundo, pelo mesmo motivo
+// do apresentador: trocar de monitor ou de refresh e um gesto humano, nao um evento de quadro.
+static const double kReleituraVblankMs = 1000.0;
 
 class Ritmo {
 public:
@@ -63,12 +88,17 @@ public:
     }
 
     bool TemporizadorFino() const { return m_timerFino; }
+    // N1 - a ancora de fato pegou? (so para o registro; a peca escreve isto uma vez no log)
+    bool     Ancorada() const  { return m_ancoraOk; }
+    unsigned VblanksPorQuadro() const { return m_nVblanks; }
 
     // Chamar UMA VEZ POR QUADRO, imediatamente antes de deixar o quadro seguir. `fps` 0 = sem
     // limite: sai na primeira linha, sem tocar em relogio nenhum.
+    // `ancora`/`faseMs` sao o PEDIDO do app (N1): prender o alvo a rede do vblank, deslocada de
+    // `faseMs`. Ignorados quando o periodo nao cabe num numero inteiro de vblanks.
     // Devolve true se de fato segurou o quadro (para o contador de prova do painel).
-    bool Esperar(uint32_t fps) {
-        if (fps == 0) { m_alvoQpc = 0; m_fpsAtual = 0; return false; }
+    bool Esperar(uint32_t fps, bool ancora = false, double faseMs = 0.0) {
+        if (fps == 0) { m_alvoQpc = 0; m_fpsAtual = 0; m_ancoraOk = false; return false; }
 
         const double periodoMs = 1000.0 / (double)fps;
 
@@ -78,6 +108,7 @@ public:
         if (fps != m_fpsAtual || m_alvoQpc == 0) {
             m_fpsAtual = fps;
             m_alvoQpc = Agora() + MsParaQpc(periodoMs);
+            m_ancoraOk = false; m_vblankQpc = 0; m_lidoQpc = 0;   // a rede nasce de novo com o periodo novo
             return false;
         }
 
@@ -90,6 +121,20 @@ public:
             return false;
         }
 
+        // ---- N1: a rede do vblank. Atualiza (no maximo 1x/s) e desliza o alvo para cima dela.
+        AtualizarAncora(ancora, faseMs, periodoQpc);
+        if (m_ancoraOk) {
+            const int64_t T = m_periodoQpc;
+            const int64_t base = m_vblankQpc + m_faseQpc;
+            const double  k = (double)(m_alvoQpc - base) / (double)T;
+            const int64_t alvoRede = base + (int64_t)llround(k) * T;
+            int64_t erro = alvoRede - m_alvoQpc;
+            const int64_t teto = (int64_t)(kFracaoDeslize * (double)T);
+            if (erro >  teto) erro =  teto;
+            if (erro < -teto) erro = -teto;
+            m_alvoQpc += erro;
+        }
+
         bool segurou = false;
         if (agora < m_alvoQpc) {
             segurou = true;
@@ -99,11 +144,58 @@ public:
             // espera, o que deixa o outro fio logico do mesmo nucleo respirar.
             while (Agora() < m_alvoQpc) YieldProcessor();
         }
-        m_alvoQpc += periodoQpc;   // acumulado, nao "agora + periodo"
+        // acumulado, nao "agora + periodo". Com a ancora, o passo e o da REDE (N vblanks
+        // exatos): usar 1/fps aqui faria os dois relogios brigarem, e o deslize acima passaria
+        // a vida corrigindo uma diferenca que ele mesmo reintroduz a cada quadro.
+        m_alvoQpc += m_ancoraOk ? m_periodoQpc : periodoQpc;
         return segurou;
     }
 
 private:
+    /* ---- N1: a rede do vblank, lida do MESMO compositor que o apresentador le.
+       Por que o DWM e nao um campo novo na memoria compartilhada: o QPC e o mesmo relogio nos
+       dois processos e o DwmGetCompositionTimingInfo responde pelo compositor da sessao - ou
+       seja, os dois lados leem a MESMA ancora sem nada atravessar. O app so precisa mandar o
+       phi, que e a unica coisa que ele sabe e a peca nao (a folga `D` da fila). */
+    typedef HRESULT (WINAPI* PFN_Timing)(HWND, DWM_TIMING_INFO*);
+    void AtualizarAncora(bool pedida, double faseMs, int64_t periodoQpc) {
+        if (!pedida) { m_ancoraOk = false; return; }
+        m_faseQpc = MsParaQpc(faseMs);
+        const int64_t agora = Agora();
+        if (m_lidoQpc != 0 && agora - m_lidoQpc < MsParaQpc(kReleituraVblankMs)) return;
+        m_lidoQpc = agora;
+        if (!m_dwm) {
+            // Em jogo de D3D a dwmapi.dll ja esta carregada; GetModuleHandle resolve sem tocar no
+            // carregador. LoadLibrary so como reserva, e ele nao roda no DllMain (ver o dll.cpp).
+            HMODULE h = GetModuleHandleW(L"dwmapi.dll");
+            if (!h) h = LoadLibraryW(L"dwmapi.dll");
+            if (h) m_dwm = (PFN_Timing)(void*)GetProcAddress(h, "DwmGetCompositionTimingInfo");
+            if (!m_dwm) { m_ancoraOk = false; return; }
+        }
+        DWM_TIMING_INFO ti{}; ti.cbSize = sizeof(ti);
+        if (FAILED(m_dwm(nullptr, &ti)) || ti.qpcRefreshPeriod <= 0) { m_ancoraOk = false; return; }
+        const int64_t vbl = (int64_t)ti.qpcRefreshPeriod;
+        const int64_t nv = (int64_t)((double)periodoQpc / (double)vbl + 0.5);
+        if (nv < 1) { m_ancoraOk = false; return; }
+        const int64_t T = nv * vbl;
+        if (fabs((double)T - (double)periodoQpc) > kTolComensuravel * (double)periodoQpc) {
+            m_ancoraOk = false; return;   // nao e comensuravel: o acumulador livre de sempre
+        }
+        const int64_t novo = (int64_t)ti.qpcVBlank;
+        if (!m_ancoraOk || m_vblankQpc == 0 || m_periodoQpc != T) {
+            m_vblankQpc = novo;   // primeira ancora, ou a tela mudou: a rede nasce aqui
+        } else {
+            /* SEGUIR A DERIVA SEM TROCAR DE VBLANK. O relogio do compositor e o QPC nao andam
+               exatamente juntos, e sem correcao a rede escorrega. Mas pular para OUTRO vblank do
+               grupo de `nv` mudaria a folga com que o quadro chega ao apresentador em ate
+               (nv-1) vblanks de uma vez - um salto, exatamente o que nao se quer. Entao so a
+               parte FRACIONARIA do desvio (dentro de um vblank) e corrigida. */
+            const int64_t d = novo - m_vblankQpc;
+            m_vblankQpc += d - (int64_t)llround((double)d / (double)vbl) * vbl;
+        }
+        m_periodoQpc = T; m_nVblanks = (unsigned)nv; m_ancoraOk = true;
+    }
+
     int64_t Agora() const { LARGE_INTEGER c; QueryPerformanceCounter(&c); return c.QuadPart; }
     int64_t MsParaQpc(double ms) const { return (int64_t)(ms * (double)m_freq.QuadPart / 1000.0); }
     double  QpcParaMs(int64_t t) const { return (double)t * 1000.0 / (double)m_freq.QuadPart; }
@@ -122,6 +214,14 @@ private:
     uint32_t      m_fpsAtual  = 0;
     HANDLE        m_timer     = nullptr;
     bool          m_timerFino = false;
+    // N1 - a rede do vblank
+    PFN_Timing    m_dwm        = nullptr;
+    int64_t       m_vblankQpc  = 0;   // vblank_0: onde a rede comeca
+    int64_t       m_periodoQpc = 0;   // T = nv vblanks exatos
+    int64_t       m_faseQpc    = 0;   // phi, pedido pelo app
+    int64_t       m_lidoQpc    = 0;   // quando o compositor foi lido pela ultima vez
+    unsigned      m_nVblanks   = 0;
+    bool          m_ancoraOk   = false;
 };
 
 } // namespace FpsLimit

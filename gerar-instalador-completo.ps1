@@ -89,6 +89,18 @@ if ($sfxItem.LastWriteTime -lt $exeApp.LastWriteTime) {
     Write-Host "[!!] ele roda DEPOIS da copia e sobrescreve a pasta: o exe novo seria trocado pelo velho. Refaz o SFX." -ForegroundColor Yellow
 }
 Write-Host "   $($sfxItem.FullName) ($([math]::Round($sfxItem.Length / 1MB, 1)) MB)"
+# (d) FASE4 (22/09/2026) - O QUE ESTE SCRIPT NAO TEM COMO CONFERIR, E PRECISA SER DITO.
+#
+# A staging vem do empacotar.ps1, que ja e filtrado e ja se recusa a sair com LumeniteFX
+# (AGNYA - proibe redistribuir). O auto-extraivel NAO passa por filtro nenhum: e um retrato
+# manual da pasta de trabalho inteira, montado no WinRAR, e ele roda DEPOIS da copia, por
+# cima da pasta instalada. Ou seja: ele consegue repor exatamente o que a staging tirou.
+# Este script nao abre o SFX (sao ~300 MB e nao ha WinRAR garantido na maquina), entao a
+# unica defesa e esta linha na tela de quem monta o pacote.
+Write-Host "[!] O AUTO-EXTRAIVEL NAO E FILTRADO. Ao refaze-lo no WinRAR, exclua os padroes:" -ForegroundColor Yellow
+Write-Host "[!]   lumenite_*  (LumeniteFX, AGNYA License: PROIBE redistribuir - o setup-dlss5.ps1 os baixa)" -ForegroundColor Yellow
+Write-Host "[!]   reshade-cache\  (leva os mesmos shaders JA COMPILADOS)" -ForegroundColor Yellow
+Write-Host "[!] E confira que amd_fidelityfx_dx12.dll esta acompanhado de LICENSE-FidelityFX.txt (MIT exige)." -ForegroundColor Yellow
 
 # ---------------------------------------------------------------- 2b. quanto ocupa depois
 #

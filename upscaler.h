@@ -153,6 +153,22 @@ public:
     void ZerarMedia() { m_med11.soma = 0; m_med11.n = 0; m_somaFi = 0; m_nFi = 0; }
 
     void Parar() { TrocarPara(Dlss); m_med11.Parar(); }
+    /* MGR-2309 item 3: espera a fila D3D12 do ampliador (FSR 3.1) terminar o que ja foi mandado, com
+       prazo. Fence propria (nao mexe em m_fOut). Devolve ms; 0 = nada em voo/sem fila; -1 = prazo. */
+    double DrenarGpu(DWORD tetoMs) {
+        if (!m_dev12 || !m_fila) return 0.0;
+        ID3D12Fence* f = nullptr;
+        if (FAILED(m_dev12->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&f)) || !f) return 0.0;
+        HANDLE ev = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        LARGE_INTEGER a, b, q; QueryPerformanceCounter(&a); QueryPerformanceFrequency(&q);
+        bool ok = SUCCEEDED(m_fila->Signal(f, 1)) && f->GetCompletedValue() >= 1;
+        if (!ok && ev && SUCCEEDED(f->SetEventOnCompletion(1, ev)))
+            ok = WaitForSingleObject(ev, tetoMs) == WAIT_OBJECT_0 || f->GetCompletedValue() >= 1;
+        if (ev) CloseHandle(ev);
+        f->Release();
+        QueryPerformanceCounter(&b);
+        return ok ? 1000.0 * (double)(b.QuadPart - a.QuadPart) / (double)q.QuadPart : -1.0;
+    }
 
 private:
     // ---------------------------------------------------------------- comum
@@ -544,8 +560,14 @@ private:
     }
     void EsperarFence(ID3D12Fence* f, uint64_t v) {
         if (!f || f->GetCompletedValue() >= v || !m_evt) return;
+        // NS-2309 item 5(a): m_evt e auto-reset e serve a todas as esperas deste objeto. Uma espera
+        // anterior que estourou deixa o registro armado e acorda ESTA mais cedo (o defeito do
+        // NeuralScreen v1.7.1, #33 - ideia, codigo proprio). Limpa antes e so sai com a fence no valor.
+        ResetEvent(m_evt);
         f->SetEventOnCompletion(v, m_evt);
-        WaitForSingleObject(m_evt, 2000);
+        const ULONGLONG fim = GetTickCount64() + Saida::Teto(2000);
+        for (ULONGLONG ag = GetTickCount64(); f->GetCompletedValue() < v && ag < fim; ag = GetTickCount64())
+            WaitForSingleObject(m_evt, (DWORD)(fim - ag));
     }
     void EsperarFila() {
         if (!m_dev12 || !m_fila) return;

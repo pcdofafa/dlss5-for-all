@@ -58,6 +58,7 @@
 
 #pragma once
 
+#include "saida_rapida.h"   // Saida::Teto: nenhuma espera de GPU passa de 200 ms no encerramento
 #include <windows.h>
 #include <d3d11_4.h>
 #include <d3d12.h>
@@ -205,6 +206,17 @@ public:
     // foi copiada na amostra ANTERIOR, ja concluida ha dezenas de quadros.
     bool ProbeSample(ID3D11DeviceContext* ctx, unsigned window, ProbeStats* out);
 
+    // DIAGNOSTICO (so com DLSS5_MV_DIAG=1): fracao das amostras do plano Y em que as duas
+    // NV12 -- o par que o VME compara -- diferem por mais de 2 niveis. Separa de vez as duas
+    // causas de campo zerado: ENTRADA IGUAL (devolve ~0) ou o hardware nao achou nada
+    // (devolve a fracao real de mudanca). Faz Map com espera; e so para diagnostico.
+    float EntradaDiferenca(ID3D11DeviceContext* ctx);
+
+    // DIAGNOSTICO: o que o app deixou ligado no contexto imediato ANTES da nossa higiene.
+    // Devolve um texto de uma linha (buffer interno). Serve para nomear a causa quando o
+    // campo vier zerado - ver o comentario dos estados em InitShaders.
+    const char* EstadoHerdado(ID3D11DeviceContext* ctx);
+
     void Shutdown();
 
     bool Ready() const { return m_ready; }
@@ -241,6 +253,10 @@ private:
     ID3D11PixelShader*        m_psLuma = nullptr;
     ID3D11PixelShader*        m_psConvert = nullptr;
     ID3D11SamplerState*       m_sampler = nullptr;
+    ID3D11RasterizerState*    m_rs = nullptr;       // nosso: sem tesoura, sem descarte de face
+    ID3D11BlendState*         m_bs = nullptr;       // nosso: sem mistura, mascara de escrita inteira
+    ID3D11DepthStencilState*  m_dss = nullptr;      // nosso: sem teste de profundidade
+    ID3D11Texture2D*          m_yStage[2]{};        // diagnostico: le o plano Y das duas NV12
     ID3D11Buffer*             m_cb = nullptr;
     ID3D11Texture2D*          m_nv12[2]{};          // ping-pong, criadas em D3D11
     ID3D11RenderTargetView*   m_nv12YRTV[2]{};      // vista R8_UNORM do plano Y
@@ -614,6 +630,34 @@ inline bool MotionEstimator::InitShaders()
     hr = m_dev11->CreateSamplerState(&sd, &m_sampler);
     if (FAILED(hr)) return Fail("CreateSamplerState", hr);
 
+    // ESTADOS PROPRIOS, E POR QUE ELES EXISTEM (VME-FLUXO, 20/09/2026).
+    // O Update roda no contexto IMEDIATO do app, no meio do laco, depois da cadeia do
+    // ReShade e dos passes do apresentador. Ate hoje ele so trocava VS/PS/RTV/viewport e
+    // herdava TODO o resto do que estivesse ligado: rasterizador (tesoura!), mistura,
+    // profundidade e os estagios de geometria. Basta um desses sobrar ligado para o
+    // triangulo de tela cheia da conversao de luma nao escrever nada -- e uma NV12 que
+    // nunca muda faz o VME devolver, corretamente, campo ZERO. Foi exatamente o que a
+    // bancada mediu: o me_test isolado le 7,998 px para 8 px reais com 100% dos blocos,
+    // e o MESMO codigo dentro do app lia "campo zerado 100%" com o fundo inteiro andando.
+    // Estado herdado nao se conserta com validacao do lado de fora; conserta-se aqui.
+    D3D11_RASTERIZER_DESC rd{};
+    rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE;
+    rd.DepthClipEnable = TRUE; rd.ScissorEnable = FALSE;
+    hr = m_dev11->CreateRasterizerState(&rd, &m_rs);
+    if (FAILED(hr)) return Fail("CreateRasterizerState", hr);
+
+    D3D11_BLEND_DESC bld{};
+    bld.RenderTarget[0].BlendEnable = FALSE;
+    bld.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    hr = m_dev11->CreateBlendState(&bld, &m_bs);
+    if (FAILED(hr)) return Fail("CreateBlendState", hr);
+
+    D3D11_DEPTH_STENCIL_DESC dsd{};
+    dsd.DepthEnable = FALSE; dsd.StencilEnable = FALSE;
+    dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO; dsd.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    hr = m_dev11->CreateDepthStencilState(&dsd, &m_dss);
+    if (FAILED(hr)) return Fail("CreateDepthStencilState", hr);
+
     struct CB { float invW, invH, pxScale, rejectPx; };
     // quarter-pel na resolucao de conversao -> pixels de saida.
     CB cb{ 1.0f / float(m_srcW), 1.0f / float(m_srcH),
@@ -647,13 +691,30 @@ inline bool MotionEstimator::Update(ID3D11DeviceContext* ctx, ID3D11ShaderResour
     if (FAILED(ctx->QueryInterface(__uuidof(ID3D11DeviceContext4), (void**)&ctx4)))
         return Fail("ID3D11DeviceContext4", E_NOINTERFACE);
 
+    // Tudo que o triangulo de tela cheia precisa e que o app pode ter deixado ligado de
+    // outro jeito. Ver o comentario em InitShaders: sem isto o passe de luma pode nao
+    // escrever nada e o campo sai zerado sem nenhum erro aparecer.
+    auto EstadoNosso = [&] {
+        const float bf[4] = { 0, 0, 0, 0 };
+        ctx->RSSetState(m_rs);
+        ctx->OMSetBlendState(m_bs, bf, 0xFFFFFFFFu);
+        ctx->OMSetDepthStencilState(m_dss, 0);
+        ctx->GSSetShader(nullptr, nullptr, 0);
+        ctx->HSSetShader(nullptr, nullptr, 0);
+        ctx->DSSetShader(nullptr, nullptr, 0);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        ctx->IASetInputLayout(nullptr);
+        ID3D11Buffer* vb = nullptr; UINT z = 0;
+        ctx->IASetVertexBuffers(0, 1, &vb, &z, &z);
+        ctx->IASetIndexBuffer(nullptr, DXGI_FORMAT_UNKNOWN, 0);
+    };
+
     // --- 1) D3D11: quadro BGRA -> plano Y da NV12 atual (com reescala se divisor > 1).
     {
         D3D11_VIEWPORT vp{ 0.0f, 0.0f, float(m_convW), float(m_convH), 0.0f, 1.0f };
         ctx->OMSetRenderTargets(1, &m_nv12YRTV[m_cur], nullptr);
         ctx->RSSetViewports(1, &vp);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->IASetInputLayout(nullptr);
+        EstadoNosso();
         ctx->VSSetShader(m_vs, nullptr, 0);
         ctx->PSSetShader(m_psLuma, nullptr, 0);
         ctx->PSSetShaderResources(0, 1, &srcSRV);
@@ -735,8 +796,7 @@ inline bool MotionEstimator::Update(ID3D11DeviceContext* ctx, ID3D11ShaderResour
         D3D11_VIEWPORT vp{ 0.0f, 0.0f, float(m_mvW), float(m_mvH), 0.0f, 1.0f };
         ctx->OMSetRenderTargets(1, &m_mvFloatRTV, nullptr);
         ctx->RSSetViewports(1, &vp);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->IASetInputLayout(nullptr);
+        EstadoNosso();
         ctx->VSSetShader(m_vs, nullptr, 0);
         ctx->PSSetShader(m_psConvert, nullptr, 0);
         ctx->PSSetShaderResources(0, 1, &m_mvSintSRV);
@@ -858,6 +918,74 @@ inline bool MotionEstimator::ProbeSample(ID3D11DeviceContext* ctx, unsigned wind
     return true;
 }
 
+inline const char* MotionEstimator::EstadoHerdado(ID3D11DeviceContext* ctx)
+{
+    static char txt[320];
+    if (!ctx) { std::snprintf(txt, sizeof(txt), "sem contexto"); return txt; }
+    char rsTxt[96] = "rasterizador padrao";
+    ID3D11RasterizerState* rs = nullptr; ctx->RSGetState(&rs);
+    if (rs) {
+        D3D11_RASTERIZER_DESC d{}; rs->GetDesc(&d);
+        std::snprintf(rsTxt, sizeof(rsTxt), "rasterizador tesoura=%d corte-de-face=%u preenchimento=%u",
+                      d.ScissorEnable ? 1 : 0, (unsigned)d.CullMode, (unsigned)d.FillMode);
+        rs->Release();
+    }
+    char bsTxt[110] = "mistura padrao";
+    ID3D11BlendState* bs = nullptr; float bf[4]{}; UINT sm = 0;
+    ctx->OMGetBlendState(&bs, bf, &sm);
+    if (bs) {
+        D3D11_BLEND_DESC d{}; bs->GetDesc(&d);
+        std::snprintf(bsTxt, sizeof(bsTxt), "mistura ligada=%d mascara-de-escrita=0x%X amostra=0x%X",
+                      d.RenderTarget[0].BlendEnable ? 1 : 0,
+                      (unsigned)d.RenderTarget[0].RenderTargetWriteMask, sm);
+        bs->Release();
+    } else if (sm != 0xFFFFFFFFu) {
+        std::snprintf(bsTxt, sizeof(bsTxt), "mistura padrao, amostra=0x%X", sm);
+    }
+    ID3D11GeometryShader* gs = nullptr; ctx->GSGetShader(&gs, nullptr, nullptr);
+    ID3D11HullShader* hs = nullptr; ctx->HSGetShader(&hs, nullptr, nullptr);
+    D3D11_RECT sc[8]{}; UINT nsc = 8; ctx->RSGetScissorRects(&nsc, sc);
+    std::snprintf(txt, sizeof(txt), "%s | %s | geometria=%s tesselacao=%s | tesouras=%u (1a %ld,%ld,%ld,%ld)",
+                  rsTxt, bsTxt, gs ? "SIM" : "nao", hs ? "SIM" : "nao", nsc,
+                  nsc ? (long)sc[0].left : 0L, nsc ? (long)sc[0].top : 0L,
+                  nsc ? (long)sc[0].right : 0L, nsc ? (long)sc[0].bottom : 0L);
+    if (gs) gs->Release();
+    if (hs) hs->Release();
+    return txt;
+}
+
+inline float MotionEstimator::EntradaDiferenca(ID3D11DeviceContext* ctx)
+{
+    if (!m_ready || !ctx || !m_havePrev) return -1.0f;
+    for (int i = 0; i < 2; ++i) {
+        if (m_yStage[i]) continue;
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = m_convW; td.Height = m_convH; td.MipLevels = 1; td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_NV12; td.SampleDesc = { 1, 0 };
+        td.Usage = D3D11_USAGE_STAGING; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (FAILED(m_dev11->CreateTexture2D(&td, nullptr, &m_yStage[i]))) return -1.0f;
+    }
+    // m_cur ja virou no fim do Update: o par comparado pelo VME e (m_cur ^ 1, m_cur).
+    const UINT b = m_cur ^ 1, a = m_cur;
+    ctx->CopyResource(m_yStage[0], m_nv12[a]);
+    ctx->CopyResource(m_yStage[1], m_nv12[b]);
+    D3D11_MAPPED_SUBRESOURCE m0{}, m1{};
+    if (FAILED(ctx->Map(m_yStage[0], 0, D3D11_MAP_READ, 0, &m0))) return -1.0f;
+    if (FAILED(ctx->Map(m_yStage[1], 0, D3D11_MAP_READ, 0, &m1))) { ctx->Unmap(m_yStage[0], 0); return -1.0f; }
+    unsigned dif = 0, n = 0;
+    for (UINT y = 0; y < m_convH; y += 4) {
+        const uint8_t* r0 = (const uint8_t*)m0.pData + (size_t)y * m0.RowPitch;
+        const uint8_t* r1 = (const uint8_t*)m1.pData + (size_t)y * m1.RowPitch;
+        for (UINT x = 0; x < m_convW; x += 4) {
+            const int d = int(r0[x]) - int(r1[x]);
+            if (d > 2 || d < -2) ++dif;
+            ++n;
+        }
+    }
+    ctx->Unmap(m_yStage[1], 0); ctx->Unmap(m_yStage[0], 0);
+    return n ? float(dif) / float(n) : -1.0f;
+}
+
 inline void MotionEstimator::Shutdown()
 {
     if (m_qVideo && m_fence12)
@@ -870,7 +998,7 @@ inline void MotionEstimator::Shutdown()
             if (m_fence12->GetCompletedValue() < m_fv)
             {
                 m_fence12->SetEventOnCompletion(m_fv, ev);
-                WaitForSingleObject(ev, 2000);
+                WaitForSingleObject(ev, Saida::Teto(2000));
             }
             CloseHandle(ev);
         }
@@ -886,6 +1014,8 @@ inline void MotionEstimator::Shutdown()
     Rel(m_mvSintSRV);  Rel(m_mvSint11);
     for (int i = 0; i < 2; ++i) { Rel(m_nv12YRTV[i]); Rel(m_nv12[i]); Rel(m_nv12_12[i]); }
     Rel(m_mvSint);
+    for (int i = 0; i < 2; ++i) Rel(m_yStage[i]);
+    Rel(m_dss); Rel(m_bs); Rel(m_rs);
     Rel(m_cb); Rel(m_sampler); Rel(m_psConvert); Rel(m_psLuma); Rel(m_vs);
     Rel(m_fence11_12); Rel(m_fence12_11); Rel(m_fence11); Rel(m_fence12);
     Rel(m_clVideo); Rel(m_alloc); Rel(m_qVideo);

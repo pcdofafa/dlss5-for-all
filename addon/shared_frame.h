@@ -213,22 +213,36 @@ public:
         D3D11_TEXTURE2D_DESC td{};
         tex->GetDesc(&td);
 
-        /* SDR de 8 bits por canal, e so. HDR (R16G16B16A16_FLOAT, R10G10B10A2)
-           exige acordar o espaco de cor com a camada de cima, o que fica para
-           depois; recusar aqui e mais honesto do que entregar cor errada. */
-        if (td.Format != DXGI_FORMAT_B8G8R8A8_UNORM && td.Format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB &&
-            td.Format != DXGI_FORMAT_R8G8B8A8_UNORM && td.Format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+        /* SDR de 8 bits por canal (BGRA8/RGBA8) e, desde o F0 (15/09/2026), tambem
+           R16G16B16A16_FLOAT e R10G10B10A2: o modo Nativo em HDR poe o backbuffer do
+           app em 16F e o consumidor (FontePonte::ColherSaida, no MESMO app) devolve o
+           quadro ao jogo no formato da cor dele, sem tone mapping. A textura
+           compartilhada nasce no formato publicado (ensure), e quem le a copia como
+           esta - nao ha acordo de espaco de cor porque nao ha conversao. Qualquer
+           outro formato continua recusado, e o motivo vai para o log uma vez. */
+        const bool fmtOk = td.Format == DXGI_FORMAT_B8G8R8A8_UNORM || td.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB ||
+                           td.Format == DXGI_FORMAT_R8G8B8A8_UNORM || td.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+                           td.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || td.Format == DXGI_FORMAT_R10G10B10A2_UNORM;
+        if (!fmtOk)
         {
             if (!m_saidFormat)
             {
                 m_saidFormat = true;
                 char b[192];
-                snprintf(b, sizeof(b), "[DLSS 5 Bridge] saida compartilhada: formato %u nao e SDR de 8 bits - "
+                snprintf(b, sizeof(b), "[DLSS 5 Bridge] saida compartilhada: formato %u nao e SDR de 8 bits nem 16F/10 bits - "
                                        "a camada de cima segue pelo compositor", (unsigned)td.Format);
                 log(b);
             }
             tex->Release(); res->Release();
             return;
+        }
+        if ((td.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || td.Format == DXGI_FORMAT_R10G10B10A2_UNORM) && !m_saidFormat)
+        {
+            m_saidFormat = true;
+            char b[192];
+            snprintf(b, sizeof(b), "[DLSS 5 Bridge] saida compartilhada: formato %u (%s) publicado como esta, sem conversao (F0: ponte HDR)",
+                     (unsigned)td.Format, td.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? "R16G16B16A16_FLOAT" : "R10G10B10A2_UNORM");
+            log(b);
         }
 
         ID3D11Device *dev = nullptr;
