@@ -10820,8 +10820,8 @@ static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
     // v2.1: NUNCA BLOQUEIA UMA PLACA - o DLSS 5 fica INDISPONIVEL (visivel, com o motivo) e o resto segue. A pessoa que entrou
     // por "Sem DLSS 5" ou cuja sonda da rede falhou cai aqui antes de qualquer outra leitura: nao ha o que ligar nesta sessao.
     if (g_semDlssArg) {
-        if (detalhe) *detalhe = T(L"você abriu pelo botão \"Sem DLSS 5\" — Frame Gen e filtros funcionam normalmente",
-                                  L"you opened with the \"No DLSS 5\" button — Frame Gen and filters work normally");
+        if (detalhe) *detalhe = T(L"esta placa não tem suporte ao DLSS 5 — Frame Gen e filtros funcionam normalmente",
+                                  L"this card does not support DLSS 5 — Frame Gen and filters work normally");
         return NR_SEM_RTX;
     }
     if (g_nrIndispSonda) {
