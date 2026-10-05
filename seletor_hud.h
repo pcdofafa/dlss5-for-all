@@ -497,7 +497,10 @@ static void LerEscolhas(Estado& s) {
     // X-CONSOLE (18/09/2026): com o motor RenoDX a "Rapida" e INERTE (o add-on avalia sempre
     // depois de ampliar - main.cpp, "a ordem fica INERTE"). O chip marcado mostra o que VALE:
     // Maxima. Clicar em Rapida continua trocando o motor junto (K_IAORDEM), e ai passa a valer.
-    s.iaOrdem = (IniGet(L"ia_ordem") == L"depois" || IniGet(L"motor") != L"proprio") ? 1 : 0;
+    // 2.1: "motor" vazio (instalacao limpa) conta como o padrao que o arranque vai usar - a
+    // mesma regra (MotorProprioEfetivo) - senao a tela marcava "Maxima" e o app abria no proprio.
+    s.iaOrdem = (IniGet(L"ia_ordem") == L"depois"
+                 || !MotorProprioEfetivo(s.modo != MODO_NATIVO && s.modo != MODO_UPSTREAM)) ? 1 : 0;
     {
         const std::wstring vn = LerDoJogo(s, L"nitidez_ia");
         int k = vn.empty() ? 80 : _wtoi(vn.c_str());
@@ -1563,7 +1566,17 @@ static int Render(Graphics* g) {
         // teste de 14/09/2026, quando o caminho curto passou a entregar 4K para a rede.
         // O rotulo fala de QUALIDADE e CUSTO, que e o que o jogador decide; a ordem das
         // etapas fica no tooltip.
-        if (upscalingLigado || (srForcadoNoIni && !nativo)) {
+        if ((upscalingLigado || (srForcadoNoIni && !nativo)) && !g_moduloAmd && !FeederTemNrPreSr()) {
+            // 2.1: este feeder nao le `nr_pre_sr` - a escolha nao tem efeito nenhum. Linha DESABILITADA
+            // (rotulo e nota em C_FAINT, sem chips), com a verdade em vez de um chip "pesa ~4x".
+            if (g) {
+                Txt(g, T(L"Qualidade da IA", L"AI quality"), fLinha, C_FAINT, RectF(L, cy, kColRot - 8, 30), 0, true);
+                Txt(g, T(L"nesta versão a IA já trabalha no tamanho de trabalho — não há o que escolher aqui",
+                         L"in this version the AI already works at the working size — there is nothing to choose here"),
+                    fItemSub, C_FAINT, RectF(L + kColRot, cy, IW - kColRot, 30), 0, true);
+            }
+            cy += 30 + 8;
+        } else if (upscalingLigado || (srForcadoNoIni && !nativo)) {
             const wchar_t* nomes[2] = { T(L"Rápida (recomendado)", L"Fast (recommended)"),
                                         T(L"Máxima (pesa ~4x)", L"Maximum (~4x heavier)") };
             if (g) Txt(g, T(L"Qualidade da IA", L"AI quality"), fLinha, C_BODY, RectF(L, cy, kColRot - 8, 30), 0, true);   // Rodada 27: mesma linha

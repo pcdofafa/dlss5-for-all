@@ -9243,6 +9243,18 @@ static bool FeederTemNrPreSr() {
 // (= a captura, no Auto) e a rede roda la; quem leva ate o monitor e o EASU+RCAS do feeder.
 // A pelicula continua cobrindo a tela. No RenoDX a rede avalia no backbuffer de qualquer
 // jeito, e no modulo AMD a ordem e outra: ali fica o SR, como antes.
+// 2.1: O MOTOR PADRAO PARA UMA FONTE. Mesma regra do arranque (ver `padraoProprioNaCaptura`,
+// mais abaixo) para quem precisa saber ANTES do arranque - a tela inicial: em fonte de captura
+// o motor proprio e o padrao quando ninguem escolheu a mao e o feeder sabe a rede reduzida.
+static bool PadraoProprioNaCaptura(bool fonteCaptura) {
+    return fonteCaptura && !g_moduloAmd && RenoDxNovo() && IniGet(L"motor_padrao_captura") != L"renodx";
+}
+// O motor que VAI valer nesta fonte: o do ini, ou (sem escolha manual) o padrao.
+static bool MotorProprioEfetivo(bool fonteCaptura) {
+    if (g_moduloAmd) return false;
+    if (IniGet(L"motor") == L"proprio") return true;
+    return PadraoProprioNaCaptura(fonteCaptura) && IniGet(L"motor_manual") != L"1" && FeederTemRedeReduzida();
+}
 static int SrAutoAmpliando() {
     return (!g_moduloAmd && MotorProprio() && !FeederTemNrPreSr()) ? 1 : 2;
 }
@@ -30415,8 +30427,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     g_fonteCaptura = !g_ponteFeeder && !g_selCamposNativo
                      && g_modoEscolha != MODO_NATIVO && g_modoEscolha != MODO_UPSTREAM;
     const bool fonteCaptura = g_fonteCaptura;
-    const bool padraoProprioNaCaptura = fonteCaptura && !g_moduloAmd && RenoDxNovo()
-                                        && IniGet(L"motor_padrao_captura") != L"renodx";
+    const bool padraoProprioNaCaptura = PadraoProprioNaCaptura(fonteCaptura);
     // X-REABRE (18/09/2026): "tamanho da rede: volta ao RenoDX". A regua do tamanho da rede
     // liga o motor proprio sozinha (motor_auto=1) para os degraus abaixo de 100%; a volta a
     // 100% nao reabre mais o app (o motor proprio a 100% e um motor inteiro) e a devolucao ao
