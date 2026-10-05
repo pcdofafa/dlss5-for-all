@@ -60,3 +60,20 @@ Thumbs.db
 desktop.ini
 *.tmp
 ~$*
+
+# --- v2.1 PASTA UNICA: o mod DLSS-NR-on-AMD (terceiro, licenca proibe redistribuir) --------
+# mora em bin\mod-amd\ na maquina da pessoa. Nada dele entra no git: so as instrucoes e o
+# script de conferencia, que o montar-portable.ps1 copia para bin\mod-amd\.
+mod-amd/*
+!mod-amd/LEIA-ME.txt
+!mod-amd/README.txt
+!mod-amd/preparar-mod-amd.cmd
+!mod-amd/preparar-mod-amd.ps1
+bin/mod-amd/*
+!bin/mod-amd/LEIA-ME.txt
+!bin/mod-amd/README.txt
+!bin/mod-amd/preparar-mod-amd.cmd
+!bin/mod-amd/preparar-mod-amd.ps1
+version.dll
+dlssnr_on_amd*
+!perfil-amd/dlssnr_on_amd.ini.referencia

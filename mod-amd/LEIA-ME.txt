@@ -1,0 +1,152 @@
+﻿=====================================================================
+  DLSS5 FOR ALL  -  PLACAS AMD RADEON (EXPERIMENTAL)
+  pasta: bin\mod-amd
+=====================================================================
+  (English version: README.txt)
+
+  ISTO É EXPERIMENTAL. Pode não funcionar na sua placa, pode rodar
+  devagar e pode quebrar quando o mod lançar uma versão nova. O
+  caminho garantido continua sendo uma GeForce RTX.
+
+  O Neural Rendering (DLSS 5) numa Radeon é feito pelo mod
+  DLSS-NR-on-AMD, de Daniel Blanco (danielblnc):
+      https://github.com/danielblnc/DLSS-NR-on-AMD
+  O mod NÃO é distribuído com este programa, por exigência da
+  licença dele: você baixa do autor e instala nesta pasta. O
+  DLSS5 For All só carrega o mod quando você escolhe a Radeon.
+
+  Sem o mod (ou numa placa que ele não cobre) o programa abre do
+  mesmo jeito: Frame Gen e filtros funcionam, só o DLSS 5 fica
+  indisponível, com o motivo escrito no painel.
+
+
+1. QUAIS PLACAS O MOD COBRE
+---------------------------------------------------------------------
+- Radeon RX 9000 (RDNA4) e RX 7000 (RDNA3), com o driver AMD
+  Adrenalin 26.1.1 ou mais novo (ele traz o runtime HIP que o mod
+  usa).
+- Radeon RX 6000 (RDNA2): a partir da v0.6.0 do mod, que exige o
+  AMD HIP SDK 7.2 instalado à parte:
+      https://www.amd.com/en/developer/resources/rocm-hub/hip-sdk.html
+  NÃO TESTADA por este programa.
+- Windows 11, 64 bits.
+- A lista oficial e atualizada é a da página do mod (link acima):
+  ela manda, não este arquivo.
+- iGPU (Radeon Graphics, 780M...), RX 5000 e anteriores: não.
+
+
+2. BAIXAR O INSTALADOR DO MOD (SÓ DA PÁGINA OFICIAL)
+---------------------------------------------------------------------
+Baixe o dlssnr_on_amd_setup.exe SOMENTE da página de releases do
+autor:
+    https://github.com/danielblnc/DLSS-NR-on-AMD/releases
+Arquivo vindo de fórum, Discord ou "pack" ninguém auditou. Use a
+versão mais nova que cubra a sua placa.
+
+Antivírus: o instalador do mod é acusado por alguns antivírus (é
+um problema conhecido do projeto dele). A decisão de confiar é sua.
+Se decidir usar, ponha esta pasta (bin\mod-amd) nas exclusões antes
+de rodar o instalador, senão o antivírus apaga o version.dll.
+
+
+3. INSTALAR AQUI, EM bin\mod-amd (uma vez só)
+---------------------------------------------------------------------
+a) Copie o dlssnr_on_amd_setup.exe para ESTA pasta (bin\mod-amd).
+
+b) O instalador precisa do nvngx_dlssnr.dll AO LADO dele (é de lá
+   que ele tira os pesos da rede). Se ele já está em bin\, copie
+   para cá - ou dê dois cliques em preparar-mod-amd.cmd (nesta
+   pasta), que confere tudo e oferece essa cópia.
+
+c) Dê dois cliques no dlssnr_on_amd_setup.exe, AQUI DENTRO.
+   Ele grava nesta pasta:
+       version.dll                 (o mod em si)
+       dlssnr_on_amd.ini           (as opções dele)
+       dlssnr_on_amd_weights.bin   (os pesos da rede)
+   Se ele perguntar com que nome instalar (por exemplo
+   "Install as dxgi.dll?"), responda  version  - nunca dxgi.
+   O dxgi.dll de bin\ é o ReShade; sem ele nada funciona.
+
+d) Dê dois cliques em preparar-mod-amd.cmd. Ele confere Windows,
+   driver, placa, os arquivos desta pasta e o ini do mod, e diz o
+   que falta. Ele não baixa nada e não roda o instalador por você.
+
+Quando o mod lançar uma versão nova: baixe de novo (passo 2) e
+repita o passo 3 nesta pasta.
+
+Quem atualizou da 1.2/2.0 e tem o mod na pasta antiga bin-amd\: o
+programa ainda o encontra lá, mas o lugar novo é este. O
+preparar-mod-amd.cmd oferece COPIAR os arquivos do mod de bin-amd\
+para cá (nada é apagado; a pasta bin-amd\ pode ser apagada por você
+depois, se quiser).
+
+
+4. USAR
+---------------------------------------------------------------------
+Abra o programa pelo DLSS5ForAll.exe da pasta principal (o launcher)
+e clique em INICIAR. Não existe botão AMD: com o mod instalado e uma
+Radeon coberta, o launcher já abre no modo AMD.
+Na tela de escolha, em "Placa de vídeo que roda o filtro", escolha
+a Radeon. Se estava em outra placa, o programa reabre sozinho no
+modo AMD (e carrega o mod desta pasta). O resto é igual ao tutorial
+normal. No modo AMD o painel abre com Insert; a tecla End é o menu
+do próprio mod.
+
+
+5. COMO SABER SE FUNCIONOU (e onde ficam os logs)
+---------------------------------------------------------------------
+- Dentro do programa, F6 liga e desliga o DLSS 5: a imagem tem que
+  mudar. O painel mostra o estado do mod.
+- bin\dlss5forall.log (o log do programa) tem que ter:
+      mod AMD: carregado de ...\bin\mod-amd\version.dll
+- bin\mod-amd\dlssnr_on_amd.log (o log do mod) tem que ter:
+      engine init ok
+      network job 1 done in ... ms
+  Se tem "network job", a rede está rodando na sua Radeon.
+  (Se o log do mod não aparecer aqui, procure-o em bin\.)
+- O preparar-mod-amd.cmd lê esses logs e traduz em português.
+
+Linhas do dlssnr_on_amd.log que apontam o problema:
+  "UNSUPPORTED GPU ARCHITECTURE" ou "invalid kernel file"
+      -> a versão do mod instalada não tem código para a sua placa.
+         Veja na página do mod qual versão a cobre.
+  "amdhip64_7.dll ... not found"
+      -> falta o runtime HIP: driver Adrenalin (RX 7000/9000) ou o
+         HIP SDK 7.2 (RX 6000).
+  "no HIP device matches the game's adapter"
+      -> o programa está rodando na outra placa. Escolha a Radeon em
+         "Placa de vídeo que roda o filtro".
+  "setup failed; idle", "route backbuffer" ou "FSR is not active"
+      -> o mod não pegou o FSR que o programa liga no modo AMD.
+         Rode o preparar-mod-amd.cmd e mande o resultado.
+  "unsupported colour format 87"
+      -> em bin\dlss5-feed.cfg troque amd_color_fmt=87 por 10.
+  "inline: N GPU wait timeouts so far"
+      -> não é erro: a rede está lenta para o teto de espera. Baixe
+         a Resolução do DLSS no painel.
+
+
+6. VOLTAR PARA NVIDIA / DESINSTALAR
+---------------------------------------------------------------------
+- Voltar para a NVIDIA: em "Placa de vídeo que roda o filtro",
+  escolha a GeForce. O programa reabre no modo NVIDIA, NÃO carrega o
+  mod e desfaz sozinho os ajustes do modo AMD (as chaves amd_* do
+  dlss5-feed.cfg e o RenoDX desligado no ReShade). Nada a fazer.
+- Desinstalar o mod: apague desta pasta os arquivos que o
+  instalador criou (version.dll, dlssnr_on_amd.ini,
+  dlssnr_on_amd_weights.bin, dlssnr_on_amd.log) e, se quiser, o
+  dlssnr_on_amd_setup.exe e a cópia do nvngx_dlssnr.dll. Deixe este
+  LEIA-ME. Sem o mod aqui, o programa não entra mais no modo AMD.
+
+
+CRÉDITOS
+---------------------------------------------------------------------
+- DLSS-NR-on-AMD: Daniel Blanco (danielblnc),
+  https://github.com/danielblnc/DLSS-NR-on-AMD
+  Não é distribuído com este programa, por exigência da licença do
+  autor. Todo o mérito da rede rodando numa Radeon é dele.
+- FidelityFX SDK (amd_fidelityfx_dx12.dll, em bin\): AMD, licença
+  MIT (LICENSE-FidelityFX.txt). FSR e Radeon são marcas da AMD.
+- DLSS5-Feeder: jlrouzies-fr (MIT).
+- nvngx_dlssnr.dll: NVIDIA. NÃO distribua.
+Este projeto não tem relação com a AMD, a NVIDIA ou o autor do mod.
