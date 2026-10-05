@@ -38578,7 +38578,7 @@ L"Do you want to continue?");
                                 // resolucao a pessoa quer quando ela muda". Nao da para LER a
                                 // resolucao interna do jogo sem injetar - entao o certo e
                                 // PERGUNTAR, nao mandar voltar atras.
-                                g_hud.jogoAviso = SubPainel(T(L"você mudou a resolução dentro do jogo? A janela continuou no "
+                                g_hud.jogoAviso = Sel::SubPainel(T(L"você mudou a resolução dentro do jogo? A janela continuou no "
                                                     L"tamanho antigo, então o jogo desenha num tamanho e espreme no "
                                                     L"outro — e esse trabalho a mais é jogado fora. Abra o painel "
                                                     L"({P}) e escolha a mesma resolução em \"Resolução do jogo\" "
