@@ -399,7 +399,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         info.amdNota.clear();
         if (!pl.radeon)                                info.amdNota = TS(L"não compatível com seu computador", L"not compatible with your computer");
         else if (!TemRuntimeHip())                     info.amdNota = TS(L"atualize o driver Adrenalin (26.1 ou mais novo)", L"update the Adrenalin driver (26.1 or newer)");
-        else if (!Existe(binAmd + L"DLSS5ForAll.exe")) info.amdNota = TS(L"módulo em desenvolvimento", L"module in development");
+        else if (!Existe(binAmd + L"DLSS5ForAll.exe")) info.amdNota = TS(L"módulo não está nesta instalação", L"module is not in this install");
         else info.amdOk = true;
 
         // A LINHA DE ESTADO DO HARDWARE, no alto da tela: a resposta a "o meu computador
