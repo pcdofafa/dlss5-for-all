@@ -460,8 +460,8 @@ A caixa só aparece DEPOIS do clique em INICIAR, uma vez por abertura, e volta
 nas próximas aberturas enquanto houver versão nova. Quem já tem o programa
 recebe o aviso na abertura seguinte (e em até 30 minutos, se o launcher estiver
 aberto na hora em que você publicar). Escreva as notas em uma ou duas frases,
-em pt e en. Os launchers 1.2 em campo só atualizam direto se o manifesto tiver
-também "url" e "sha256" (o -SoDireto21 não os grava, de propósito).
+em pt e en. Os launchers 1.2 e 2.0 em campo só enxergam o manifesto com
+"url" e "sha256" (formato de sempre, padrão do script): eles atualizam direto. O -SoDireto21 e o modo site os escondem delas.
 
 
 =====================================================================

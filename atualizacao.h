@@ -49,11 +49,15 @@
 //      site" e "Agora nao". Se o download/hash/troca falhar, a mensagem oferece abrir a pagina.
 //    {"versao":"2.2","pagina":"https://www.pcdofafa.com.br/dlss","notas":"texto curto","notas_en":"short text"}
 //    {"versao":"2.2","zip_url":"https://.../DLSS5ForAll-2.2.zip","zip_sha256":"<64 hex>","notas":"..."}
-//  POR QUE O LAUNCHER 1.2 NAO ATUALIZA POR ESTE MANIFESTO: o parser da 1.2 so aceita um manifesto
-//  com `url` + `sha256` validos (senao "manifesto invalido", sem aviso). Os campos desta versao
-//  (pagina, zip_url, zip_sha256) ele nao conhece; entao so os usa quem o dono QUER que a 1.2
-//  atualize direto: preencher TAMBEM `url` + `sha256` (o 2.1+ os aceita como o zip quando
-//  zip_url/zip_sha256 faltam). `versao` compara por partes numericas ("1.10" > "1.9").
+//  COMPATIBILIDADE COM A 1.2 E A 2.0 (que ja tem a atualizacao direta e continuam a usa-la): o
+//  manifesto no formato ANTIGO (`versao` + `url` + `sha256`) funciona para elas exatamente como
+//  antes, e a 2.1+ o entende como modo direto. O parser da 1.2/2.0 so aceita manifesto com `url` +
+//  `sha256` validos (senao "manifesto invalido", sem aviso) e ignora campo que nao conhece; entao:
+//    direto para TODOS ......... versao + url + sha256            (o formato de sempre)
+//    so aviso de site (2.1+) ... so `versao` [+ pagina, notas]     (1.2/2.0: invalido = nada)
+//    direto so na 2.1+ ......... versao + zip_url + zip_sha256     (1.2/2.0: invalido = nada)
+//    antigos direto, 2.1+ site . versao + url + sha256 + "modo":"site"  (2.1+ ignora o zip e abre a pagina)
+//  `versao` compara por partes numericas ("1.10" > "1.9").
 //  `minima_para_auto` (opcional) e a menor versao INSTALADA que pode atualizar sozinha (caixa
 //  "automaticamente", so no modo direto); vazia = todas.
 //
@@ -503,7 +507,11 @@ inline bool LerManifesto(const std::string& json, Manifesto& m, std::wstring& er
     const std::wstring au = Limpo(j.Str("url"), 2048),     as = Minusculas(Limpo(j.Str("sha256"), 64));
     if (!zu.empty() && Sha256Valido(zs))      { m.zipUrl = zu; m.zipSha256 = zs; }
     else if (!au.empty() && Sha256Valido(as)) { m.zipUrl = au; m.zipSha256 = as; }
-    if (aviso && !m.Direto() && (!zu.empty() || !zs.empty() || !au.empty() || !as.empty()))
+    // "modo":"site" forca o modo site na 2.1+ mesmo com zip no manifesto (a 1.2/2.0 ignoram o campo e
+    // seguem no direto com url+sha256): o aviso da 2.1+ vira "abra a pagina" e nada e baixado por ela.
+    const bool modoSite = Minusculas(Limpo(j.Str("modo"), 16)) == L"site";
+    if (modoSite) { m.zipUrl.clear(); m.zipSha256.clear(); }
+    if (aviso && !modoSite && !m.Direto() && (!zu.empty() || !zs.empty() || !au.empty() || !as.empty()))
         *aviso = L"zip incompleto (precisa de zip_url + zip_sha256 com 64 hexadecimais) - fica o modo site";
     if (!m.minimaParaAuto.empty() && !VersaoValida(m.minimaParaAuto)) m.minimaParaAuto.clear();
     return true;

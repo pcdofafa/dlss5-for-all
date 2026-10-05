@@ -7,9 +7,9 @@
 #  SHA-256 e troca). Para o MODO SITE este script NAO e necessario: nao ha zip nem hash a gerar;
 #  publique o manifesto a mao, ex.:  {"versao":"2.2","notas":"...","notas_en":"..."}  (ver
 #  docs/ATUALIZACAO-2.1.md). Este script gera o manifesto do modo direto:
-#     sem -SoDireto21  (padrao, como era): grava `url` + `sha256` - a 1.2 em campo TAMBEM atualiza direto
-#     com -SoDireto21 : grava `zip_url` + `zip_sha256` - a 1.2 ignora o manifesto (so a 2.1+ atualiza)
-#  Obs.: o /publicar do worker so aceita manifesto sem `url`/`sha256` depois do ajuste descrito em
+#     sem -SoDireto21  (padrao, como era): grava `url` + `sha256` - 1.2, 2.0 e 2.1+ atualizam direto
+#     com -SoDireto21 : grava `zip_url` + `zip_sha256` - 1.2 e 2.0 ignoram o manifesto (so a 2.1+ atualiza)
+#  Obs.: o /publicar do worker so aceita manifesto SEM `url`/`sha256` (modo site, -SoDireto21) depois do ajuste descrito em
 #  docs/ATUALIZACAO-2.1.md (validarManifestoVersao).
 #
 #  A partir do pacote portable MONTADO (padrao: ..\DLSS5ForAll-AMD, o que o
