@@ -4,7 +4,7 @@
 //  E A INTERFACE UNICA do pacote. Mostra a tela do grupo (a mesma de sempre: QR, "QUERO
 //  AS OFERTAS", "APOIAR O CANAL") e, no lugar do botao "INICIAR PROGRAMA", dois botoes:
 //    USAR O DLSS 5 EM PLACA NVIDIA  -> abre bin\DLSS5ForAll.exe      (cadeia NVIDIA)
-//    USAR O DLSS 5 EM PLACA AMD     -> abre bin-amd\DLSS5ForAll.exe  (cadeia AMD)
+//    USAR O DLSS 5 EM PLACA AMD     -> abre bin\DLSS5ForAll.exe --amd (v2.1: pasta unica; o mod mora em bin\mod-amd)
 //  O que nao serve nesta maquina fica cinza com o motivo escrito no botao. Com os dois
 //  cinzas aparece "ABRIR SEM DLSS 5": o app continua servindo como captura + ReShade.
 //
@@ -96,21 +96,31 @@ static bool EhRtx(UINT vendor, const std::wstring& nome) {
     for (auto& c : up) c = (wchar_t)towupper(c);
     return up.find(L"RTX") != std::wstring::npos;
 }
-// AMD que o mod do Neural Rendering cobre: Radeon RX 7000 (RDNA3) e RX 9000 (RDNA4). A
-// iGPU do Ryzen ("Radeon(TM) Graphics", "Radeon 780M") fica de fora de proposito.
-static bool EhRadeonCompativel(UINT vendor, const std::wstring& nome) {
-    if (vendor != 0x1002u) return false;
+// AMD que o mod do Neural Rendering (DLSS-NR-on-AMD, de danielblnc) cobre. A LISTA MORA SO
+// AQUI (no app: kSeriesRadeonMod, no main.cpp - as duas tem de andar juntas). RX 9000 (RDNA4)
+// e RX 7000 (RDNA3) usam o runtime HIP do driver Adrenalin (amdhip64_7.dll no System32). RX
+// 6000 (RDNA2) entrou na v0.6.0 do mod (03/10/2026, pelas notas do autor - NAO testada por este
+// programa) e precisa do HIP SDK 7.2 instalado a parte; como nao sabemos com certeza que DLL ele
+// poe onde, ela NAO e conferida aqui: com o mod instalado, quem decide e o proprio mod (o log
+// dele diz se o runtime faltou). A iGPU do Ryzen ("Radeon(TM) Graphics", "Radeon 780M") fica de
+// fora de proposito.
+struct SerieRadeon { wchar_t digito; bool confereHipDoDriver; };
+static const SerieRadeon kSeriesRadeon[] = { { L'9', true }, { L'7', true }, { L'6', false } };
+static const SerieRadeon* SerieRadeonCompativel(UINT vendor, const std::wstring& nome) {
+    if (vendor != 0x1002u) return nullptr;
     std::wstring up = nome;
     for (auto& c : up) c = (wchar_t)towupper(c);
     const size_t k = up.find(L"RX ");
-    if (k == std::wstring::npos || k + 6 >= up.size()) return false;
-    const wchar_t g = up[k + 3];
-    return (g == L'7' || g == L'9') && iswdigit(up[k + 4]) && iswdigit(up[k + 5]) && iswdigit(up[k + 6]);
+    if (k == std::wstring::npos || k + 6 >= up.size()) return nullptr;
+    if (!(iswdigit(up[k + 4]) && iswdigit(up[k + 5]) && iswdigit(up[k + 6]))) return nullptr;
+    for (const SerieRadeon& s : kSeriesRadeon) if (up[k + 3] == s.digito) return &s;
+    return nullptr;
 }
 
 struct Placas {
     bool rtx = false, radeon = false;   // ha pelo menos uma de cada tipo compativel
     std::wstring nomeRtx, nomeRadeon;
+    bool radeonConfereHip = true;       // a Radeon achada usa o HIP do driver (RX 7000/9000); RX 6000 nao
 };
 // SO PARA TESTE (DLSS5_DIAG=1, a mesma regra do DLSS5_SPLASH_DPI): DLSS5_PLACAS finge o
 // resultado da enumeracao - "rtx", "radeon", "ambas" ou "nenhuma". Sem isto nao ha como
@@ -139,7 +149,11 @@ static Placas EnumerarPlacas() {
         if (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
         const std::wstring nome = d.Description;
         if (!r.rtx && EhRtx(d.VendorId, nome))                  { r.rtx = true;    r.nomeRtx = nome; }
-        if (!r.radeon && EhRadeonCompativel(d.VendorId, nome))  { r.radeon = true; r.nomeRadeon = nome; }
+        // A mais nova primeiro (a ordem de kSeriesRadeon): uma RX 7000 ganha de uma RX 6000 na mesma maquina.
+        if (const SerieRadeon* s = SerieRadeonCompativel(d.VendorId, nome))
+            if (!r.radeon || (!r.radeonConfereHip && s->confereHipDoDriver)) {
+                r.radeon = true; r.nomeRadeon = nome; r.radeonConfereHip = s->confereHipDoDriver;
+            }
     }
     f->Release();
     return r;
@@ -293,7 +307,15 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (comRaiz && !raizGravavel && Existe(raizApp + L"ofertas.ini"))
         CopyFileW((raizApp + L"ofertas.ini").c_str(), (raiz + L"ofertas.ini").c_str(), FALSE);
     const std::wstring binNv  = raizApp + L"bin\\";
-    const std::wstring binAmd = raizApp + L"bin-amd\\";
+    // v2.1 PASTA UNICA: o modo AMD e o MESMO bin\DLSS5ForAll.exe com --amd; o mod mora em
+    // bin\mod-amd\ e o app o carrega so nesse modo. bin-amd\ so existe em quem atualizou da
+    // 1.2/2.0: se o mod estiver la (e nao em bin\mod-amd), o app o carrega de la por caminho
+    // completo - o launcher nunca mais abre o exe velho de bin-amd\ (ele nao e atualizado).
+    const std::wstring binAmd = raizApp + L"bin-amd\\";   // so para achar o mod antigo e o idioma
+    auto modInstaladoEm = [](const std::wstring& d) { return Existe(d + L"version.dll") && Existe(d + L"dlssnr_on_amd.ini"); };
+    const bool modNovo   = modInstaladoEm(binNv + L"mod-amd\\");
+    const bool modAntigo = !modNovo && modInstaladoEm(binAmd);
+    const bool modAmdInstalado = modNovo || modAntigo;
     if (comRaiz)
         atualizacao::Anotar(raiz + L"launcher.log", L"--raiz %ls (%ls): estado/log/cache em %ls",
                             raizApp.c_str(), raizGravavel ? L"aceita escrita" : L"SEM escrita", raiz.c_str());
@@ -331,9 +353,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         if (argv) LocalFree(argv);
         args = (direto || !versaoAnterior.empty() || comRaiz) ? resto : ArgumentosSemPrograma();
     }
-    // O modulo AMD recebe --amd: o app tambem detecta o modulo pelos arquivos do mod ao lado
-    // do exe, mas a flag deixa isso explicito antes mesmo de o mod estar instalado (faixa certa
-    // no seletor, textos certos).
+    // O modulo AMD recebe --amd: v2.1 PASTA UNICA, e a flag que liga o modo AMD no bin\ (o mod em
+    // bin\mod-amd so diz que esta instalado). Com --amd direto (atalho/script) o app abre no modo
+    // AMD mesmo sem o mod: faixa e textos dizem o que falta, nada e bloqueado.
     const std::wstring argsAmd = args.empty() ? std::wstring(L"--amd") : (args + L" --amd");
     // v2.1: o botao "Sem DLSS 5" (e --sem-dlss) PASSA a flag ao app: ele pula a sonda e abre com o Neural Render indisponivel
     // (Frame Gen e filtros normais). Na 2.0 a flag so existia aqui e abria o MESMO app de sempre, que tentava montar a rede.
@@ -362,7 +384,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     };
 
     if (direto == 1) { atualizacao::SalvarModulo(raiz, L"nvidia"); return sair(Abrir(binNv, args)); }
-    if (direto == 2) { atualizacao::SalvarModulo(raiz, L"amd");    return sair(Abrir(binAmd, argsAmd)); }
+    if (direto == 2) { atualizacao::SalvarModulo(raiz, L"amd");    return sair(Abrir(binNv, argsAmd)); }   // v2.1: pasta unica
     if (direto == 3) { atualizacao::SalvarModulo(raiz, L"sem");    return sair(Abrir(binNv, argsSemDlss)); }
 
     // o que esta maquina tem
@@ -397,9 +419,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 
         info.amdOk = false;
         info.amdNota.clear();
-        if (!pl.radeon)                                info.amdNota = TS(L"não compatível com seu computador", L"not compatible with your computer");
-        else if (!TemRuntimeHip())                     info.amdNota = TS(L"atualize o driver Adrenalin (26.1 ou mais novo)", L"update the Adrenalin driver (26.1 or newer)");
-        else if (!Existe(binAmd + L"DLSS5ForAll.exe")) info.amdNota = TS(L"módulo não está nesta instalação", L"module is not in this install");
+        // v2.1 PASTA UNICA: AMD pronta = Radeon coberta + runtime HIP (so conferido na RX 7000/9000)
+        // + mod instalado em bin\mod-amd (ou ainda no bin-amd antigo) + o exe de bin\.
+        if (!pl.radeon)                                          info.amdNota = TS(L"não compatível com seu computador", L"not compatible with your computer");
+        else if (pl.radeonConfereHip && !TemRuntimeHip())        info.amdNota = TS(L"atualize o driver Adrenalin (26.1 ou mais novo)", L"update the Adrenalin driver (26.1 or newer)");
+        else if (!modAmdInstalado)                               info.amdNota = TS(L"mod AMD não instalado (pasta bin\\mod-amd)", L"AMD mod not installed (bin\\mod-amd folder)");
+        else if (!Existe(binNv + L"DLSS5ForAll.exe"))            info.amdNota = TS(L"módulo não encontrado (pasta bin)", L"module not found (bin folder)");
         else info.amdOk = true;
 
         // A LINHA DE ESTADO DO HARDWARE, no alto da tela: a resposta a "o meu computador
@@ -583,8 +608,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     {
         FILE* f = _wfopen((raiz + L"launcher.log").c_str(), L"a, ccs=UTF-8");
         if (f) {
-            fwprintf(f, L"v%ls rtx=%d radeon=%d hip=%d nvidiaOk=%d amdOk=%d | escolha=%d fechadoPor=%d apos %llu ms | nv=\"%ls\" amd=\"%ls\" | versao=%d publi=%d resumo=%d | vitrine=%ls motivo=%ls carga=%ls links_fora=%d | gaveta=%ls abertura=%d novas=%d | | lingua=%ls\n",
-                     DLSS5_VERSAO, (int)pl.rtx, (int)pl.radeon, (int)TemRuntimeHip(), (int)info.nvidiaOk, (int)info.amdOk,
+            fwprintf(f, L"v%ls rtx=%d radeon=%d hip=%d modamd=%ls nvidiaOk=%d amdOk=%d | escolha=%d fechadoPor=%d apos %llu ms | nv=\"%ls\" amd=\"%ls\" | versao=%d publi=%d resumo=%d | vitrine=%ls motivo=%ls carga=%ls links_fora=%d | gaveta=%ls abertura=%d novas=%d | | lingua=%ls\n",
+                     DLSS5_VERSAO, (int)pl.rtx, (int)pl.radeon, (int)TemRuntimeHip(), modNovo ? L"mod-amd" : modAntigo ? L"bin-amd(antigo)" : L"nao", (int)info.nvidiaOk, (int)info.amdOk,
                      (int)e, fechadoPor, (unsigned long long)(GetTickCount64() - t0),
                      info.nvidiaNota.c_str(), info.amdNota.c_str(), verif.pronto.load(), verif.remotoPronto.load(), verif.resumoPronto.load(),
                      vitrineOn ? L"on" : L"off", vitrineOn ? (motor.motivoOff.empty() ? L"-" : motor.motivoOff.c_str()) : vitrineMotivo.c_str(),
@@ -642,13 +667,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                 }
             }
         }
-        if (e == ofertas::detail::ESC_AMD) return sair(Abrir(binAmd, argsAmd));
+        if (e == ofertas::detail::ESC_AMD) return sair(Abrir(binNv, argsAmd));   // v2.1: pasta unica
         return sair(Abrir(binNv, e == ofertas::detail::ESC_SEM_DLSS ? argsSemDlss : args));   // v2.1: "Sem DLSS 5" leva --sem-dlss ao app
     }
     if (e == ofertas::detail::ESC_LINK) {
         // abriu o grupo, o canal ou o cupom: o app abre assim mesmo, do jeito que der, como a
         // tela classica sempre fez (ela fechava e o app seguia)
-        return sair(info.nvidiaOk ? Abrir(binNv, args) : info.amdOk ? Abrir(binAmd, argsAmd) : Abrir(binNv, args));
+        return sair(info.nvidiaOk ? Abrir(binNv, args) : info.amdOk ? Abrir(binNv, argsAmd) : Abrir(binNv, args));
     }
     return sair(0);   // X ou Esc: a pessoa desistiu, nada abre
 }
