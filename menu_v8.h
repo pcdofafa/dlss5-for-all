@@ -991,6 +991,16 @@ static int RenderV8(Graphics* g) {
                 _snwprintf(lv, 200, T(L"à espera · o jogo está parado, nada a inventar", L"Waiting · the game is paused, nothing to generate"));
             else if (g_hud.fgAtivo && g_hud.fgPausado)
                 { _snwprintf(lv, 200, T(L"em pausa · chegada %.0f fps", L"Paused · input %.0f fps"), chegadaFm); cor = K8_AVISO; }
+            // BUG 9: a geracao esta LIGADA mas o monitor nao tem vblank livre para os quadros gerados: em 2x
+            // cada gerado precisa de um vblank ENTRE dois reais (apresentador_gpu.h, "1 vblank entre os reais:
+            // nao ha vaga"), entao com o jogo acima de ~metade do refresh quase todos sao descartados; em 4x
+            // a meta (4 x jogo) passa do refresh e o apresentador cai para "sem gerados" abaixo de R = 1,25.
+            // Sem este aviso a linha dizia "ativa" e a pessoa via "60 -> 60" sem saber por que nao mudou.
+            else if (g_hud.fgAtivo && !g_hud.fgPausado && hzT > 1.0 && chegadaFm > (multSel == 2 ? 0.55 : 0.8) * hzT)
+                { _snwprintf(lv, 200, T(L"ativa · %.0f → %.0f na tela · o jogo (%.0f) já enche o monitor (%.0f Hz): quase não há vaga p/ gerados",
+                                        L"Active · %.0f → %.0f on screen · the game (%.0f) already fills the monitor (%.0f Hz): little room for generated frames"),
+                             chegadaFm, g_hud.fgApresFps, chegadaFm, hzT);
+                  cor = K8_AVISO; }
             else if (g_hud.fgAtivo)
                 { _snwprintf(lv, 200, T(L"ativa · %.0f → %.0f na tela · latência ≈ %.0f ms", L"Active · %.0f → %.0f fps · latency ≈ %.0f ms"), chegadaFm, g_hud.fgApresFps, g_hud.fgLatMs);
                   cor = (g_hud.fgApresFps >= 0.85 * (g_hud.fgMultEf >= 2 ? g_hud.fgMultEf : 2) * chegadaFm) ? K8_ACC : K8_AVISO; }
