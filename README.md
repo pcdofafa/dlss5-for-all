@@ -235,8 +235,8 @@ is filtering, but the requested engine did not come up" — and the card says th
 
 ### In the AMD module the profile goes to the mod, and half of it does not exist
 
-In the AMD package the Neural Rendering is done by the third-party mod **DLSS-NR-on-AMD** — the RenoDX
-add-on does not even enter the folder. Until 1.2 the panel wrote the profile to the `[RenoDX.DLSS5]` block of
+In AMD mode the Neural Rendering is done by the third-party mod **DLSS-NR-on-AMD** — the RenoDX
+add-on stays off in ReShade (2.1: single folder, see "AMD Radeon cards"). Until 1.2 the panel wrote the profile to the `[RenoDX.DLSS5]` block of
 `ReShade.ini` **even there**, where nobody read it: the controls seemed to work and never reached the
 network. Now they go to `[DlssNrOnAmd]` of `dlssnr_on_amd.ini`, which is what the mod reads.
 
@@ -449,6 +449,27 @@ close on its own — the person closes it with `Not now`, the X or Esc — no co
 - Windows 10 1903+ / 11 64-bit (window capture uses Windows Graphics Capture; camera needs the Media Feature Pack on Windows N)
 - GeForce RTX with a recent driver (the 4080 runs it; at 1080p expect to drop to ~half the FPS with NR on)
 - Visual C++ Runtime 2015-2022 x64 (the script installs it if missing)
+- AMD Radeon card: see the section below (experimental)
+
+## AMD Radeon cards
+
+Experimental. The DLSS 5 network on a Radeon is run by the **DLSS-NR-on-AMD** mod by Daniel Blanco (danielblnc) —
+https://github.com/danielblnc/DLSS-NR-on-AMD. The mod **is not shipped with this program, as its license
+requires**: you download it from the author. There is no AMD button in the launcher and no separate folder: AMD mode
+is the same `bin\DLSS5ForAll.exe`, which loads the mod from `bin\mod-amd\` only when the Radeon is the selected card.
+
+- **Cards:** Radeon RX 7000 and RX 9000 (Adrenalin 26.1.1 or newer); RX 6000 from mod v0.6.0 on, with the
+  [AMD HIP SDK 7.2](https://www.amd.com/en/developer/resources/rocm-hub/hip-sdk.html) installed separately —
+  **not tested by this program**. The list that rules is the one on the mod's page.
+- **Steps:** (1) download `dlssnr_on_amd_setup.exe` only from https://github.com/danielblnc/DLSS-NR-on-AMD/releases;
+  (2) put it in `bin\mod-amd\` with your `nvngx_dlssnr.dll` next to it and run it there (if it asks for a name,
+  `version`); (3) run `bin\mod-amd\preparar-mod-amd.cmd`, which checks everything; (4) open through the launcher and
+  pick the Radeon under "Graphics card that runs the filter". To go back to NVIDIA, pick the GeForce: the app reopens
+  without the mod and undoes the AMD-mode settings by itself.
+- **Check:** `bin\dlss5forall.log` has `mod AMD: carregado de ...`; `bin\mod-amd\dlssnr_on_amd.log` has
+  `engine init ok` and `network job`.
+- Full step by step: [`mod-amd/README.txt`](mod-amd/README.txt) (ships as `bin\mod-amd\README.txt`). Without the
+  mod, or on a card it does not cover, the program opens anyway (Frame Gen and filters); only DLSS 5 is unavailable.
 
 ## Installation (once)
 

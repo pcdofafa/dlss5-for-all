@@ -19,21 +19,22 @@ Tudo roda de dentro desta pasta.
 O QUE TEM NA PASTA
 ---------------------------------------------------------------------
 DLSS5ForAll.exe   ->  É POR AQUI QUE VOCÊ ABRE.
-                      Mostra a tela do grupo com os botões de modo
-                      (placa NVIDIA / placa AMD) e abre o programa certo.
+                      Mostra a tela do grupo e abre o programa (bin\)
+                      no modo certo para a sua placa (NVIDIA ou AMD).
 LEIA-ME.txt       ->  este arquivo
 README.txt        ->  o mesmo tutorial em inglês
-bin\              ->  o programa para placa NVIDIA e tudo que ele precisa.
-bin-amd\          ->  o programa para placa AMD (quando existir na sua
-                      versão; sem essa pasta o botão AMD fica cinza).
-                      No dia a dia não precisa entrar em nenhuma das duas.
+bin\              ->  o programa e tudo que ele precisa (NVIDIA e AMD).
+bin\mod-amd\      ->  onde VOCÊ instala o mod para placa AMD Radeon
+                      (instruções no LEIA-ME.txt de lá).
+                      No dia a dia não precisa entrar em bin\.
 
 
 PRECISA DE
 ---------------------------------------------------------------------
 - Windows 10 (1903 ou mais novo) ou Windows 11, 64 bits
 - Placa GeForce RTX (série 20 ou mais nova) com driver atualizado,
-  ou Radeon RX 7000 / RX 9000 com o módulo AMD (em desenvolvimento)
+  ou Radeon RX 7000 / RX 9000 (RX 6000 com o mod v0.6.0+) com o mod
+  AMD instalado em bin\mod-amd (experimental; ver PLACAS AMD RADEON)
 - O jogo rodando em JANELA ou BORDERLESS
   (tela cheia exclusiva NÃO funciona: o Windows não deixa capturar)
 
@@ -43,10 +44,12 @@ COMO USAR EM 5 PASSOS
 1. Abre o jogo. Deixa ele em janela ou borderless.
 
 2. Dá dois cliques em DLSS5ForAll.exe.
-   Aparece a tela do grupo. Clica em INICIAR (é o único botão): o
-   launcher abre o programa certo para a sua placa (NVIDIA ou AMD).
-   Se a placa não tiver DLSS 5, o programa abre mesmo assim, só com
-   os efeitos (nitidez, anti-serrilhado...).
+   Aparece a tela do grupo. Embaixo dos botões do grupo tem dois:
+     USAR O DLSS 5 EM PLACA NVIDIA   (verde)
+     USAR O DLSS 5 EM PLACA AMD      (vermelho)
+   O que não serve no seu PC fica cinza, com o motivo escrito nele.
+   Se os dois estiverem cinzas, aparece ABRIR SEM DLSS 5: o programa
+   abre mesmo assim, só com os efeitos (nitidez, anti-serrilhado...).
 
 3. No seletor, escolhe a FONTE:
      Janela   -> escolhe o jogo na lista.  MAIS LEVE. (recomendado)
@@ -253,33 +256,39 @@ PROBLEMAS COMUNS
 Tela cheia exclusiva: não funciona. Jogo em janela ou borderless.
 
 
-MÓDULO AMD (beta)
+PLACAS AMD RADEON (experimental)
 ---------------------------------------------------------------------
-O módulo AMD é a pasta bin-amd\ (o INICIAR abre ela numa Radeon).
-Ele roda a rede do DLSS 5 numa Radeon por meio do mod
-"DLSS-NR-on-AMD" (de danielblnc), que é de terceiro, fechado e NÃO
-vem no pacote. É BETA: pode não funcionar na sua placa e roda mais
-devagar (segundo o autor do mod, uns 31 fps em 1080p na RX 9070 XT
-e uns 15 a 20 fps na RX 9060 XT).
+Não existe botão AMD nem pasta separada: o modo AMD é o mesmo
+programa de bin\ e liga sozinho quando o mod está instalado e você
+escolhe a Radeon em "Placa de vídeo que roda o filtro".
 
-Precisa de: Windows 11, driver Adrenalin 26.1.1 ou mais novo,
-Radeon RX 7000 ou RX 9000, o seu nvngx_dlssnr.dll e o instalador
-do mod. RX 9060 XT: precisa do mod v0.2.14 ou mais novo (o autor
-disse em 05/09/2026 que o suporte entra nessa versão); hoje a
-release pública ainda é a v0.2.11 e as builds novas estão só no
-Discord do autor. Confira a página de releases antes de baixar.
+A rede do DLSS 5 numa Radeon é feita pelo mod "DLSS-NR-on-AMD", de
+Daniel Blanco (danielblnc), https://github.com/danielblnc/DLSS-NR-on-AMD
+Ele NÃO vem com este programa, por exigência da licença dele: você
+baixa do autor. É experimental e roda mais devagar que numa RTX.
 
-Passo a passo curto (o completo está em bin-amd\LEIA-ME-AMD.txt):
-  1. Copie o seu nvngx_dlssnr.dll (o mesmo de bin\) para bin-amd\.
-  2. Baixe dlssnr_on_amd_setup.exe em
-       https://github.com/danielblnc/DLSS-NR-on-AMD/releases/latest
-     copie-o para bin-amd\ e dê dois cliques nele. Ele gera
-     version.dll, dlssnr_on_amd.ini e dlssnr_on_amd_weights.bin.
-  3. Confira no dlssnr_on_amd.ini que Inline=1 (ele já grava assim).
-  4. Dê dois cliques em bin-amd\preparar-mod-amd.cmd: ele confere
-     tudo e diz o que falta. Depois é só abrir pelo botão AMD.
+Cobre Radeon RX 7000 e RX 9000 (driver Adrenalin 26.1.1 ou mais
+novo) e, a partir da v0.6.0 do mod, RX 6000 com o AMD HIP SDK 7.2
+instalado à parte (não testada por este programa). Confira a lista
+atual na página do mod.
+
+Passo a passo curto (o completo está em bin\mod-amd\LEIA-ME.txt):
+  1. Baixe o dlssnr_on_amd_setup.exe SÓ da página oficial:
+       https://github.com/danielblnc/DLSS-NR-on-AMD/releases
+  2. Copie-o para bin\mod-amd\ junto com o seu nvngx_dlssnr.dll
+     (o de bin\; o preparar-mod-amd.cmd dessa pasta copia para você)
+     e dê dois cliques no instalador ALI. Se ele perguntar o nome,
+     responda "version" (nunca dxgi).
+  3. Dê dois cliques em bin\mod-amd\preparar-mod-amd.cmd: ele confere
+     tudo e diz o que falta.
+  4. Abra pelo DLSS5ForAll.exe daqui e escolha a Radeon em "Placa de
+     vídeo que roda o filtro". Para voltar à NVIDIA, escolha a GeForce.
+Sem o mod (ou numa placa que ele não cobre) o programa abre do mesmo
+jeito, com Frame Gen e filtros; só o DLSS 5 fica indisponível.
+Quem veio da 1.2/2.0 com o mod em bin-amd\: ainda funciona; o
+preparar-mod-amd.cmd oferece copiar o mod para bin\mod-amd\.
 Antivírus pode acusar o instalador do mod (é conhecido). A decisão
-de confiar é sua; se for usar, coloque bin-amd\ nas exclusões antes.
+de confiar é sua; se for usar, coloque bin\mod-amd\ nas exclusões.
 
 
 MOVER OU COPIAR A PASTA

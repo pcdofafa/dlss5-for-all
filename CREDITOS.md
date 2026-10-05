@@ -33,23 +33,26 @@ da NVIDIA está aqui.
 **O que você traz e NÃO é redistribuído aqui:** `renodx-dlss5.addon64` (RenoDX) e `nvngx_dlssnr.dll` (build interno
 vazado da NVIDIA — não distribua).
 
-**AMD FidelityFX (nas pastas `bin\` e `bin-amd\`):**
+**AMD FidelityFX (na pasta `bin\`):**
 - `amd_fidelityfx_dx12.dll` — AMD FidelityFX SDK **1.1.4** (FSR 3.1.4), © Advanced Micro Devices, Inc., licença **MIT**
   (`LICENSE-FidelityFX.txt`, na mesma pasta que a DLL; fonte: github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK,
   tag v1.1.4). Binário assinado pela AMD, redistribuído sem alteração. A DLL declara `FileVersion 1.0.1.41314`,
   `ProductName "AMD FidelityFX"`, `FileDescription "DX12 AMD FidelityFX Library"`, `Copyright (C) 2024` — esse
-  `1.0.1` é a versão da **FFX API** (a interface da DLL), não a do SDK. Ela está nas duas pastas porque o Frame
+  `1.0.1` é a versão da **FFX API** (a interface da DLL), não a do SDK. Ela serve aos dois modos porque o Frame
   Generation usa a interpolação da AMD também no caminho NVIDIA (`fg_ffx.h`). FSR e Radeon são marcas da AMD.
   *Nota de licença (22/09/2026):* o pacote do FidelityFX SDK **2.x** trocou a MIT por uma licença só-binário com
   proibição de engenharia reversa. Isso **não** se aplica aqui: a linha que distribuímos é a **1.1.4**, que é MIT.
   Se um dia a DLL for trocada por uma da linha 2.x, este texto e o `LICENSE-FidelityFX.txt` têm de ser trocados junto.
 
-**Módulo AMD (pasta `bin-amd\`, beta):**
-- `dlss5-feed.addon64` do `bin-amd\` é a **variante AMD do DLSS5-Feeder** (jlrouzies-fr, MIT): fonte original mais a
-  ramificação "portador FSR" deste projeto, compilada com MinGW. O mérito do Feeder é do autor original.
-- **DLSS-NR-on-AMD** (danielblnc, github.com/danielblnc/DLSS-NR-on-AMD): o mod que roda a rede do DLSS 5 em Radeon.
-  **NÃO é redistribuído** — nem o instalador, nem `version.dll`, `dlssnr_on_amd.ini` ou `dlssnr_on_amd_weights.bin`.
-  Você baixa o instalador do autor e o roda dentro de `bin-amd\`, sobre a sua cópia do `nvngx_dlssnr.dll`.
+**Placas AMD Radeon (modo AMD, experimental; o mod mora em `bin\mod-amd\`):**
+- `dlss5-feed.addon64` de `bin\` é a **variante AMD do DLSS5-Feeder** (jlrouzies-fr, MIT), um binário só para as duas
+  placas: fonte original mais a ramificação "portador FSR" deste projeto, compilada com MinGW. O mérito do Feeder é do
+  autor original.
+- **DLSS-NR-on-AMD**, de Daniel Blanco (danielblnc), https://github.com/danielblnc/DLSS-NR-on-AMD: o mod que roda a rede
+  do DLSS 5 em Radeon. **Não é distribuído com este programa, por exigência da licença dele** — nem o instalador, nem
+  `version.dll`, `dlssnr_on_amd.ini` ou `dlssnr_on_amd_weights.bin`. Você baixa o instalador da página oficial do autor
+  e o roda dentro de `bin\mod-amd\`, com a sua cópia do `nvngx_dlssnr.dll` ao lado (passo a passo em
+  `bin\mod-amd\LEIA-ME.txt`); o programa só carrega o mod quando a Radeon é a placa escolhida.
 
 **Launcher da versão portable (`DLSS5ForAll.exe` da raiz):**
 - `WebView2Loader.dll` — Microsoft Edge WebView2 SDK, versão 1.0.3912.50, © Microsoft Corporation, licença
