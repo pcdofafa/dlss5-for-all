@@ -30,7 +30,11 @@
 # skipping ligado. Com o skipping desligado, 1 passe muda 51% dos pixels contra a fonte. O
 # padrao abaixo esta conferido - este paragrafo existe para ninguem "corrigir" de novo.
 $PresetFabricaNovo = [ordered]@{
-    'DirectNeuralRenderingHookPoint'              = '2'    # a rede ligada; AUSENTE = Auto, que trava
+    # 2.1: de fabrica a primeira abertura (captura, Universal, RTX) escolhe o motor PROPRIO, entao o ini sai no estado dele
+    # (HookPoint/HookMethod 0 + RenoDX em DisabledAddons + nr_spike=1 no cfg): no do RenoDX a primeira abertura reabria o app.
+    # AUSENTE = Auto, que trava - por isso a chave existe com valor, nunca ausente.
+    'DirectNeuralRenderingHookPoint'              = '0'
+    'DirectNeuralRenderingHookMethod'             = '0'
     'DirectNeuralRenderingIntensity'              = '1'
     'DirectNeuralRenderingPassCount'              = '1'
     'DirectNeuralRenderingStyle'                  = '0'    # Modelo A, o que o painel mostra de fabrica

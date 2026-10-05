@@ -29886,7 +29886,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (!g_camada2 && !g_ponteFeeder && !g_modAmdAoLadoDoExe) AplicarChavesDoModo();
     // No modo AMD (pasta unica) o RenoDX da pasta tambem sai da lista de add-ons do ReShade.
     {
-        g_addonsEstado = AjustarRenoDxNosAddonsDesligados(MotorProprio() || g_moduloAmd, g_exeDir + kIniRs);
+        // 2.1: o motor que VAI valer (motor vazio = o padrao da fonte, como o arranque semeia logo adiante) - senao
+        // o ini de fabrica no estado do motor proprio seria "corrigido" aqui para o RenoDX e reabriria o app.
+        const bool fonteCapturaCedo = !g_ponteFeeder && !g_selCamposNativo && g_modoEscolha != MODO_NATIVO && g_modoEscolha != MODO_UPSTREAM;
+        g_addonsEstado = AjustarRenoDxNosAddonsDesligados(MotorProprioEfetivo(fonteCapturaCedo) || g_moduloAmd, g_exeDir + kIniRs);
         if (g_addonsEstado == ADDONS_SO_REABRINDO && !argAddonsOk) {
             Log("motor da rede: lista de add-ons corrigida, reabrindo uma vez");
             if (ReabrirApp(hi, C, ArgsDeReabertura(C, true, argGeracao + 1) + L" --addons-ok",
