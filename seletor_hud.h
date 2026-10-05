@@ -2649,12 +2649,19 @@ static bool ShowSelector(HINSTANCE hi, std::vector<Device>& devs, Choice& out,
     // o topo, sem Alt+Tab. Id fora da faixa HK_ACAO_BASE para nao colidir com o painel, que so
     // registra as dele depois que a fonte foi escolhida.
     const int kHkSeletor = 0x5E1E, kHkSeletorEnd = 0x5E1F;   // o End tambem, quando a tecla do painel for outra (AMD = Insert)
-    const bool hkOk = RegisterHotKey(nullptr, kHkSeletor, g_atalhos[AT_PAINEL].mods | MOD_NOREPEAT, g_atalhos[AT_PAINEL].vk) != 0;
-    const bool hkEnd = (g_atalhos[AT_PAINEL].vk != VK_END || g_atalhos[AT_PAINEL].mods != 0) && RegisterHotKey(nullptr, kHkSeletorEnd, MOD_NOREPEAT, VK_END) != 0;
+    // 2.1: o RegistrarTodosAtalhos (arranque) JA registrou a tecla do painel (e o End extra) nesta
+    // mesma thread. Registrar de novo a MESMA tecla aqui da erro 1409 (ja registrada) - entao o seletor
+    // usa as do arranque (ids HK_ACAO_BASE+AT_PAINEL e HK_PAINEL_END_EXTRA, tratados no laco abaixo) e
+    // so registra as suas quando o arranque nao as registrou (camada 2, ponte, tecla recusada).
+    const bool painelDoArranque = g_atalhos[AT_PAINEL].registrado;
+    const bool hkProprio = !painelDoArranque;
+    const bool hkOk = painelDoArranque || RegisterHotKey(nullptr, kHkSeletor, g_atalhos[AT_PAINEL].mods | MOD_NOREPEAT, g_atalhos[AT_PAINEL].vk) != 0;
+    const bool hkEnd = hkProprio && (g_atalhos[AT_PAINEL].vk != VK_END || g_atalhos[AT_PAINEL].mods != 0) && RegisterHotKey(nullptr, kHkSeletorEnd, MOD_NOREPEAT, VK_END) != 0;
     if (!hkOk) Log("seletor: a tecla do painel nao pode ser registrada agora (erro %lu) - a tela nao sobe por ela", (unsigned long)GetLastError());
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (msg.message == WM_HOTKEY && ((int)msg.wParam == kHkSeletor || (int)msg.wParam == kHkSeletorEnd) && st.wnd) {
+        if (msg.message == WM_HOTKEY && ((int)msg.wParam == kHkSeletor || (int)msg.wParam == kHkSeletorEnd
+                                                  || (painelDoArranque && ((int)msg.wParam == HK_ACAO_BASE + AT_PAINEL || (int)msg.wParam == HK_PAINEL_END_EXTRA))) && st.wnd) {
             const bool ok = Hud::ForcarPrimeiroPlano(st.wnd);
             SetWindowPos(st.wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             SetFocus(st.wnd);
@@ -2663,7 +2670,7 @@ static bool ShowSelector(HINSTANCE hi, std::vector<Device>& devs, Choice& out,
         }
         TranslateMessage(&msg); DispatchMessageW(&msg);
     }
-    if (hkOk) UnregisterHotKey(nullptr, kHkSeletor);
+    if (hkOk && hkProprio) UnregisterHotKey(nullptr, kHkSeletor);
     if (hkEnd) UnregisterHotKey(nullptr, kHkSeletorEnd);
     g_s = nullptr;
     g_it.clear();

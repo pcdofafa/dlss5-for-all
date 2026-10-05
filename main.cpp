@@ -4680,6 +4680,9 @@ static bool RegistrarAtalho(AcaoAtalho a) {
         g_atalhos[a].registrado = true;
         return true;
     }
+    // 2.1: o motivo vai para o log (1409 = tecla ja registrada, por outro app ou por nos mesmos).
+    Log("atalho '%s': RegisterHotKey recusou %s (erro %lu)", U8(g_atalhos[a].chave).c_str(),
+        U8(NomeTeclaCanonica(g_atalhos[a].mods, g_atalhos[a].vk)).c_str(), (unsigned long)GetLastError());
     return false;
 }
 // true quando alguma acao ficou SEM tecla porque o Windows recusou (nao porque a pessoa
