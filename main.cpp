@@ -23571,7 +23571,7 @@ static std::wstring AlternarTudo(bool* bypass, bool overlay) {
     // F6 caia no "desliga tudo" (tudoOn = camadaOn && !temAddon) e apagava junto os filtros e a pelicula - relato de usuario de RX 6000.
     // O F6 agora so avisa; os filtros se ligam e desligam no F7 e a pelicula pelo atalho do filtro.
     // (Quem ja esta com tudo desligado - g_tudoDesligado, ou a camada em bypass - segue no caminho de religar abaixo.)
-    if (g_hud.neural == NR_SEM_RTX && camadaOn && !g_tudoDesligado) {
+    if (!temAddon && camadaOn && !g_tudoDesligado) {   // temAddon=false cobre NR_SEM_RTX E NR_SEM_ADDON (BUG 4: sem add-on o F6 tambem desligava tudo)
         Log("F6: o Neural Render esta indisponivel nesta sessao - nada a desligar (filtros e Frame Gen intactos)");
         return T(L"DLSS 5 INDISPONÍVEL NESTA PLACA  -  o F6 não muda nada\nFrame Gen e filtros continuam ligados",
                  L"DLSS 5 UNAVAILABLE ON THIS CARD  -  F6 changes nothing\nFrame Gen and filters stay on");
