@@ -1818,7 +1818,18 @@ static std::wstring g_fonteModo;          // rotulo do modo de video escolhido n
 // a placa que "serve" e a Radeon, e os arquivos que se cobram sao os do mod.
 // g_moduloAmd e decidido na abertura: os dois arquivos que o setup do mod grava estao ao
 // lado do exe (version.dll E dlssnr_on_amd.ini), ou a linha de comando trouxe --amd.
+// v2.1 PASTA UNICA: o mod mora em bin\mod-amd\ e o app o carrega por caminho completo, so
+// no modo AMD (CarregarModAmd). Quem liga o modo e o --amd (launcher, troca de placa,
+// reaberturas); a subpasta so diz que o mod esta INSTALADO. Ver "PASTA UNICA" perto de
+// ModuloAmdAoLado.
 static bool g_moduloAmd = false;
+// Onde mora o mod nesta sessao (com '\' no fim). Vazio = ainda nao resolvido: vale
+// <exe>\mod-amd\. ResolverPastaModAmd() preenche na abertura, antes do DetectarGpu.
+static std::wstring g_pastaModAmd;
+// LEGADO: version.dll + dlssnr_on_amd.ini AO LADO DO EXE (o bin-amd da 1.2/2.0). Ai o Windows
+// ja carregou o mod como dependencia do dxgi.dll do ReShade, e o app nao carrega nada.
+static bool g_modAmdAoLadoDoExe = false;
+static std::wstring PastaModAmd() { return g_pastaModAmd.empty() ? g_exeDir + L"mod-amd\\" : g_pastaModAmd; }
 // v2.1: REGRA DE PRODUTO - O PROGRAMA NUNCA BLOQUEIA UMA PLACA. Quem nao consegue usar o Neural Render
 // (DLSS 5) abre do mesmo jeito e usa Frame Gen e filtros; so o DLSS 5 fica indisponivel NESTA sessao.
 // Tres entradas: --sem-dlss (o botao "Sem DLSS 5" do launcher), a sonda da rede que falhou (inclusive por
@@ -5297,6 +5308,23 @@ static const wchar_t* const kArquivosModAmd[] = {
     L"version.dll", L"dlssnr_on_amd.ini", L"dlssnr_on_amd_weights.bin",
     L"nvngx_dlssnr.dll", L"amd_fidelityfx_dx12.dll",
 };
+// PASTA UNICA: os tres do setup (version.dll, ini, pesos) moram na pasta do mod
+// (PastaModAmd: bin\mod-amd\); o nvngx_dlssnr.dll vale la ou ao lado do exe; o
+// amd_fidelityfx_dx12.dll e do Feeder, ao lado do exe (aceito tambem na pasta do mod).
+static bool ArquivoDoModAmdPresente(const wchar_t* a) {
+    if (ArquivoExiste(PastaModAmd() + a)) return true;
+    return (wcscmp(a, L"nvngx_dlssnr.dll") == 0 || wcscmp(a, L"amd_fidelityfx_dx12.dll") == 0) &&
+           ArquivoExiste(g_exeDir + a);
+}
+// "bin\mod-amd" (ou o nome da pasta onde o mod esta) para os textos de tela; no legado, "esta pasta".
+static std::wstring TextoPastaModAmd() {
+    if (g_modAmdAoLadoDoExe) return TS(L"esta pasta", L"this folder");
+    std::wstring p = PastaModAmd();
+    while (!p.empty() && p.back() == L'\\') p.pop_back();
+    const size_t k = p.find_last_of(L'\\');
+    const size_t k2 = (k == std::wstring::npos || k == 0) ? std::wstring::npos : p.find_last_of(L'\\', k - 1);
+    return (k2 == std::wstring::npos) ? p : p.substr(k2 + 1);
+}
 // Sempre ao lado do EXE, e nao em g_dadosDir: quem le esses arquivos e o ReShade, que so
 // olha para a pasta do proprio processo.
 static FaltaDlss VerFaltaDlss() {
@@ -5304,7 +5332,7 @@ static FaltaDlss VerFaltaDlss() {
     if (g_moduloAmd) {
         // No modulo AMD o RenoDX nao entra na conta: quem faz o neural e o mod.
         for (const wchar_t* a : kArquivosModAmd)
-            if (!ArquivoExiste(g_exeDir + a)) f.mod.push_back(a);
+            if (!ArquivoDoModAmdPresente(a)) f.mod.push_back(a);
     } else {
         f.addon = AcharAddonRenoDX().empty();
         f.dll   = !ArquivoExiste(g_exeDir + L"nvngx_dlssnr.dll");
@@ -5378,8 +5406,8 @@ static std::wstring TextoFaltaDlss(const FaltaDlss& f) {
         t += T(L"\nO app abre e mostra a imagem do mesmo jeito — só não faz o realce do DLSS 5.",
                L"\nThe app still opens and shows the image — it just will not do the DLSS 5 uplift.");
         if (!f.mod.empty() && !f.reshade)
-            t += T(L"\nRode o dlssnr_on_amd_setup.exe nesta pasta com o nvngx_dlssnr.dll ao lado.",
-                   L"\nRun dlssnr_on_amd_setup.exe in this folder with nvngx_dlssnr.dll next to it.");
+            t += TS(L"\nRode o dlssnr_on_amd_setup.exe em ", L"\nRun dlssnr_on_amd_setup.exe in ") + TextoPastaModAmd() +
+                 TS(L", com o nvngx_dlssnr.dll ao lado.", L", with nvngx_dlssnr.dll next to it.");
         return t;
     }
     // A LISTA, montada como a do modulo AMD. A primeira versao escrevia as combinacoes a
@@ -9117,7 +9145,9 @@ static void CorrigirHookPointNoArranque() {
 //  POR QUE TROCAR EXIGE REABRIR: o add-on do RenoDX le o HookPoint uma unica vez, quando
 //  carrega (medido; ver CorrigirHookPointNoArranque). O nr_spike, do nosso lado, valeria ao
 //  vivo - mas ligar um motor sem desligar o outro e justamente o estado que derruba tudo.
-static bool MotorProprio() { return IniGet(L"motor") == L"proprio"; }
+// PASTA UNICA: o dlss5forall.ini e o mesmo nos dois modos, e um motor=proprio escolhido no NVIDIA
+// nao pode ligar o neural do feed (nr_spike=1) por cima da rede do mod no modo AMD.
+static bool MotorProprio() { return !g_moduloAmd && IniGet(L"motor") == L"proprio"; }
 
 // ------------------------------------------------------- os recursos que ainda nao saem
 //
@@ -9351,7 +9381,7 @@ static const wchar_t* ChaveDoModAmd(const wchar_t* nossa) {
 static bool ControleValeAqui(const wchar_t* chaveNossa) {
     return !g_moduloAmd || ChaveDoModAmd(chaveNossa) != nullptr;
 }
-static std::wstring IniModAmd() { return g_exeDir + L"dlssnr_on_amd.ini"; }
+static std::wstring IniModAmd() { return PastaModAmd() + L"dlssnr_on_amd.ini"; }
 
 // ------------------------------------------------------- InlineWaitMs (mod v0.2.18+)
 //
@@ -9385,7 +9415,7 @@ static bool ModAmdAceitaEspera() {
     }
     // 2) Senao, procura o nome DENTRO do version.dll do mod. Leitura em blocos com
     //    sobreposicao para a string nao se perder na emenda; uma vez por sessao.
-    FILE* f = _wfopen((g_exeDir + L"version.dll").c_str(), L"rb");
+    FILE* f = _wfopen((PastaModAmd() + L"version.dll").c_str(), L"rb");
     if (!f) { Log("modulo AMD: version.dll nao esta na pasta - InlineWaitMs fica indisponivel"); return false; }
     const char* alvo = "InlineWaitMs";
     const size_t nAlvo = strlen(alvo);
@@ -9626,6 +9656,53 @@ static int AjustarRenoDxNosAddonsDesligados(bool desligar, const std::wstring& i
 // arranque, para decidir a reabertura, e o diagnostico, para dizer a causa certa.
 static int g_addonsEstado = ADDONS_DE_ACORDO;
 
+// ------------------------------------------- v2.1 PASTA UNICA: AS CHAVES DO dlss5-feed.cfg POR MODO
+// Com bin-amd\ o perfil AMD do Feeder era OUTRO arquivo. Numa pasta so, estas chaves trocam de valor
+// quando a sessao muda de modo, e so entao: a cada troca o valor que valia no modo que SAI e guardado
+// no NOSSO ini ([modo_pasta_unica] nvidia_<chave> / amd_<chave>) e o do modo que ENTRA e reposto - o
+// guardado, se houver; senao o de fabrica daquele modo. Ida e volta devolvem o cfg do NVIDIA byte a
+// byte nestas chaves (inclusive o que a pessoa escolheu no painel), e o NVIDIA que nunca foi ao AMD
+// nao tem nada escrito. nr_spike e a lista de add-ons do ReShade NAO estao aqui: saem do estado em
+// AplicarMotorNasChaves (nr_spike=0 e RenoDX desligado no AMD), que roda em toda abertura.
+// Valores de fabrica do AMD = perfil AMD da 1.2 (NOTAS-AMD 1.2); do NVIDIA = o dlss5-feed.cfg do src.
+struct ChaveDoModo { const char* chave; const char* nvidia; const char* amd; };
+static const ChaveDoModo kChavesDoModo[] = {
+    { "amd_carrier",         "-1",   "1"    },   // portador FSR: automatico (desligado na GeForce) x forcado
+    { "amd_decoy_swapchain", "0",    "1"    },   // swapchain-isca D3D12: sem ela o mod nunca arma o hook do FSR
+    { "warmup_rebuild",      "0",    "180"  },
+    { "create_delay",        "59",   "60"   },
+    { "work_sharpness",      "0.45", "0.30" },
+    { "preset",              "5",    "5"    },   // o FSR do portador nao usa preset DLSS; cada modo guarda o seu
+    { "work_upscale",        "0",    "0"    },
+    { "work_resolution",     "100",  "100"  },
+};
+static void AplicarChavesDoModo() {
+    const std::wstring cfg = g_exeDir + L"dlss5-feed.cfg";
+    const std::wstring ini = IniPath();
+    const wchar_t* sec = L"modo_pasta_unica";
+    const wchar_t* agora = g_moduloAmd ? L"amd" : L"nvidia";
+    wchar_t b[64]{};
+    GetPrivateProfileStringW(sec, L"modo", L"", b, 64, ini.c_str());
+    const std::wstring antes = b[0] ? b : L"nvidia";   // sem registro = o cfg e o de fabrica do pacote (NVIDIA)
+    if (antes == agora) { Log("modo (pasta unica): %s, igual a ultima abertura - cfg do feed intocado", U8(agora).c_str()); return; }
+    if (!ArquivoExiste(cfg)) { Log("modo (pasta unica): %s nao existe - nada a trocar", U8(cfg).c_str()); return; }
+    Log("modo (pasta unica): %s -> %s - trocando as chaves do dlss5-feed.cfg que mudam por modo", U8(antes).c_str(), U8(agora).c_str());
+    for (const ChaveDoModo& c : kChavesDoModo) {
+        const std::string atual = LerChaveCfgTexto(cfg, c.chave);
+        const std::wstring k = antes + L"_" + std::wstring(c.chave, c.chave + strlen(c.chave));
+        if (!atual.empty()) WritePrivateProfileStringW(sec, k.c_str(), std::wstring(atual.begin(), atual.end()).c_str(), ini.c_str());
+        const std::wstring kNovo = std::wstring(agora) + L"_" + std::wstring(c.chave, c.chave + strlen(c.chave));
+        wchar_t g[64]{};
+        GetPrivateProfileStringW(sec, kNovo.c_str(), L"", g, 64, ini.c_str());
+        const std::string valor = g[0] ? U8(g) : std::string(g_moduloAmd ? c.amd : c.nvidia);
+        GravarChaveCfg(cfg, c.chave, valor.c_str());
+        Log("modo (pasta unica): %s %s -> %s (%s)", c.chave, atual.empty() ? "(ausente)" : atual.c_str(), valor.c_str(),
+            g[0] ? "o que valia da ultima vez neste modo" : "padrao de fabrica do modo");
+    }
+    WritePrivateProfileStringW(sec, L"modo", agora, ini.c_str());
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, ini.c_str());
+}
+
 // Poe as duas chaves de acordo com a escolha. `motivo` so vai para o log.
 static void AplicarMotorNasChaves(const char* motivo) {
     const bool proprio = MotorProprio();
@@ -9634,7 +9711,9 @@ static void AplicarMotorNasChaves(const char* motivo) {
     const std::wstring cfg = g_exeDir + L"dlss5-feed.cfg";
 
     // B11: antes do HookPoint - se a API do ReShade for chamada abaixo, ela ja rele o arquivo com a lista nova.
-    g_addonsEstado = AjustarRenoDxNosAddonsDesligados(proprio, ini);
+    // v2.1 PASTA UNICA: no modo AMD o RenoDX mora na mesma pasta e tem de ficar FORA (quem faz a rede e o mod).
+    // A lista sai do estado (motor + modo), entao a volta ao NVIDIA a refaz sem resto.
+    g_addonsEstado = AjustarRenoDxNosAddonsDesligados(proprio || g_moduloAmd, ini);
 
     // O HookPoint so e nosso para mexer quando o add-on do RenoDX existe. Sem ele, a chave
     // nao tem dono e escrever seria sujeira no ini de outro componente.
@@ -9881,18 +9960,36 @@ static bool PlacaComTensorCore(UINT vendor, const std::wstring& nome) {
 // nas placas dedicadas dessas duas geracoes. (A RX 9060 XT passa aqui e ainda pode cair no
 // "UNSUPPORTED GPU ARCHITECTURE" do mod - gfx1200 ainda nao tem release; e o log do mod
 // que da a palavra final, ver LerEstadoNeuralAmd.)
-static bool PlacaRadeonParaMod(UINT vendor, const std::wstring& nome) {
-    if (vendor != 0x1002u) return false;
+//
+// v2.1 (mod v0.6.0, 03/10/2026, segundo as notas de release do autor - NAO testado por este
+// programa): a RX 6000 (RDNA2) tambem e coberta, com o runtime HIP 7.2 do HIP SDK da AMD
+// instalado a parte. Ela so conta como coberta QUANDO O MOD ESTA INSTALADO (bin\mod-amd): e o
+// mod instalado que diz que a pessoa ja baixou a versao que a cobre; quem decide o resto e o
+// proprio mod (o log dele diz se o runtime faltou). A LISTA DAS SERIES MORA SO AQUI.
+struct SerieRadeonMod { wchar_t digito; bool soComModInstalado; const char* nome; };
+static const SerieRadeonMod kSeriesRadeonMod[] = {
+    { L'9', false, "RX 9000 (RDNA4)" },
+    { L'7', false, "RX 7000 (RDNA3)" },
+    { L'6', true,  "RX 6000 (RDNA2, mod v0.6.0+ com HIP SDK 7.2; nao testada aqui)" },
+};
+static bool ModAmdInstalado();   // v2.1 PASTA UNICA: definida junto de ResolverPastaModAmd
+// A serie do mod a que esta Radeon pertence (nullptr = nenhuma), sem olhar se o mod esta instalado.
+static const SerieRadeonMod* SerieRadeonDoMod(UINT vendor, const std::wstring& nome) {
+    if (vendor != 0x1002u) return nullptr;
     std::wstring up = nome;
     for (auto& c : up) c = (wchar_t)towupper(c);
     for (size_t k = up.find(L"RX "); k != std::wstring::npos; k = up.find(L"RX ", k + 3)) {
         size_t i = k + 3;
         while (i < up.size() && up[i] == L' ') i++;
         if (i + 4 > up.size()) continue;
-        if ((up[i] != L'7' && up[i] != L'9')) continue;
-        if (iswdigit(up[i + 1]) && iswdigit(up[i + 2]) && iswdigit(up[i + 3])) return true;
+        if (!(iswdigit(up[i + 1]) && iswdigit(up[i + 2]) && iswdigit(up[i + 3]))) continue;
+        for (const SerieRadeonMod& s : kSeriesRadeonMod) if (up[i] == s.digito) return &s;
     }
-    return false;
+    return nullptr;
+}
+static bool PlacaRadeonParaMod(UINT vendor, const std::wstring& nome) {
+    const SerieRadeonMod* s = SerieRadeonDoMod(vendor, nome);
+    return s && (!s->soComModInstalado || ModAmdInstalado());
 }
 // ------------------------------------------ OS DOIS PACOTES, UM AO LADO DO OUTRO (14/09/2026)
 //
@@ -9917,23 +10014,93 @@ static std::wstring PastaIrma(const wchar_t* nome) {
     if (k == std::wstring::npos) return std::wstring();
     return p.substr(0, k + 1) + nome + L"\\";
 }
-// O modulo AMD esta instalado ao lado? Exige o exe E os arquivos que o setup do mod grava:
-// mandar alguem para uma pasta sem o mod seria trocar de pacote para nao ganhar neural
-// nenhum - e ainda perder o RenoDX que havia aqui.
-static bool ModuloAmdAoLado(std::wstring* onde = nullptr) {
-    if (g_moduloAmd) return false;                   // ja estamos nele
-    const std::wstring d = PastaIrma(L"bin-amd");
-    if (d.empty()) return false;
-    if (!ArquivoExiste(d + L"DLSS5ForAll.exe")) return false;
-    if (!ArquivoExiste(d + L"version.dll") || !ArquivoExiste(d + L"dlssnr_on_amd.ini")) return false;
-    if (onde) *onde = d;
+// ------------------------------------------ v2.1: PASTA UNICA (bin\mod-amd)
+//
+//  O bloco acima e a historia. Na 2.1 as duas razoes cairam: (1) o mod deixa de depender de
+//  estar ao lado do exe - ele mora em bin\mod-amd\ e o app o carrega por CAMINHO COMPLETO
+//  (LoadLibraryExW) so no modo AMD, cedo no wWinMain (CarregarModAmd); fora do modo AMD
+//  ninguem o carrega, porque o nome dele (version.dll) numa SUBPASTA nao e achado pela busca
+//  de DLL do Windows; (2) o Feeder ja e UM binario so para as duas placas (amd_carrier: -1 no
+//  NVIDIA, 1 no AMD). O que mudava de pasta para pasta (as chaves AMD do dlss5-feed.cfg e o
+//  RenoDX fora do ReShade) o app aplica na abertura e desfaz na volta (AplicarChavesDoModo e
+//  AplicarMotorNasChaves). "Trocar de pacote" vira reabrir ESTE exe com ou sem --amd.
+//
+//  ONDE O MOD ESTA, em ordem (ResolverPastaModAmd):
+//    1. LEGADO: version.dll + dlssnr_on_amd.ini AO LADO DO EXE (bin-amd da 1.2/2.0, ou quem
+//       copiou o mod para bin\). O Windows ja o carregou; o modo AMD liga sozinho, como antes.
+//    2. <exe>\mod-amd\ com version.dll + dlssnr_on_amd.ini (o lugar novo).
+//    3. ..\bin-amd\ com os mesmos dois arquivos: quem atualizou da 1.2/2.0 e ainda tem o mod
+//       na pasta antiga. O exe de bin\ carrega o mod de LA, por caminho completo - nada e
+//       copiado nem apagado; o preparar-mod-amd.ps1 oferece copiar para bin\mod-amd.
+//    4. nenhum: vale <exe>\mod-amd\ (nao instalado).
+static bool ModAmdInstaladoEm(const std::wstring& d) {
+    return !d.empty() && ArquivoExiste(d + L"version.dll") && ArquivoExiste(d + L"dlssnr_on_amd.ini");
+}
+static bool ModAmdInstalado() { return ModAmdInstaladoEm(PastaModAmd()); }
+static const char* ResolverPastaModAmd() {
+    if (g_modAmdAoLadoDoExe)                          { g_pastaModAmd = g_exeDir; return "ao lado do exe (legado)"; }
+    if (ModAmdInstaladoEm(g_exeDir + L"mod-amd\\"))   { g_pastaModAmd = g_exeDir + L"mod-amd\\"; return "mod-amd"; }
+    const std::wstring antiga = PastaIrma(L"bin-amd");
+    if (_wcsicmp(antiga.c_str(), g_exeDir.c_str()) != 0 && ModAmdInstaladoEm(antiga)) { g_pastaModAmd = antiga; return "bin-amd (layout antigo)"; }
+    g_pastaModAmd = g_exeDir + L"mod-amd\\";
+    return "nao instalado";
+}
+// Carrega o mod pelo CAMINHO COMPLETO, so no modo AMD. Nao e proxy aqui: ninguem chama as
+// exportacoes de version.dll dele (o dxgi.dll do ReShade, import estatico deste exe, ja
+// resolveu o VERSION.dll do sistema antes do wWinMain); o que vale e o DllMain do mod, que
+// instala os hooks de D3D12/DXGI/FSR. Por isso tem de vir antes do DetectarGpu (a primeira
+// fabrica DXGI), de qualquer device e da carga dos add-ons do ReShade (que acontece na
+// criacao do device). Devolve true se o mod esta no processo. Nunca bloqueia nada: sem o
+// mod, o modo AMD segue com o neural indisponivel e o motivo no painel.
+static bool CarregarModAmd(bool semDlss) {
+    if (!g_moduloAmd) return false;
+    if (g_modAmdAoLadoDoExe) {
+        const bool noProc = GetModuleHandleW((g_exeDir + L"version.dll").c_str()) != nullptr;
+        Log("mod AMD: legado - version.dll ao lado do exe (%s)",
+            noProc ? "o Windows ja o carregou como dependencia do dxgi.dll" : "NAO esta no processo: o Windows pegou outro version.dll");
+        return noProc;
+    }
+    if (semDlss) { Log("mod AMD: --sem-dlss nesta sessao - o mod NAO e carregado"); return false; }
+    const std::wstring dll = PastaModAmd() + L"version.dll";
+    if (!ModAmdInstalado()) {
+        Log("mod AMD: nao instalado em %s (faltam version.dll e/ou dlssnr_on_amd.ini - rode o dlssnr_on_amd_setup.exe dentro dela) - sigo sem a rede",
+            U8(PastaModAmd()).c_str());
+        return false;
+    }
+    if (HMODULE ja = GetModuleHandleW(dll.c_str())) { (void)ja; Log("mod AMD: %s ja estava no processo", U8(dll).c_str()); return true; }
+    SetLastError(0);
+    // LOAD_WITH_ALTERED_SEARCH_PATH: as dependencias do mod (amdhip64_7.dll etc.) sao procuradas
+    // primeiro na pasta DELE, depois no caminho normal (System32). As que ja estao no processo
+    // (dxgi.dll do ReShade, d3d12.dll, VERSION.dll do sistema) sao reaproveitadas pelo nome.
+    HMODULE h = LoadLibraryExW(dll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!h) {
+        const DWORD e = GetLastError();
+        Log("mod AMD: LoadLibraryExW(%s) FALHOU, erro %lu%s - sigo sem a rede (o programa nunca bloqueia a placa)",
+            U8(dll).c_str(), (unsigned long)e,
+            e == ERROR_MOD_NOT_FOUND ? " (uma dependencia nao foi achada: amdhip64_7.dll do driver Adrenalin?)" :
+            e == ERROR_BAD_EXE_FORMAT ? " (nao e uma DLL de 64 bits)" : "");
+        return false;
+    }
+    wchar_t got[MAX_PATH]{}; GetModuleFileNameW(h, got, MAX_PATH);
+    Log("mod AMD: carregado de %s (modulo no processo: %s)", U8(dll).c_str(), U8(got).c_str());
     return true;
 }
-// O caminho de volta: o pacote NVIDIA ao lado de quem esta rodando o modulo AMD.
+// O modulo AMD esta disponivel para esta instalacao? PASTA UNICA: o "pacote irmao" e este
+// mesmo exe com --amd, e o que se exige e o mod instalado (ResolverPastaModAmd) - trocar para o
+// modo AMD sem ele seria nao ganhar neural nenhum e ainda perder o RenoDX que havia aqui.
+static bool ModuloAmdAoLado(std::wstring* onde = nullptr) {
+    if (g_moduloAmd) return false;                   // ja estamos nele
+    if (!ModAmdInstalado()) return false;
+    if (onde) *onde = g_exeDir;
+    return true;
+}
+// O caminho de volta. PASTA UNICA: reabrir este exe sem --amd. LEGADO (mod ao lado do exe, o
+// bin-amd antigo): o pacote NVIDIA continua sendo a pasta irma bin\, como antes.
 static bool PacoteNvAoLado(std::wstring* onde = nullptr) {
     if (!g_moduloAmd) return false;
+    if (!g_modAmdAoLadoDoExe) { if (onde) *onde = g_exeDir; return true; }
     const std::wstring d = PastaIrma(L"bin");
-    if (d.empty() || !ArquivoExiste(d + L"DLSS5ForAll.exe")) return false;
+    if (d.empty() || _wcsicmp(d.c_str(), g_exeDir.c_str()) == 0 || !ArquivoExiste(d + L"DLSS5ForAll.exe")) return false;
     if (onde) *onde = d;
     return true;
 }
@@ -10110,8 +10277,18 @@ static bool CamadaIniciar(int k, HWND alvo) {
             WritePrivateProfileStringW(L"RenoDX.DLSS5", L"NeuralUplift", NrBloqueadoNestaSessao() ? L"0" : L"1", rsCamada.c_str());
     }
     // No modulo AMD o pedido mora no ini do mod (copiado acima), e vale a mesma regra.
-    if (g_moduloAmd)
-        WritePrivateProfileStringW(L"DlssNrOnAmd", L"Enabled", L"1", (pasta + L"dlssnr_on_amd.ini").c_str());
+    // v2.1 PASTA UNICA: o espelho leva bin\mod-amd\ para <camada>\mod-amd\ (links rigidos; o ini e
+    // copiado), e a camada (aberta com --amd, abaixo) carrega o mod de la. No layout antigo (mod em
+    // ..\bin-amd, fora do espelho) a camada usa o MESMO mod e o mesmo ini da primeira: nao se grava
+    // nada nele aqui, senao o toque da camada desligaria/ligaria a rede da primeira.
+    if (g_moduloAmd) {
+        std::wstring iniCamada;
+        if (g_modAmdAoLadoDoExe) iniCamada = pasta + L"dlssnr_on_amd.ini";
+        else if (_wcsnicmp(PastaModAmd().c_str(), g_exeDir.c_str(), g_exeDir.size()) == 0)
+            iniCamada = pasta + PastaModAmd().substr(g_exeDir.size()) + L"dlssnr_on_amd.ini";
+        if (!iniCamada.empty()) WritePrivateProfileStringW(L"DlssNrOnAmd", L"Enabled", L"1", iniCamada.c_str());
+        else Log("dlss %dx: mod AMD na pasta antiga (%s) - a camada usa o mesmo ini, sem gravar Enabled", k, U8(PastaModAmd()).c_str());
+    }
     // O TEMPO DA SEGUNDA CAMADA. O Feeder dela segura a criacao do feature por create_delay
     // PRESENTS, e ela so apresenta no ritmo da primeira - com a fonte parada (video pausado,
     // menu), 60 presents viravam 15 a 30 s, e a pessoa fechava antes (RELATORIO-2X-VISUAL §0:
@@ -10290,6 +10467,9 @@ static bool CamadaIniciar(int k, HWND alvo) {
                          std::to_wstring((unsigned long long)(ULONG_PTR)alvo) + L" --overlay";
     if (!nomeCompart.empty()) linha += L" --shared-name \"" + nomeCompart + L"\"";
     if (g_semDlssArg || g_nrIndispSonda) linha += L" --sem-dlss";   // v2.1: a camada de cima tambem nao monta a rede
+    // v2.1 PASTA UNICA: o modo AMD agora vem do --amd (no bin-amd antigo vinha dos arquivos do mod
+    // espelhados ao lado do exe da camada). Sem ele a camada de uma sessao AMD subiria no NVIDIA.
+    if (g_moduloAmd && !g_modAmdAoLadoDoExe) linha += L" --amd";
     if (g_gpu.lido && !g_gpu.nome.empty()) linha += L" --placa \"" + g_gpu.nome + L"\"";
     STARTUPINFOW si{}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
@@ -10671,7 +10851,10 @@ static int NgxPeloFeed(std::wstring* porque) {
 // ------------------------------------------------------ o estado do neural no modulo AMD
 // Os arquivos do mod DLSS-NR-on-AMD. O ini e o log ficam na pasta do exe (e o que o setup
 // do mod grava e o que a linha "log in %s; settings in %s" do proprio mod anuncia).
-static std::wstring ModAmdIni() { return g_exeDir + L"dlssnr_on_amd.ini"; }
+// PASTA UNICA: o ini e o log ficam na pasta do mod (PastaModAmd), que no legado e a do exe.
+// [INFERENCIA] as strings do mod indicam que ele procura ini/pesos ao lado da PROPRIA DLL; o
+// log ainda e procurado tambem ao lado do exe, para o caso de ele usar a pasta do processo.
+static std::wstring ModAmdIni() { return PastaModAmd() + L"dlssnr_on_amd.ini"; }
 // Onde o mod escreve o log. O caso comprovado e "dlssnr_on_amd.log" ao lado do exe.
 // [INFERENCIA] as strings do binario do mod trazem tambem "_dlssnr_on_amd.log" e
 // "DlssNrOnAmd\": o nome pode vir prefixado pelo exe ("DLSS5ForAll_dlssnr_on_amd.log") e a
@@ -10693,6 +10876,8 @@ static std::wstring ModAmdLog() {
         if (GetEnvironmentVariableW(L"LOCALAPPDATA", b, MAX_PATH) && b[0]) local = std::wstring(b) + L"\\DlssNrOnAmd\\";
     }
     const std::wstring candidatos[] = {
+        PastaModAmd() + L"dlssnr_on_amd.log",
+        PastaModAmd() + base + L"_dlssnr_on_amd.log",
         g_exeDir + L"dlssnr_on_amd.log",
         g_exeDir + base + L"_dlssnr_on_amd.log",
         local.empty() ? std::wstring() : local + base + L"_dlssnr_on_amd.log",
@@ -10737,22 +10922,23 @@ static bool AlternarNeuralAmd() {
 // "network job" antigo nao pode dizer ATIVO hoje). Sem essa linha, olha-se o tail inteiro.
 static NeuralEstado LerEstadoNeuralAmd(std::wstring* detalhe) {
     // 1. os arquivos do mod existem? sem eles nao ha o que ligar
-    if (!ArquivoExiste(g_exeDir + L"version.dll") || !ArquivoExiste(ModAmdIni())) {
-        if (detalhe) *detalhe = T(L"o mod DLSS-NR-on-AMD não está nesta pasta — rode o dlssnr_on_amd_setup.exe aqui, com o nvngx_dlssnr.dll ao lado",
-                                  L"the DLSS-NR-on-AMD mod is not in this folder — run dlssnr_on_amd_setup.exe here, with nvngx_dlssnr.dll next to it");
+    if (!ArquivoExiste(PastaModAmd() + L"version.dll") || !ArquivoExiste(ModAmdIni())) {
+        if (detalhe) *detalhe = TS(L"o mod DLSS-NR-on-AMD não está instalado em ", L"the DLSS-NR-on-AMD mod is not installed in ") + TextoPastaModAmd() +
+                                TS(L" — rode o dlssnr_on_amd_setup.exe lá dentro, com o nvngx_dlssnr.dll ao lado",
+                                   L" — run dlssnr_on_amd_setup.exe inside it, with nvngx_dlssnr.dll next to it");
         return NR_SEM_ADDON;
     }
-    if (!ArquivoExiste(g_exeDir + L"nvngx_dlssnr.dll")) {
-        if (detalhe) *detalhe = T(L"falta o nvngx_dlssnr.dll ao lado do app — é dele que o setup do mod tira os pesos",
-                                  L"nvngx_dlssnr.dll is missing next to the app — the mod's setup takes the weights from it");
+    if (!ArquivoDoModAmdPresente(L"nvngx_dlssnr.dll")) {
+        if (detalhe) *detalhe = T(L"falta o nvngx_dlssnr.dll (na pasta do mod ou ao lado do app) — é dele que o setup do mod tira os pesos",
+                                  L"nvngx_dlssnr.dll is missing (in the mod folder or next to the app) — the mod's setup takes the weights from it");
         return NR_SEM_ADDON;
     }
-    if (!ArquivoExiste(g_exeDir + L"dlssnr_on_amd_weights.bin")) {
-        if (detalhe) *detalhe = T(L"faltam os pesos do mod — rode o dlssnr_on_amd_setup.exe nesta pasta com o nvngx_dlssnr.dll ao lado",
-                                  L"the mod's weights are missing — run dlssnr_on_amd_setup.exe in this folder with nvngx_dlssnr.dll next to it");
+    if (!ArquivoExiste(PastaModAmd() + L"dlssnr_on_amd_weights.bin")) {
+        if (detalhe) *detalhe = TS(L"faltam os pesos do mod — rode o dlssnr_on_amd_setup.exe em ", L"the mod's weights are missing — run dlssnr_on_amd_setup.exe in ") +
+                                TextoPastaModAmd() + TS(L" com o nvngx_dlssnr.dll ao lado", L" with nvngx_dlssnr.dll next to it");
         return NR_SEM_ADDON;
     }
-    if (!ArquivoExiste(g_exeDir + L"amd_fidelityfx_dx12.dll")) {
+    if (!ArquivoDoModAmdPresente(L"amd_fidelityfx_dx12.dll")) {
         if (detalhe) *detalhe = T(L"falta o amd_fidelityfx_dx12.dll ao lado do app — o Feeder precisa dele para o FSR portador",
                                   L"amd_fidelityfx_dx12.dll is missing next to the app — the Feeder needs it for the FSR carrier");
         return NR_SEM_ADDON;
@@ -10781,8 +10967,8 @@ static NeuralEstado LerEstadoNeuralAmd(std::wstring* detalhe) {
 
     // 3a. o que NAO tem conserto por arquivo: a placa, o driver, o runtime HIP
     if (tem("UNSUPPORTED GPU ARCHITECTURE")) {
-        if (detalhe) *detalhe = TS(L"o mod não tem código para esta Radeon (só RX 7000/RDNA3 e RX 9000/RDNA4 com release) — ",
-                                   L"the mod has no code for this Radeon (only RX 7000/RDNA3 and RX 9000/RDNA4 with a release) — ") + g_gpu.nome;
+        if (detalhe) *detalhe = TS(L"a versão instalada do mod não tem código para esta Radeon — veja na página oficial do mod quais séries ela cobre — ",
+                                   L"the installed version of the mod has no code for this Radeon — check the mod's official page for the series it covers — ") + g_gpu.nome;
         return NR_SEM_RTX;
     }
     if (tem("invalid kernel file")) {
@@ -10791,18 +10977,18 @@ static NeuralEstado LerEstadoNeuralAmd(std::wstring* detalhe) {
         return NR_SEM_RTX;
     }
     if (tem("amdhip64_7.dll was not found") || (tem("amdhip64_7.dll") && tem("not found"))) {
-        if (detalhe) *detalhe = T(L"o runtime HIP (amdhip64_7.dll) não foi encontrado — instale ou atualize o driver AMD Adrenalin",
-                                  L"the HIP runtime (amdhip64_7.dll) was not found — install or update the AMD Adrenalin driver");
+        if (detalhe) *detalhe = T(L"o runtime HIP (amdhip64_7.dll) não foi encontrado — instale ou atualize o driver AMD Adrenalin (na RX 6000, o HIP SDK 7.2 da AMD)",
+                                  L"the HIP runtime (amdhip64_7.dll) was not found — install or update the AMD Adrenalin driver (on RX 6000, AMD's HIP SDK 7.2)");
         return NR_SEM_RTX;
     }
     if (tem("No AMD GPU found") || tem("HIP: no usable device")) {
-        if (detalhe) *detalhe = T(L"o mod não achou uma Radeon utilizável (HIP) — precisa de Radeon RX 7000 ou RX 9000 com driver Adrenalin",
-                                  L"the mod found no usable Radeon (HIP) — it needs a Radeon RX 7000 or RX 9000 with the Adrenalin driver");
+        if (detalhe) *detalhe = T(L"o mod não achou uma Radeon utilizável (HIP) — ele cobre RX 7000 e RX 9000 com driver Adrenalin (e RX 6000 a partir da v0.6.0, com o HIP SDK 7.2)",
+                                  L"the mod found no usable Radeon (HIP) — it covers RX 7000 and RX 9000 with the Adrenalin driver (and RX 6000 from v0.6.0, with HIP SDK 7.2)");
         return NR_SEM_RTX;
     }
     if (tem("FAILED (no dlssnr_on_amd_weights.bin)") || tem("engine init FAILED")) {
-        if (detalhe) *detalhe = T(L"o motor do mod não iniciou — rode o dlssnr_on_amd_setup.exe de novo nesta pasta e veja o dlssnr_on_amd.log",
-                                  L"the mod's engine did not start — run dlssnr_on_amd_setup.exe again in this folder and read dlssnr_on_amd.log");
+        if (detalhe) *detalhe = TS(L"o motor do mod não iniciou — rode o dlssnr_on_amd_setup.exe de novo em ", L"the mod's engine did not start — run dlssnr_on_amd_setup.exe again in ") +
+                                TextoPastaModAmd() + TS(L" e veja o dlssnr_on_amd.log", L" and read dlssnr_on_amd.log");
         return NR_SEM_ADDON;
     }
     // 3b. ATIVO: a rede ja processou pelo menos um quadro desta sessao. O ultimo evento
@@ -10879,17 +11065,19 @@ static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
     // conferir o add-on seria fazer perder tempo com o que nao tem conserto. So acusa
     // quando o DXGI de fato respondeu (g_gpu.lido).
     if (g_gpu.lido && (!g_gpu.rtx || (g_gpu.vendor == 0x1002 && !g_moduloAmd))) {   // v2.1: Radeon no pacote NVIDIA tambem nao tem rede
-        // Radeon RX 7000/9000 no pacote NVIDIA SEM o modulo AMD ao lado: ela serve, so falta a pasta bin-amd (com o mod).
-        if (!g_moduloAmd && g_gpu.outraRtx.empty() && PlacaRadeonParaMod(g_gpu.vendor, g_gpu.nome)) {
-            if (detalhe) *detalhe = TS(L"a ", L"the ") + g_gpu.nome +
-                T(L" é uma Radeon que o mod DLSS-NR-on-AMD cobre, mas o módulo AMD (pasta bin-amd, com o mod instalado) não está nesta instalação — este pacote é o da NVIDIA",
-                  L" is a Radeon the DLSS-NR-on-AMD mod covers, but the AMD module (bin-amd folder, with the mod installed) is not in this install — this package is the NVIDIA one");
+        // Radeon de uma serie do mod (kSeriesRadeonMod) no modo NVIDIA: ela serve, so falta o mod em bin\mod-amd.
+        if (!g_moduloAmd && g_gpu.outraRtx.empty() && SerieRadeonDoMod(g_gpu.vendor, g_gpu.nome)) {
+            if (detalhe) *detalhe = TS(L"a ", L"the ") + g_gpu.nome + (ModAmdInstalado()
+                ? TS(L" é uma Radeon que o mod DLSS-NR-on-AMD cobre e o mod está instalado, mas esta sessão abriu no modo NVIDIA — escolha a placa de novo no seletor para o app reabrir no modo AMD",
+                     L" is a Radeon the DLSS-NR-on-AMD mod covers and the mod is installed, but this session opened in NVIDIA mode — pick the card again in the selector so the app reopens in AMD mode")
+                : TS(L" é uma Radeon que o mod DLSS-NR-on-AMD pode cobrir, mas o mod não está instalado (pasta bin\\mod-amd: baixe o mod na página oficial e rode o instalador dele lá dentro)",
+                     L" is a Radeon the DLSS-NR-on-AMD mod can cover, but the mod is not installed (bin\\mod-amd folder: get the mod from its official page and run its setup inside it)"));
             return NR_SEM_RTX;
         }
         if (detalhe) *detalhe = g_gpu.outraRtx.empty()
             ? (g_moduloAmd
-                ? (TS(L"o mod DLSS-NR-on-AMD precisa de uma Radeon RX 7000 ou RX 9000; esta máquina tem ",
-                      L"the DLSS-NR-on-AMD mod needs a Radeon RX 7000 or RX 9000; this machine has ") + g_gpu.nome)
+                ? (TS(L"o mod DLSS-NR-on-AMD cobre Radeon RX 7000 e RX 9000 (e RX 6000 a partir da v0.6.0, com o HIP SDK 7.2); esta máquina tem ",
+                      L"the DLSS-NR-on-AMD mod covers Radeon RX 7000 and RX 9000 (and RX 6000 from v0.6.0, with HIP SDK 7.2); this machine has ") + g_gpu.nome)
                 : (TS(L"o DLSS precisa de uma GeForce RTX (série 20 ou mais nova); esta máquina tem ",
                       L"DLSS needs a GeForce RTX (20 series or newer); this machine has ") + g_gpu.nome))
             // A placa agora se escolhe no proprio app (linha "Placa de vídeo que roda o filtro"
@@ -15874,15 +16062,15 @@ static int RenderV7(Graphics* g) {
             const int idx = (int)g_items.size();
             Item it{ r, E_NONE, 0, false, false }; g_items.push_back(it);
             Dica(L"Motor da rede no modo AMD\nQuem faz o Neural Rendering aqui é o mod "
-                 L"DLSS-NR-on-AMD, de terceiro — o add-on do RenoDX nem entra nesta pasta. "
+                 L"DLSS-NR-on-AMD, de terceiro — o add-on do RenoDX fica desligado no modo AMD. "
                  L"Os ajustes de TOM LOCAL, ESTRUTURA e PELE E ROSTOS vão para o "
                  L"dlssnr_on_amd.ini e valem quando o programa reabre. MODELO, INTENSIDADE, "
                  L"PASSES, TOM GLOBAL e o PRESET do DLSS não existem neste caminho — por isso "
                  L"nem aparecem aqui.\n"
                  L"Para ganhar fps aqui, o controle é a RESOLUÇÃO DO DLSS, não estes.",
                  L"Network engine in AMD mode\nThe Neural Rendering here is done by the "
-                 L"third-party DLSS-NR-on-AMD mod — the RenoDX add-on is not even in this "
-                 L"folder. LOCAL TONE, STRUCTURE and SKIN AND FACES go to dlssnr_on_amd.ini "
+                 L"third-party DLSS-NR-on-AMD mod — the RenoDX add-on stays off in AMD "
+                 L"mode. LOCAL TONE, STRUCTURE and SKIN AND FACES go to dlssnr_on_amd.ini "
                  L"and apply when the program reopens. MODEL, INTENSITY, PASSES, GLOBAL TONE "
                  L"and the DLSS PRESET do not exist on this path — that is why they are not "
                  L"shown here at all.\n"
@@ -15896,8 +16084,8 @@ static int RenderV7(Graphics* g) {
                 TxtWrap(g, temIni
                        ? T(L"tom local, estrutura e pele vão para o dlssnr_on_amd.ini · o resto não existe neste mod",
                            L"local tone, structure and skin go to dlssnr_on_amd.ini · the rest does not exist in this mod")
-                       : T(L"o dlssnr_on_amd.ini não está nesta pasta — rode o instalador do mod",
-                           L"dlssnr_on_amd.ini is not in this folder — run the mod's installer"),
+                       : (TS(L"o dlssnr_on_amd.ini não está em ", L"dlssnr_on_amd.ini is not in ") + TextoPastaModAmd() +
+                          TS(L" — rode o instalador do mod lá dentro", L" — run the mod's installer inside it")).c_str(),
                     fItemSub, temIni ? C_BODY : C_WARN,
                     RectF(r.X + 18, r.Y + 29, r.Width - 36, 18));
             }
@@ -27666,7 +27854,9 @@ static bool ReabrirApp(HINSTANCE hi, const Choice& C, const std::wstring& args, 
 //  a espera estourar. O teto de kMaxReaberturas continua valendo, para nenhum caso de borda
 //  virar pisca-pisca entre as duas pastas.
 //
-//  POR QUE NAO UMA PASTA SO: ver o bloco "OS DOIS PACOTES, UM AO LADO DO OUTRO".
+//  v2.1 PASTA UNICA: o "outro pacote" e ESTE exe com ou sem --amd (o mod mora em bin\mod-amd e e
+//  carregado so no modo AMD); a pasta irma bin\ so vale para quem ainda roda o bin-amd antigo.
+//  Ver o bloco "PASTA UNICA" junto de ModuloAmdAoLado.
 static bool TrocarDePacote(const Choice& C, int geracao) {
     if (g_placaIdx < 0 || g_placaIdx >= (int)g_placas.size()) return false;
     const PlacaOpcao& p = g_placas[g_placaIdx];
@@ -27683,9 +27873,24 @@ static bool TrocarDePacote(const Choice& C, int geracao) {
     }
     std::wstring args = ArgsDeReabertura(C, true, geracao + 1);
     // ArgsDeReabertura carimba o --amd DESTE processo; aqui quem manda e o pacote de DESTINO.
-    if (g_moduloAmd) { const size_t k = args.find(L" --amd"); if (k != std::wstring::npos) args.erase(k, 6); }
+    // v2.1 PASTA UNICA: tambem saem --sem-dlss e --nr-indisponivel. Os dois diziam "nao ha rede
+    // para ESTA placa NESTE modo" (o launcher sem caminho, a sonda NGX que falhou); a pessoa
+    // acabou de escolher a placa que tem caminho, e o outro modo refaz a conta do zero.
+    auto tirar = [&](const wchar_t* flag) {
+        const std::wstring f = std::wstring(L" ") + flag;
+        for (size_t k = args.find(f); k != std::wstring::npos; k = args.find(f, k)) {
+            const size_t fim = k + f.size();
+            if (fim == args.size() || args[fim] == L' ') args.erase(k, f.size()); else k = fim;
+        }
+    };
+    tirar(L"--amd"); tirar(L"--sem-dlss"); tirar(L"--nr-indisponivel");
     if (alvoAmd) args += L" --amd";
-    const std::wstring exe = destino + L"DLSS5ForAll.exe";
+    std::wstring exe = destino + L"DLSS5ForAll.exe";
+    if (_wcsicmp(destino.c_str(), g_exeDir.c_str()) == 0) {   // pasta unica: o MESMO exe, com o nome que ele tiver
+        wchar_t meu[MAX_PATH]{};
+        const DWORD n = GetModuleFileNameW(nullptr, meu, MAX_PATH);
+        if (n && n < MAX_PATH) exe = meu;
+    }
     Log("troca de pacote: a placa escolhida e \"%s\" (%s) - quem continua e %s", U8(p.nome).c_str(),
         alvoAmd ? "Radeon do mod DLSS-NR-on-AMD" : "GeForce RTX", U8(exe).c_str());
     Log("troca de pacote: linha de comando: %s", U8(args).c_str());
@@ -28545,12 +28750,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // copia bloqueada, o DetectarGpu e todos os textos dependem disso. Os dois arquivos
         // sao os que o setup do mod grava; --amd forca (para testar sem o mod instalado).
         g_moduloAmd = ArquivoExiste(g_exeDir + L"version.dll") && ArquivoExiste(g_exeDir + L"dlssnr_on_amd.ini");
+        g_modAmdAoLadoDoExe = g_moduloAmd;   // v2.1: legado (o bin-amd antigo); o normal agora e bin\mod-amd + --amd
         if (!g_moduloAmd) {
             int n = 0;
             LPWSTR* av = CommandLineToArgvW(GetCommandLineW(), &n);
             for (int i = 1; av && i < n && !g_moduloAmd; i++) g_moduloAmd = (std::wstring(av[i]) == L"--amd");
             if (av) LocalFree(av);
         }
+        ResolverPastaModAmd();   // v2.1 PASTA UNICA: onde o mod mora (o log sai abaixo, depois de o log abrir)
         // O LOG RODA POR SESSAO: o anterior vira dlss5forall.log.1 (e o .1 anterior some).
         // Sem isso a sessao seguinte apagava a evidencia da anterior - foi assim que se
         // perdeu o log da primeira camada de um pisca reportado pelo usuario. Vale para a
@@ -28691,8 +28898,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (outraEhHost) Log("instancia: o mutex e de um host do add-on (nosso exe com outro nome, sem janela visivel) - seguindo");
     if (g_moduloAmd)
         Log("modulo AMD: %s - o neural vem do mod DLSS-NR-on-AMD (version.dll + dlssnr_on_amd.ini), nao do RenoDX",
-            (ArquivoExiste(g_exeDir + L"version.dll") && ArquivoExiste(g_exeDir + L"dlssnr_on_amd.ini"))
-                ? "os arquivos do mod estao ao lado do exe" : "forcado por --amd (sem os arquivos do mod)");
+            g_modAmdAoLadoDoExe ? "os arquivos do mod estao ao lado do exe (legado)" : "pedido por --amd");
+    // v2.1 PASTA UNICA: onde o mod mora, e - so no modo AMD - a carga dele, ANTES do DetectarGpu
+    // (primeira fabrica DXGI), de qualquer device e dos add-ons do ReShade. O dxgi.dll do ReShade
+    // e import estatico deste exe: ele ja subiu antes do wWinMain, e o mod entra depois dele.
+    Log("mod AMD: pasta %s (%s)%s", U8(PastaModAmd()).c_str(), ModAmdInstalado() ? "instalado" : "nao instalado",
+        g_moduloAmd ? "" : " - modo NVIDIA: o mod nao e carregado");
+    if (!g_modAmdAoLadoDoExe && g_moduloAmd && _wcsnicmp(PastaModAmd().c_str(), g_exeDir.c_str(), g_exeDir.size()) != 0)
+        Log("mod AMD: o mod esta na pasta ANTIGA (%s) - funciona assim; para migrar, rode o preparar-mod-amd.cmd de bin\\mod-amd (copia, nao apaga nada)",
+            U8(PastaModAmd()).c_str());
+    CarregarModAmd(LinhaTemArgumento(L"--sem-dlss"));
     if (outraInstancia && ignoraInstancia)
         Log("instancia: ja existe outra, mas a linha de comando pediu para seguir assim mesmo");
     // ============================ MODO INTEGRADO: FASE 1 DA PONTE, ANTES DE TUDO ============================
@@ -29649,8 +29864,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // nem ela resolve (ReShade sem o export, ou add-ons ja escolhidos): so um processo NOVO le a
     // lista certa. Uma reabertura so, marcada com --addons-ok - com o marcador na linha nao se
     // reabre de novo, porque duas reaberturas que nao resolvem sao um laco pior que o defeito.
-    if (!g_moduloAmd) {
-        g_addonsEstado = AjustarRenoDxNosAddonsDesligados(MotorProprio(), g_exeDir + kIniRs);
+    // v2.1 PASTA UNICA: as chaves do cfg do feed que mudam por modo, so quando o modo mudou desde a
+    // ultima abertura (AplicarChavesDoModo). Nao na camada de cima nem no host da ponte: eles nao
+    // escolhem modo, e o host abre sem --amd mesmo com uma sessao AMD viva usando o mesmo cfg.
+    // O legado (mod ao lado do exe, bin-amd antigo) tem o proprio cfg e fica como era.
+    if (!g_camada2 && !g_ponteFeeder && !g_modAmdAoLadoDoExe) AplicarChavesDoModo();
+    // No modo AMD (pasta unica) o RenoDX da pasta tambem sai da lista de add-ons do ReShade.
+    {
+        g_addonsEstado = AjustarRenoDxNosAddonsDesligados(MotorProprio() || g_moduloAmd, g_exeDir + kIniRs);
         if (g_addonsEstado == ADDONS_SO_REABRINDO && !argAddonsOk) {
             Log("motor da rede: lista de add-ons corrigida, reabrindo uma vez");
             if (ReabrirApp(hi, C, ArgsDeReabertura(C, true, argGeracao + 1) + L" --addons-ok",

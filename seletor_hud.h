@@ -1708,11 +1708,11 @@ static int Render(Graphics* g) {
             L"choose; with two or more you can run DLSS 5 on one and the game on the other. The choice is saved and "
             L"also applies to the next launches.");
         const int n = (int)s.placasIdx.size();
-        // BUG 6: Radeon RX 7000/9000 sem o modulo AMD ao lado nao e "sem DLSS 5" por falta de placa:
-        // falta a pasta bin-amd (com o mod). O rotulo diz o que falta, e nao so que nao serve.
+        // BUG 6: Radeon de uma serie do mod (kSeriesRadeonMod) sem o mod instalado nao e "sem DLSS 5" por
+        // falta de placa: falta o mod em bin\mod-amd (v2.1, pasta unica). O rotulo diz o que falta.
         auto semDlss = [&](const PlacaOpcao& p) -> std::wstring {
-            if (!g_moduloAmd && PlacaRadeonParaMod(p.vendor, p.nome))
-                return TS(L"módulo AMD ausente", L"AMD module missing");
+            if (!g_moduloAmd && SerieRadeonDoMod(p.vendor, p.nome))
+                return TS(L"mod AMD não instalado", L"AMD mod not installed");
             return TS(L"sem DLSS 5", L"no DLSS 5");
         };
         auto rotulo = [&](int i) {
