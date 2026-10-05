@@ -27166,6 +27166,23 @@ namespace Sintetiza {
         Filtros::Suspender(false);
     }
 
+    // 2.1 (bug 3): O REPOUSO DA PELICULA DE TELA CHEIA. Ali o repouso de verdade (parar captura
+    // e Present) congelaria a unica imagem na tela, entao a pelicula segue mostrando a captura
+    // CRUA - e o que para e a cadeia: sem tecnica nenhuma o feeder nao avalia (nem SR, nem DLAA,
+    // nem passe de rede) e o RenoDX nao tem onde se enxertar (o mesmo fato medido que o
+    // Suprimir acima usa). Os filtros ja sairam pelo Filtros::Suspender do F6. Antes, normaliza
+    // o skipping: com a cadeia "suprimida" por ele, o Suprimir(false) seguinte a religaria por baixo.
+    // Retorna se a ponte aceitou os comandos (sem ponte, nada roda de qualquer jeito).
+    inline bool CadeiaEmRepouso(bool repouso) {
+        Suprimir(false);
+        bool ok = true;
+        for (int i = 0; i < 3; i++) {
+            if (!repouso && i == 2 && !MvHw::g_active) continue;
+            ok = rsbridge::SetTechniqueEnabled(kCadeia[i][0], !repouso, kCadeia[i][1]) && ok;
+        }
+        return ok;
+    }
+
     inline void Relatorio() {
         if (!g_feitos && !g_semBase && !g_semCampo && !g_naoPrecisou) return;
         Log("sintetizar: %u quadros desenhados | processados %.1f/s | caiu no 'segurar' %u vezes "
@@ -32088,6 +32105,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // REPOUSO: ver PontePlacas::Repouso. Estado do laco, nao do usuario - ele so aperta o
     // botao mestre; quem entra e sai do repouso e o bloco "repouso:" logo abaixo.
     bool emRepouso = false;
+    bool emRepousoPelicula = false;   // 2.1: o repouso da pelicula de tela cheia (Sintetiza::CadeiaEmRepouso)
+    ULONGLONG repousoPeliculaReforco = 0;
     bool lostSource = false;
     // ---- o alvo mudou de tamanho: quando reabrir sozinho (ver ReabrirApp e a PARTE A do
     // RELATORIO-ROBUSTEZ-JANELA). O instante da ULTIMA mudanca, nao da primeira: arrastar a
@@ -35932,6 +35951,28 @@ L"Do you want to continue?");
                 }
                 Hud::Refresh();
             }
+            // 2.1 (bug 3): NA PELICULA DE TELA CHEIA o F6 tambem descansa - so que sem congelar.
+            // Antes, ali, "tudo desligado" seguia pagando o SR/DLAA do feeder a cada quadro. Agora a
+            // cadeia sai (Sintetiza::CadeiaEmRepouso) e a pelicula mostra a captura crua; o F6
+            // seguinte (g_tudoDesligado=false) devolve a cadeia. Reforco a cada 1 s enquanto dura,
+            // porque um recarregamento de efeitos do ReShade le o preset de novo e religaria o feed.
+            const bool querRepousoPelicula = g_tudoDesligado && g_peliculaTela && !g_integrado && !g_camada2 &&
+                                             integrarEstado == 0;
+            const ULONGLONG agoraRp = GetTickCount64();
+            if (querRepousoPelicula != emRepousoPelicula) {
+                emRepousoPelicula = querRepousoPelicula;
+                repousoPeliculaReforco = agoraRp;
+                const bool okRp = Sintetiza::CadeiaEmRepouso(emRepousoPelicula);
+                Log(emRepousoPelicula
+                        ? "repouso: TUDO desligado (F6) na pelicula de tela cheia - cadeia fora (feed/SR/rede/kernel), "
+                          "a pelicula mostra a captura crua (ponte %s)"
+                        : "repouso: DLSS 5 religado na pelicula de tela cheia - cadeia de volta (ponte %s)",
+                    okRp ? "aceitou" : "NAO respondeu");
+                Hud::Refresh();
+            } else if (emRepousoPelicula && agoraRp - repousoPeliculaReforco >= 1000) {
+                repousoPeliculaReforco = agoraRp;
+                Sintetiza::CadeiaEmRepouso(true);
+            }
         }
 
         bool got = false;
@@ -37022,7 +37063,8 @@ L"Do you want to continue?");
         // chegando perto do quadro pedido, o skipping para e todo Present passa pela rede.
         // Custa alguns quadros de uma sessao de bancada e nao existe fora do dump.
         const bool dumpPerto = dumpPath[0] && !dumpTudo && (presented + 4 >= dumpFrame);   // FG-QUALIDADE2: com DUMP_TUDO o skipping segue
-        if (alternaAtiva && Alterna::g_modo == Alterna::MODO_SINTETIZAR && Sintetiza::Ativo() && got) {
+        if (alternaAtiva && Alterna::g_modo == Alterna::MODO_SINTETIZAR && Sintetiza::Ativo() && got &&
+            !emRepousoPelicula) {   // 2.1: em repouso a cadeia fica fora (Sintetiza::CadeiaEmRepouso)
             const bool proximoProcessa = (quadrosDesdeAlterna + 1 >= C.alternaN);
             if (dumpPerto) dumpEsperou = 1;   // so para a linha do log dizer o que houve
             Sintetiza::Suprimir(!dumpPerto && !proximoProcessa && Sintetiza::TemBase());
