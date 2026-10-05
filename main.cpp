@@ -10835,6 +10835,13 @@ static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
     // conferir o add-on seria fazer perder tempo com o que nao tem conserto. So acusa
     // quando o DXGI de fato respondeu (g_gpu.lido).
     if (g_gpu.lido && (!g_gpu.rtx || (g_gpu.vendor == 0x1002 && !g_moduloAmd))) {   // v2.1: Radeon no pacote NVIDIA tambem nao tem rede
+        // Radeon RX 7000/9000 no pacote NVIDIA SEM o modulo AMD ao lado: ela serve, so falta a pasta bin-amd (com o mod).
+        if (!g_moduloAmd && g_gpu.outraRtx.empty() && PlacaRadeonParaMod(g_gpu.vendor, g_gpu.nome)) {
+            if (detalhe) *detalhe = TS(L"a ", L"the ") + g_gpu.nome +
+                T(L" é uma Radeon que o mod DLSS-NR-on-AMD cobre, mas o módulo AMD (pasta bin-amd, com o mod instalado) não está nesta instalação — este pacote é o da NVIDIA",
+                  L" is a Radeon the DLSS-NR-on-AMD mod covers, but the AMD module (bin-amd folder, with the mod installed) is not in this install — this package is the NVIDIA one");
+            return NR_SEM_RTX;
+        }
         if (detalhe) *detalhe = g_gpu.outraRtx.empty()
             ? (g_moduloAmd
                 ? (TS(L"o mod DLSS-NR-on-AMD precisa de uma Radeon RX 7000 ou RX 9000; esta máquina tem ",

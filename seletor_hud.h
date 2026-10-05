@@ -1703,9 +1703,16 @@ static int Render(Graphics* g) {
             L"choose; with two or more you can run DLSS 5 on one and the game on the other. The choice is saved and "
             L"also applies to the next launches.");
         const int n = (int)s.placasIdx.size();
+        // BUG 6: Radeon RX 7000/9000 sem o modulo AMD ao lado nao e "sem DLSS 5" por falta de placa:
+        // falta a pasta bin-amd (com o mod). O rotulo diz o que falta, e nao so que nao serve.
+        auto semDlss = [&](const PlacaOpcao& p) -> std::wstring {
+            if (!g_moduloAmd && PlacaRadeonParaMod(p.vendor, p.nome))
+                return TS(L"módulo AMD ausente", L"AMD module missing");
+            return TS(L"sem DLSS 5", L"no DLSS 5");
+        };
         auto rotulo = [&](int i) {
             const PlacaOpcao& p = g_placas[s.placasIdx[i]];
-            return p.nome + (p.dlss ? TS(L"  ·  DLSS 5 ok", L"  ·  DLSS 5 ok") : TS(L"  ·  sem DLSS 5", L"  ·  no DLSS 5"));
+            return p.nome + (p.dlss ? TS(L"  ·  DLSS 5 ok", L"  ·  DLSS 5 ok") : (L"  ·  " + semDlss(p)));
         };
         if (n <= 1) {
             RectF r(L, cy, IW, 24);
@@ -1723,7 +1730,7 @@ static int Render(Graphics* g) {
                     FillRound(g, r, 6.f, sel ? C_ACC : (g_hot == idx) ? C_ROWH : C_ROW);
                     const PlacaOpcao& p = g_placas[s.placasIdx[i]];
                     Txt(g, p.nome.c_str(), fBadge, sel ? C_DARK : C_BODY, RectF(r.X + 12, r.Y + 3, r.Width - 24, 18), 0, true);
-                    Txt(g, p.dlss ? L"DLSS 5 ok" : T(L"sem DLSS 5", L"no DLSS 5"), fItemSub, sel ? C_DARK : C_FAINT,
+                    Txt(g, p.dlss ? std::wstring(L"DLSS 5 ok").c_str() : semDlss(p).c_str(), fItemSub, sel ? C_DARK : C_FAINT,
                         RectF(r.X + 12, r.Y + 20, r.Width - 24, 16), 0, true);
                 }
             }
