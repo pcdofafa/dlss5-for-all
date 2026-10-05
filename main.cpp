@@ -38578,16 +38578,16 @@ L"Do you want to continue?");
                                 // resolucao a pessoa quer quando ela muda". Nao da para LER a
                                 // resolucao interna do jogo sem injetar - entao o certo e
                                 // PERGUNTAR, nao mandar voltar atras.
-                                g_hud.jogoAviso = T(L"você mudou a resolução dentro do jogo? A janela continuou no "
+                                g_hud.jogoAviso = SubPainel(T(L"você mudou a resolução dentro do jogo? A janela continuou no "
                                                     L"tamanho antigo, então o jogo desenha num tamanho e espreme no "
                                                     L"outro — e esse trabalho a mais é jogado fora. Abra o painel "
-                                                    L"(End) e escolha a mesma resolução em \"Resolução do jogo\" "
+                                                    L"({P}) e escolha a mesma resolução em \"Resolução do jogo\" "
                                                     L"que a janela acompanha.",
                                                     L"did you change the resolution inside the game? The window stayed "
                                                     L"at the old size, so the game draws at one size and squeezes it "
                                                     L"into another — and that extra work is thrown away. Open the panel "
-                                                    L"(End) and pick the same resolution under \"Game resolution\" and "
-                                                    L"the window will follow.");
+                                                    L"({P}) and pick the same resolution under \"Game resolution\" and "
+                                                    L"the window will follow."));
                                 Log("resolucao do jogo: a captura continua %ux%u e o ritmo caiu de %.1f para %.1f, "
                                     "sem reconfiguracao nossa por perto - o jogo PODE ter subido a resolucao interna "
                                     "pelo proprio menu, mas isto NAO E MEDIDO: e a melhor hipotese disponivel sem injetar",

@@ -276,6 +276,11 @@ static bool AlvoValido(const Estado& s) {
 // ------------------------------------------------------------------ textos das dicas
 // Tudo que antes era rotulo comprido ou a dica de cinco linhas mora aqui. Primeira linha
 // = titulo (sai em negrito), o resto = corpo. Em pt/en pelo T() de sempre.
+// Tecla do painel conforme o modo (End; Insert no modulo AMD; ou a que a pessoa escolheu): "{P}" nos textos.
+static std::wstring SubPainel(std::wstring s) {
+    for (size_t p; (p = s.find(L"{P}")) != std::wstring::npos; ) s.replace(p, 3, g_hkPanel);
+    return s;
+}
 static std::wstring TipFonte(SourceKind k) {
     if (k == SRC_WINDOW) return TS(
         L"JANELA — recomendado\n"
@@ -305,14 +310,14 @@ static std::wstring TipFonte(SourceKind k) {
         L"its own source) — the app notices and backs off.\n"
         L"OVERLAY off: a separate window with the whole screen inside it, filtered. To record in OBS, turn "
         L"\"Hide\" off and use Window Capture (Windows 10 1903+).");
-    return TS(
+    return SubPainel(TS(
         L"PLACA DE CAPTURA / CÂMERA / CONSOLE\n"
         L"Para jogar PS5, Xbox, Switch ou outro PC pela placa de captura — ou usar uma câmera. "
         L"Escolha o aparelho na lista e depois a resolução, o FPS e o formato que ele entrega.\n"
         L"Dica: 1920x1080 a 60 fps é o ponto ideal — a placa de vídeo faz 4 vezes menos conta que em 4K "
         L"e a imagem passa pelo DLSS 5 do mesmo jeito. Se a lista tiver YUY2 ou NV12, prefira: "
         L"são os formatos sem compressão, com menos atraso.\n"
-        L"O som do console sai pelo programa também (chave no painel End).\n"
+        L"O som do console sai pelo programa também (chave no painel {P}).\n"
         L"Depois de abrir: ",
         L"CAPTURE CARD / CAMERA / CONSOLE\n"
         L"To play PS5, Xbox, Switch or another PC through a capture card — or to use a camera. "
@@ -320,8 +325,8 @@ static std::wstring TipFonte(SourceKind k) {
         L"Tip: 1920x1080 at 60 fps is the sweet spot — the GPU does 4 times less work than at 4K "
         L"and the image still goes through DLSS 5 the same way. If the list has YUY2 or NV12, prefer them: "
         L"they are the uncompressed formats, with less delay.\n"
-        L"The console's sound comes through the program too (switch in the End panel).\n"
-        L"Once it opens: ") + RodapeAtalhos() + T(L", F11 tela cheia.", L", F11 for fullscreen.");
+        L"The console's sound comes through the program too (switch in the {P} panel).\n"
+        L"Once it opens: ") + RodapeAtalhos() + T(L", F11 tela cheia.", L", F11 for fullscreen."));
 }
 static const wchar_t* NomeSw(int i) {
     switch (i) {
@@ -1235,12 +1240,12 @@ static int Render(Graphics* g) {
         // O tamanho ate onde a rede reconstroi e a resolucao da janela do jogo ficam no
         // painel (tecla End), e o texto diz isso para nao virar procura.
         if (g) {
-            TxtWrap(g, T(L"o jogo fica na janela dele e a película cobre a tela inteira — o teclado e o mouse "
-                     L"continuam indo para o jogo. No painel (End) dá para escolher até onde a rede reconstrói "
+            TxtWrap(g, SubPainel(T(L"o jogo fica na janela dele e a película cobre a tela inteira — o teclado e o mouse "
+                     L"continuam indo para o jogo. No painel ({P}) dá para escolher até onde a rede reconstrói "
                      L"e mudar a resolução da janela do jogo.",
                      L"the game stays in its window and the layer covers the whole screen — keyboard and mouse "
-                     L"still go to the game. In the panel (End) you can choose how far the network rebuilds and "
-                     L"change the game window's resolution."),
+                     L"still go to the game. In the panel ({P}) you can choose how far the network rebuilds and "
+                     L"change the game window's resolution.")).c_str(),
                 fItemSub, C_FAINT, RectF(L, cy, IW, 40));
         }
         cy += 44;
