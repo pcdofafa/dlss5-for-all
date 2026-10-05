@@ -28908,6 +28908,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         return 0;
     }
     Log("DLSS5 For All %s iniciando", U8(APP_VERSION).c_str());
+    // 2.1: a rotacao (abrirLog) ja guardou o log da instancia anterior em .1 (numa reabertura, o motivo dela esta la, no fim).
+    if (ArquivoExiste(g_dadosDir + L"dlss5forall.log.1"))
+        Log("log da instancia anterior (e o motivo de uma reabertura, se foi ela): dlss5forall.log.1 - a rotacao guarda %d geracoes", 8);
     Log("lancamento: liberado - %s (ver ConferirLancamento)", g_lancamentoMotivo);
     if (semMutex) Log("instancia: esta copia nao pega o mutex de instancia unica (host do add-on / foto de tela / listagem) - o app normal pode abrir junto");
     if (outraEhHost) Log("instancia: o mutex e de um host do add-on (nosso exe com outro nome, sem janela visivel) - seguindo");
