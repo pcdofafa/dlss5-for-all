@@ -59,6 +59,18 @@ static std::wstring PastaDe(const std::wstring& caminho) {
     const size_t b = caminho.find_last_of(L"\\/");
     return b == std::wstring::npos ? std::wstring() : caminho.substr(0, b + 1);
 }
+// v2.1: a copia da sonda em %TEMP% so e refeita quando o exe mudou (tamanho ou data de gravacao -
+// o CopyFile preserva a data). Cada recopia de 7,9 MB faz o antivirus reexaminar o arquivo, e esse
+// tempo saia do prazo da sonda. Devolve false so quando nao ha copia utilizavel.
+static bool CopiarSondaSeMudou(const std::wstring& exe, const std::wstring& copia) {
+    WIN32_FILE_ATTRIBUTE_DATA a{}, b{};
+    if (GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &a) &&
+        GetFileAttributesExW(copia.c_str(), GetFileExInfoStandard, &b) &&
+        a.nFileSizeHigh == b.nFileSizeHigh && a.nFileSizeLow == b.nFileSizeLow &&
+        CompareFileTime(&a.ftLastWriteTime, &b.ftLastWriteTime) == 0)
+        return true;
+    return CopyFileW(exe.c_str(), copia.c_str(), FALSE) || GetFileAttributesW(copia.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
 
 // ---------------------------------------------------------------- 0. LANCAR LIMPO (MGR-2309 item 7)
 // Licao observada no DLSS5 Autopilot (MIT, v2.0.3 #287: o jogo aberto pela ferramenta herdou o
@@ -208,7 +220,7 @@ static int RodarSonda(const std::wstring& luid, std::string* det) {
     const std::wstring copia = dir + L"dlss5-sonda.exe";
     const std::wstring res = dir + L"resultado.txt";
     DeleteFileW(res.c_str());
-    if (!CopyFileW(exe.c_str(), copia.c_str(), FALSE) && GetFileAttributesW(copia.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!CopiarSondaSeMudou(exe, copia)) {
         if (det) { char b[80]; snprintf(b, sizeof b, "nao consegui copiar o exe da sonda (erro %lu)", (unsigned long)GetLastError()); *det = b; }
         return 16;
     }
@@ -413,7 +425,7 @@ static int RodarSondaNgx(const std::wstring& pastaApp, DWORD tetoMs, std::string
     const std::wstring copia = dir + L"dlss5-sonda.exe";
     const std::wstring res = dir + L"resultado-ngx.txt";
     DeleteFileW(res.c_str());
-    if (!CopyFileW(exe.c_str(), copia.c_str(), FALSE) && GetFileAttributesW(copia.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!CopiarSondaSeMudou(exe, copia)) {
         if (det) { char b[80]; snprintf(b, sizeof b, "nao consegui copiar o exe da sonda (erro %lu)", (unsigned long)GetLastError()); *det = b; }
         return 16;
     }
