@@ -1827,6 +1827,7 @@ static bool g_moduloAmd = false;
 static bool g_semDlssArg = false;          // --sem-dlss: a pessoa entrou pelo botao "Sem DLSS 5"
 static bool g_nrIndispSonda = false;       // a sonda da rede falhou nesta abertura
 static std::wstring g_nrIndispMotivo;      // o porque (codigo da sonda + texto original), para o painel e o log
+static bool g_nrIndispPesado = false;      // v2.1: ...e foi o TETO que estourou (a rede exige demais desta placa), nao falha dura
 static bool NrBloqueadoNestaSessao();      // definida depois de GpuInfo
 static std::string TextoSistemaDiag();     // v2.1: linha de diagnostico (versao, Windows, elevacao); definida junto de ConferirLancamento
 static const wchar_t* kUrlModAmd = L"https://github.com/danielblnc/DLSS-NR-on-AMD/releases/latest";
@@ -10861,9 +10862,16 @@ static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
         return NR_SEM_RTX;
     }
     if (g_nrIndispSonda) {
-        if (detalhe) *detalhe = TS(L"a rede do DLSS 5 não montou nesta placa agora (", L"the DLSS 5 network did not start on this card now (") +
-                                g_nrIndispMotivo + T(L") — Frame Gen e filtros funcionam; reinicie o PC ou atualize o driver e abra de novo para tentar outra vez",
-                                                     L") — Frame Gen and filters work; restart the PC or update the driver and reopen to try again");
+        // v2.1: o teto estourado e "pesado demais agora", nao placa quebrada (decisao do dono). A orientacao das
+        // duas e a que de fato ajuda: liberar a placa e abrir de novo (reiniciar o PC/atualizar o driver nao
+        // resolveu para ninguem no bug 1).
+        if (detalhe) *detalhe = g_nrIndispPesado
+            ? (TS(L"o DLSS 5 está exigindo demais desta placa e não foi ativado (", L"DLSS 5 is too demanding for this card and was not turned on (") +
+               g_nrIndispMotivo + T(L") — Frame Gen e filtros funcionam; feche o jogo e os programas que usam a placa e abra de novo para tentar outra vez",
+                                    L") — Frame Gen and filters work; close the game and the programs using the card and open again to try once more"))
+            : (TS(L"a rede do DLSS 5 não montou nesta placa agora (", L"the DLSS 5 network did not start on this card now (") +
+               g_nrIndispMotivo + T(L") — Frame Gen e filtros funcionam; feche o jogo e os programas que usam a placa e abra de novo para tentar outra vez",
+                                    L") — Frame Gen and filters work; close the game and the programs using the card and open again to try once more"));
         return NR_SEM_RTX;
     }
     // 0. A PLACA AGUENTA? Antes de qualquer arquivo: nenhum deles resolve a falta de
@@ -27545,7 +27553,7 @@ static std::wstring ArgsDeReabertura(const Choice& C, bool manterAlvo, int gerac
     // v2.1: a rede indisponivel SOBREVIVE a reabertura (reinicio automatico, troca de painel, camadas...): a copia nova nao
     // sonda de novo nem tenta montar a rede - sem isto ela repetiria a espera da sonda e o laco que a falha ja causou.
     if (g_semDlssArg) s += L" --sem-dlss";
-    else if (g_nrIndispSonda) s += L" --nr-indisponivel";
+    else if (g_nrIndispSonda) s += g_nrIndispPesado ? L" --nr-indisponivel --nr-pesado" : L" --nr-indisponivel";   // v2.1: a copia nova mantem o motivo certo
     if (!temFonte) {
         // SEM FONTE = a copia nova cai no seletor. Ela ainda assim leva a fonte de AGORA,
         // como --pre-*: sao valores de PRE-SELECAO, nao de abertura -- o seletor abre com
@@ -29077,6 +29085,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // --nr-indisponivel = a sonda falhou na copia anterior e esta herda o resultado (sem sondar de novo, sem laco).
         else if (a == L"--sem-dlss") { g_semDlssArg = true; }
         else if (a == L"--nr-indisponivel") { g_nrIndispSonda = true; g_nrIndispMotivo = L"herdado da abertura anterior (ver sonda_antes_ult no ini)"; }
+        else if (a == L"--nr-pesado") g_nrIndispPesado = true;   // v2.1: o teto da sonda estourou na abertura anterior
         else if (a == L"--reabrir-painel") argReabrirPainel = true;
         else if (a == L"--reabrir-perfil") argReabrirPerfil = true;
         else if (a == L"--cursor") argCursor = true;
@@ -29662,7 +29671,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // qualquer device D3D deste processo: um processo DESCARTAVEL (a copia dlss5-sonda.exe em %TEMP%, sem o ReShade)
     // cria device D3D12, inicializa o NGX, monta a rede e roda 1 passe (ReinicioAuto::SondaNgxMain), com um teto de tempo.
     // Se o driver/rede estiverem quebrados, quem cai e a sonda - em vez de o app cair no meio do jogo.
-    // Chaves de [ultima]: sonda_antes (padrao 1; 0 = nao sonda) e sonda_antes_ms (teto, padrao 10000).
+    // Chaves de [ultima]: sonda_antes (padrao 1; 0 = nao sonda) e sonda_antes_ms (teto, padrao 60000; faixa 1000-120000).
     //
     // v2.1: A SONDA NUNCA FECHA O APP. A 2.0 fechava ("A REDE NAO MONTOU NESTA PLACA AGORA / nada foi aberto") em qualquer codigo
     // que nao fosse 0/20/15/16 - inclusive o 14, que e so "a sonda nao voltou em 3 s" - e 14 usuarios com RTX 2060..5060 (a 1.2
@@ -29680,37 +29689,67 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // a rede (NrBloqueadoNestaSessao) - antes a sonda rodava ate na GTX e fechava o app.
     if (!g_moduloAmd && !g_camada2 && !g_ponteFeeder && IniGet(L"sonda_antes") != L"0" && !NrBloqueadoNestaSessao() &&
         GetFileAttributesW((g_exeDir + L"nvngx_dlssnr.dll").c_str()) != INVALID_FILE_ATTRIBUTES) {
-        DWORD tetoSondaMs = 10000;
+        // v2.1 (decisao do dono): TETO DE FABRICA 60 s. Dentro dele lentidao NAO e falha - as esperas internas da sonda
+        // (Enviar, reinicio_auto.h) so desistem com o device removido. A faixa da chave vai de 1 s a 120 s.
+        DWORD tetoSondaMs = 60000;
         {
             const std::wstring v = IniGet(L"sonda_antes_ms");
             const int n = v.empty() ? 0 : _wtoi(v.c_str());
-            if (n >= 1000 && n <= 60000) tetoSondaMs = (DWORD)n;
+            if (n >= 1000 && n <= 120000) tetoSondaMs = (DWORD)n;
+            else if (!v.empty()) Log("sonda da rede: [ultima] sonda_antes_ms=%ls fora da faixa 1000-120000 - usando %lu ms", v.c_str(), (unsigned long)tetoSondaMs);
         }
+        // O QUE A PESSOA VE NA ESPERA. A sonda roda antes de qualquer janela do app: sem nada na tela, um minuto
+        // pareceria travamento. Depois de 2 s aparece um cartaz simples (nao bloqueia nada) que some quando a sonda volta.
+        static HINSTANCE s_sondaHi = nullptr;
+        static HMONITOR  s_sondaMon = nullptr;
+        static ULONGLONG s_sondaAviso = 0;
+        static DWORD     s_sondaTeto = 0;
+        s_sondaHi = hi; s_sondaMon = C.mon; s_sondaAviso = 0; s_sondaTeto = tetoSondaMs;
+        auto esperaSonda = [](DWORD dec) {
+            if (dec >= 2000 && !s_sondaAviso) {
+                ShowToast(s_sondaHi, s_sondaMon, T(L"Preparando a rede do DLSS 5…", L"Preparing the DLSS 5 network…"), s_sondaTeto + 5000);
+                s_sondaAviso = g_toastUltimoId ? g_toastUltimoId : 1;
+                Log("sonda da rede: ainda montando depois de %lu ms - aviso de espera na tela (teto %lu ms)", (unsigned long)dec, (unsigned long)s_sondaTeto);
+            }
+            MSG m;
+            while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) {
+                if (m.message == WM_QUIT) { PostQuitMessage((int)m.wParam); break; }
+                TranslateMessage(&m); DispatchMessageW(&m);
+            }
+        };
         const ULONGLONG t0 = GetTickCount64();
         std::string det;
-        const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det);
+        const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det, esperaSonda);
         const ULONGLONG ms = GetTickCount64() - t0;
+        if (s_sondaAviso > 1) Cartaz::Retirar(s_sondaAviso);
         // a ETAPA onde parou (os codigos de SondaNgxMain em reinicio_auto.h), para o log e para quem le o ini sem o codigo-fonte
-        const char* etapa = cod == 14 ? "estouro de tempo" : cod == 20 ? "nenhuma placa NVIDIA" : cod == 21 ? "device D3D12" :
+        const char* etapa = cod == 0 ? "ok" : cod == 14 ? "estouro do teto (exige demais da placa)" : cod == 20 ? "nenhuma placa NVIDIA" : cod == 21 ? "device D3D12" :
             cod == 22 ? "fila/lista/fence/texturas" : cod == 23 ? "_nvngx.dll do driver" : cod == 24 ? "Init do NGX do driver" :
             cod == 25 ? "carga do nvngx_dlssnr.dll" : cod == 26 ? "Init_Ext da rede" : cod == 27 ? "AllocateParameters" :
-            cod == 28 ? "CreateFeature (montar a rede)" : cod == 29 ? "Evaluate (1o passe)" : cod == 30 ? "GPU nao terminou" :
+            cod == 28 ? "CreateFeature (montar a rede)" : cod == 29 ? "Evaluate (1o passe)" : cod == 30 ? "device removido" :
             (cod == 15 || cod == 16) ? "nao rodou" : "crash da sonda";
+        // sonda_antes_ult em TODO resultado (antes so nas falhas): codigo, etapa, texto da sonda e tempo contra o teto
+        IniSet(L"sonda_antes_ult", std::to_wstring(cod) + L" " + std::wstring(etapa, etapa + strlen(etapa)) + L": " +
+                                   std::wstring(det.begin(), det.end()) + L" | " + std::to_wstring((unsigned long long)ms) +
+                                   L" ms de " + std::to_wstring((unsigned long)tetoSondaMs) + L" ms");
         if (cod == 0) {
             Log("sonda da rede antes de abrir: %s (codigo %d, %llu ms, teto %lu ms; [ultima] sonda_antes=0 desliga)", det.c_str(), cod, (unsigned long long)ms, (unsigned long)tetoSondaMs);
         } else if (cod == 15 || cod == 16) {
             // nao e a placa: nao conseguimos nem lancar a sonda - nao impede a abertura (nem tira a rede)
             Log("sonda da rede antes de abrir: NAO rodou (%s, codigo %d) - abrindo mesmo assim", det.c_str(), cod);
         } else {
-            // v2.1: qualquer outro codigo (inclusive 20 = sem NVIDIA e 14 = estouro) tira SO a rede desta sessao
+            // v2.1: qualquer outro codigo (inclusive 20 = sem NVIDIA e 14 = estouro) tira SO a rede desta sessao.
+            // 14 (o teto estourou com o device vivo) e a rede pesada demais para esta placa agora (decisao do dono) -
+            // mensagem propria; o resto (device removido, crash, NGX recusou) e falha dura.
             g_nrIndispSonda = true;
+            g_nrIndispPesado = (cod == 14);
             const std::string txt = "sonda codigo " + std::to_string(cod) + " (" + etapa + "): " + det + " [" + std::to_string((unsigned long long)ms) +
                                     " ms de " + std::to_string((unsigned long)tetoSondaMs) + " ms]";
             g_nrIndispMotivo = std::wstring(txt.begin(), txt.end());
-            Log("ERRO DE INICIALIZACAO [componente: rede neural / DLSS 5] %s - o app ABRE sem o Neural Render nesta sessao; "
-                "Frame Gen e filtros seguem ([ultima] sonda_antes=0 desliga a checagem; sonda_antes_ms=<ms> muda o teto)", txt.c_str());
+            Log("ERRO DE INICIALIZACAO [componente: rede neural / DLSS 5] %s - %s; o app ABRE sem o Neural Render nesta sessao; "
+                "Frame Gen e filtros seguem ([ultima] sonda_antes=0 desliga a checagem; sonda_antes_ms=<ms> muda o teto)", txt.c_str(),
+                g_nrIndispPesado ? "a rede nao montou dentro do teto: EXIGE DEMAIS desta placa agora" : "falha dura da rede");
             Log("diagnostico: %s", TextoSistemaDiag().c_str());
-            IniSet(L"sonda_antes_ult", std::to_wstring(cod) + L" " + std::wstring(det.begin(), det.end()) + L" | " + std::to_wstring((unsigned long long)ms) + L" ms");
         }
     }
 
@@ -39531,8 +39570,13 @@ L"Do you want to continue?");
                 // v2.1: a sonda da rede falhou - aviso CURTO e que nao bloqueia nada (a 2.0 fechava o app aqui). O motivo
                 // original (codigo + texto da sonda) esta no log e em [ultima] sonda_antes_ult.
                 if (g_nrIndispSonda)
-                    t = TS(L"O DLSS 5 não ficou disponível nesta placa agora\nFrame Gen e filtros continuam funcionando",
-                           L"DLSS 5 is not available on this card right now\nFrame Gen and filters keep working");
+                    t = g_nrIndispPesado
+                        ? TS(L"O DLSS 5 está exigindo demais desta placa e não foi ativado\nFrame Gen e filtros continuam funcionando",
+                             L"DLSS 5 is too demanding for this card and was not turned on\nFrame Gen and filters keep working")
+                        : TS(L"O DLSS 5 não ficou disponível nesta placa agora\nFrame Gen e filtros continuam funcionando — "
+                             L"para tentar de novo, feche o jogo e os programas que usam a placa e abra outra vez",
+                             L"DLSS 5 is not available on this card right now\nFrame Gen and filters keep working — "
+                             L"to try again, close the game and the programs using the card and open again");
                 Log("aviso: neural nao esta ativo (%s)", U8(g_hud.neuralDetalhe).c_str());
                 ShowToast(hi, C.mon, t, 7000);
             }

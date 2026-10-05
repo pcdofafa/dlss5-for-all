@@ -339,10 +339,20 @@ static int SondaNgxMain(const wchar_t* pastaApp, const wchar_t* arqRes) {
         return dizer(22, "fila/lista/fence/texturas falharam (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
     HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     UINT64 fv = 0;
-    auto Enviar = [&](DWORD tetoMs) -> bool {   // fecha, executa e espera; so a fence decide
+    // v2.1: LENTO NAO E QUEBRADO. A 2.0 esperava 2 s pela fence e chamava de falha (30) tanto a placa
+    // so lenta quanto o device removido. Agora a espera dura enquanto o device estiver vivo: quem
+    // decide "demorou demais" e o TETO do pai (sonda_antes_ms, 60 s de fabrica), que mata este
+    // processo e conta como estouro (14). Daqui so sai falso com o device removido de verdade
+    // (ou na salvaguarda de 10 min, para um pai que morreu sem matar a sonda).
+    auto Enviar = [&]() -> bool {   // fecha, executa e espera; so a fence decide
         li->Close(); ID3D12CommandList* ls[] = { li }; q->ExecuteCommandLists(1, ls);
         q->Signal(fe, ++fv);
-        if (fe->GetCompletedValue() < fv && ev) { ResetEvent(ev); fe->SetEventOnCompletion(fv, ev); WaitForSingleObject(ev, tetoMs); }
+        const ULONGLONG iniEnvio = GetTickCount64();
+        while (fe->GetCompletedValue() < fv && SUCCEEDED(dev->GetDeviceRemovedReason()) &&
+               GetTickCount64() - iniEnvio < 600000) {
+            if (ev) { ResetEvent(ev); fe->SetEventOnCompletion(fv, ev); WaitForSingleObject(ev, 500); }
+            else Sleep(10);
+        }
         const bool ok = fe->GetCompletedValue() >= fv && SUCCEEDED(dev->GetDeviceRemovedReason());
         if (ok) { al->Reset(); li->Reset(al, nullptr); }
         return ok;
@@ -392,7 +402,7 @@ static int SondaNgxMain(const wchar_t* pastaApp, const wchar_t* arqRes) {
     Ngx::Handle* feat = nullptr;
     r = criar(li, 18u /* Reserved18 */, p, &feat);
     if (Ngx::Falhou(r) || !feat) { li->Close(); return dizer(28, "CreateFeature da rede 0x%08X (%s) a %ux%u (%ls)", r, Ngx::NomeResultado(r), W, H, nome); }
-    if (!Enviar(2000)) return dizer(30, "a GPU nao terminou a criacao (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
+    if (!Enviar()) return dizer(30, "o device caiu durante a criacao (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
     // um passe: quadro preto, vetores zero, profundidade zero (os mesmos nomes que o feed escreve)
     Ngx::PorI(p, "DLSSNR.Enabled", 1); Ngx::PorI(p, "DLSSNR.UICorrection", 0);
     Ngx::PorUI(p, "DLSSNR.Style", 0u); Ngx::PorF(p, "DLSSNR.Intensity", 1.0f);
@@ -404,7 +414,7 @@ static int SondaNgxMain(const wchar_t* pastaApp, const wchar_t* arqRes) {
     Ngx::PorI(p, "DLSSNR.Reset", 1);
     r = avaliar(li, feat, p, nullptr);
     if (Ngx::Falhou(r)) { li->Close(); return dizer(29, "Evaluate da rede 0x%08X (%s) (%ls)", r, Ngx::NomeResultado(r), nome); }
-    if (!Enviar(2000)) return dizer(30, "a GPU nao terminou o passe (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
+    if (!Enviar()) return dizer(30, "o device caiu durante o passe (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
     // soltar pelo MESMO modulo que criou (a rede), como o feed faz (NrReleaseGuarded)
     soltar(feat); destroy(p);
     if (redeShut) redeShut(dev);
@@ -414,8 +424,11 @@ static int SondaNgxMain(const wchar_t* pastaApp, const wchar_t* arqRes) {
 }
 #undef dizer
 
-// Roda a sonda da rede e ESPERA no maximo `tetoMs` (3 s). Mesma copia/pasta da sonda D3D12.
-static int RodarSondaNgx(const std::wstring& pastaApp, DWORD tetoMs, std::string* det) {
+// Roda a sonda da rede e ESPERA no maximo `tetoMs` (60 s de fabrica). Mesma copia/pasta da sonda D3D12.
+// v2.1: `aCada` (opcional) e chamado a cada ~100 ms da espera com o tempo decorrido - e por onde o app
+// mostra o aviso "Preparando a rede do DLSS 5..." e mantem as mensagens andando; com ele a espera e um
+// MsgWaitForMultipleObjects, para a fila de mensagens desta thread nao parar por um minuto.
+static int RodarSondaNgx(const std::wstring& pastaApp, DWORD tetoMs, std::string* det, void (*aCada)(DWORD msDecorridos) = nullptr) {
     if (det) det->clear();
     const std::wstring exe = MeuExe();
     wchar_t tmp[MAX_PATH]{};
@@ -438,7 +451,20 @@ static int RodarSondaNgx(const std::wstring& pastaApp, DWORD tetoMs, std::string
         return 15;
     }
     DWORD cod = 14;
-    if (WaitForSingleObject(pi.hProcess, tetoMs) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &cod);
+    bool voltou = false;
+    if (!aCada) {
+        voltou = WaitForSingleObject(pi.hProcess, tetoMs) == WAIT_OBJECT_0;
+    } else {
+        const ULONGLONG t0 = GetTickCount64();
+        for (;;) {
+            const ULONGLONG dec = GetTickCount64() - t0;
+            if (dec >= tetoMs) break;
+            const DWORD fatia = (DWORD)((tetoMs - dec) < 100 ? (tetoMs - dec) : 100);
+            if (MsgWaitForMultipleObjects(1, &pi.hProcess, FALSE, fatia, QS_ALLINPUT) == WAIT_OBJECT_0) { voltou = true; break; }
+            aCada((DWORD)(GetTickCount64() - t0));
+        }
+    }
+    if (voltou) GetExitCodeProcess(pi.hProcess, &cod);
     else { TerminateProcess(pi.hProcess, 14); WaitForSingleObject(pi.hProcess, 2000); if (det) { char b[64]; snprintf(b, sizeof b, "a sonda da rede nao voltou em %lu ms", (unsigned long)tetoMs); *det = b; } }
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     if (det && det->empty()) {
