@@ -20462,10 +20462,25 @@ static void SincronizarComNr(bool nrOn) {
 // Ha filtro ligado E o interruptor mestre ligado? (com o NR desligado a pelicula fica por
 // eles - item 5; Rodada 23: com o mestre desligado, nenhum filtro esta de fato valendo, entao
 // nao ha razao para a pelicula ficar so por causa deles)
+// 2.1 (bug 3): o filtro esta EXATAMENTE como o AplicarVisualRede o deixou? Esses 4 nascem
+// ligados sozinhos na primeira vez que a rede liga (SincronizarComNr) - sao o visual DA REDE,
+// e nao uma escolha da pessoa. Sem esta distincao o F6 caia no ramo "a pelicula fica pelos
+// filtros" em toda instalacao, e nada desligava de verdade. Mexeu em qualquer valor (ou ligou
+// outro filtro), volta a contar como escolha propria, como antes.
+static bool SoVisualDaRede(int i) {
+    if (!EhPadraoNr(i) || !g_f[i].on) return false;
+    switch (i) {
+    case F_NITIDEZ:  return g_f[i].v[0] == 100;
+    case F_DETALHES: return g_f[i].v[0] == 5;
+    case F_VIBRANCE: return g_f[i].v[0] == 15;
+    case F_BRILHO:   return g_f[i].v[0] == 20 && g_f[i].v[1] == 0;
+    default:         return false;
+    }
+}
 static bool ContinuamSemNr() {
     Garantir();
     if (!Ligado()) return false;
-    for (int i = 0; i < N; i++) if (g_f[i].on) return true;
+    for (int i = 0; i < N; i++) if (g_f[i].on && !SoVisualDaRede(i)) return true;
     return false;
 }
 // PRESETS: TODOS os filtros numa linha so, "chave=on,v0[,v1,v2];..." - o mesmo formato das
