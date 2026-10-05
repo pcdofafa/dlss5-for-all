@@ -30124,10 +30124,17 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // a imagem e o 2o acrescenta por um terco do preco. Semeado uma vez, com marca, porque
         // um padrao que se reimpoe a cada abertura apagaria a escolha da pessoa todo dia - e
         // porque quem ja tinha perfil gravado nunca veria o padrao novo se a regra fosse "so
-        // quando a chave nao existe". `[ultima] passes_padrao_captura=` (vazio) desliga.
+        // quando a chave nao existe".
+        // 2.1 (bug 3): DE FABRICA E 1 PASSE (decisao do dono). Sem `[ultima] passes_padrao_captura`
+        // (ou vazia, ou 0) NADA e semeado: vale o `nr_passes` que ja estava (ini/cfg; 1 de fabrica).
+        // A 2.0 semeava `100,60` (2 passes) justamente quando a chave faltava - o contrario do que
+        // este comentario dizia. Para semear uma lista: `[ultima] passes_padrao_captura=100,60`.
         const std::wstring lista = IniGet(L"passes_padrao_captura");
-        if (IniGet(L"passes_padrao_captura_feito") != L"1" && lista != L"0") {
-            const std::wstring alvo = lista.empty() ? L"100,60" : lista;
+        if (lista.empty() || lista == L"0") {
+            Log("tamanho da rede: motor proprio padrao sem lista semeada - mantendo %d passe(s) "
+                "([ultima] passes_padrao_captura=100,60 semeia uma lista)", g_hud.nrPasses);
+        } else if (IniGet(L"passes_padrao_captura_feito") != L"1") {
+            const std::wstring alvo = lista;
             int n = 0;
             for (size_t i = 0; i < alvo.size() && n < kMaxPasses; ) {
                 g_hud.nrEscalaPasse[n] = EscalaPasseValida(_wtoi(alvo.c_str() + i), n); n++;
