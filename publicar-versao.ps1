@@ -13,7 +13,7 @@
 #  Antes de publicar: suba a versao em versao.h, main.cpp (APP_VERSION), launcher.rc e
 #  app.rc; recompile o app e o launcher; rode montar-portable.ps1; so entao rode este.
 #
-#  O zip tem os arquivos NA RAIZ (DLSS5ForAll.exe, bin\, bin-amd\, versao.txt...), sem
+#  O zip tem os arquivos NA RAIZ (DLSS5ForAll.exe, bin\ com bin\mod-amd\, versao.txt...), sem
 #  pasta envolvendo. O versao.txt e obrigatorio: e por ele que o atualizador confere que
 #  o zip e um pacote DLSS5 For All da versao anunciada antes de trocar qualquer arquivo.
 #  O zip e feito com o tar.exe do Windows (bsdtar), o mesmo que o launcher usa para abrir.
@@ -103,9 +103,12 @@ if (-not (Test-Path (Join-Path $Origem 'bin\DLSS5ForAll.exe'))) { throw "$Origem
 # decide a experiencia inteira no caminho AMD. Sem ele no pacote, o instalador do mod cria o
 # ini com o padrao dele (200 ms), e um quadro lento segura a imagem por 0,2 s. O arquivo nao
 # tem segredo, nao tem log e nao tem estado de sessao: e configuracao, como o dlss5-feed.cfg.
+# v2.1: VOLTOU para a lista. O dossie de licenca (16/09+) diz que a licenca do mod proibe redistribuir
+# qualquer arquivo dele, inclusive as configuracoes; o ini e criado pelo instalador do mod na maquina da
+# pessoa (em bin\mod-amd\) e o preparar-mod-amd repoe o InlineWaitMs=25.
 $ExcluirArquivos = @(
     'nvngx_dlssnr.dll', 'nvngx_dlss.dll', 'renodx-dlss5.addon64', 'version.dll',
-    'dlssnr_on_amd_weights.bin', 'dlssnr_on_amd_setup.exe', 'dlssnr_on_amd.log',
+    'dlssnr_on_amd_weights.bin', 'dlssnr_on_amd_setup.exe', 'dlssnr_on_amd.log', 'dlssnr_on_amd.ini',
     'dlss5forall.log', 'launcher.log', 'ReShade.log', 'ReShade.log1', 'ReShade.log2', 'ReShade.log3', 'dlss5-feed.log'
 )
 # '*.log*' e nao '*.log': os logs ROTACIONADOS (dlss5forall.log.1, .log.2, .log.3) passavam
@@ -125,7 +128,9 @@ $ExcluirArquivos = @(
 # continua com eles: o setup-dlss5.ps1, passo 4, os baixa do repositorio do autor.
 # Este padrao e a SEGUNDA barreira - a primeira e o filtro do montar-portable.ps1 -, e as duas
 # existem pelo mesmo motivo do renodx ter escapado por um digito: uma barreira so ja falhou.
-$ExcluirPadroes = @('*.log', '*.log.*', '*.bak*', 'ReShade.ini.bak-*', 'renodx*', 'nvngx_*', '*.dmp', 'lumenite*')
+# v2.1 PASTA UNICA: 'dlssnr_on_amd*' e 'version.dll' tambem por PADRAO - nada do mod DLSS-NR-on-AMD (licenca de
+# terceiro que proibe redistribuir, inclusive as configuracoes dele) entra em zip nenhum, em pasta nenhuma.
+$ExcluirPadroes = @('*.log', '*.log.*', '*.bak*', 'ReShade.ini.bak-*', 'renodx*', 'nvngx_*', '*.dmp', 'lumenite*', 'dlssnr_on_amd*', 'version.dll')
 $ExcluirPastas  = @('reshade-cache', 'backup-versao-anterior', 'cache')
 # AS PASTAS DE TESTE NAO VAO NO ZIP. A raiz de trabalho acumula copias inteiras do programa
 # para experimentos (bin-teste-passes, bin-teste-requiem, launcher-teste...) - em 11/09/2026
@@ -145,7 +150,10 @@ $ExcluirPastasPadraoTeste = '^(bin-teste-.*|.*-teste|teste-.*)$'
 # previu; uma lista de permissao erra para o lado de deixar de fora - e deixar de fora aparece
 # no teste de instalacao, enquanto publicar demais so aparece depois, em publico. Uma pasta
 # nova e legitima do produto precisa ser acrescentada aqui de proposito, e isso e o desejado.
-$PastasDoProduto = @('bin', 'bin-amd')
+# v2.1 PASTA UNICA: bin-amd\ saiu do produto (o modo AMD e bin\ com --amd; o mod mora em bin\mod-amd\, e
+# la so vao as instrucoes - ver $PermitidosEmModAmd). Um bin-amd\ que sobrar na pasta de origem fica de fora.
+$PastasDoProduto = @('bin')
+$PermitidosEmModAmd = @('LEIA-ME.txt', 'README.txt', 'preparar-mod-amd.cmd', 'preparar-mod-amd.ps1')
 
 # ------------------------------------------------------- O QUE SO O ZIP PRIVADO (-Completo) LEVA
 # Sao os componentes de TERCEIROS que o pacote publico deixa de fora por licenca: o DLSS e o
@@ -156,11 +164,9 @@ $PastasDoProduto = @('bin', 'bin-amd')
 $TerceirosDoCompleto = @(
     'bin\renodx-dlss.addon64',          # RenoDX - add-on que faz o neural no caminho NVIDIA
     'bin\nvngx_dlss.dll',               # DLSS (NVIDIA)
-    'bin\nvngx_dlssnr.dll',             # Neural Rendering (NVIDIA)
-    'bin-amd\version.dll',              # mod DLSS-NR-on-AMD: o carregador
-    'bin-amd\dlssnr_on_amd_weights.bin',# mod: os pesos da rede
-    'bin-amd\nvngx_dlssnr.dll',         # mod: o runtime neural que ele instala
-    'bin-amd\dlssnr_on_amd_setup.exe'   # o instalador do mod, para o backup ficar autossuficiente
+    'bin\nvngx_dlssnr.dll'              # Neural Rendering (NVIDIA)
+    # v2.1: o mod DLSS-NR-on-AMD (version.dll, pesos, ini, instalador) SAIU daqui: a licenca do
+    # autor proibe redistribuir, inclusive num zip privado. Ele fica so na maquina de quem o instala.
 )
 
 # ------------------------------------------------------------------ O PRESET DE FABRICA
@@ -196,6 +202,8 @@ try {
         if ($foraPasta) { return $false }
         if ($ExcluirArquivos -contains $nome) { return $false }
         foreach ($pad in $ExcluirPadroes) { if ($nome -like $pad) { return $false } }
+        # v2.1: em bin\mod-amd\ so as instrucoes (lista de PERMISSAO, como $PastasDoProduto).
+        if ($partes.Length -ge 3 -and $partes[0] -eq 'bin' -and $partes[1] -eq 'mod-amd' -and $PermitidosEmModAmd -notcontains $nome) { return $false }
         return $true
     }
     $n = 0; $bytes = 0
@@ -274,7 +282,11 @@ try {
     Write-Host "estado de fabrica: dlss5forall.ini zerados e preset do neural normalizado" -ForegroundColor DarkGray
 
     # o cache do ReShade fica como pasta VAZIA (o ReShade.ini aponta para ela)
-    foreach ($d in 'bin\reshade-cache', 'bin-amd\reshade-cache') { New-Item -ItemType Directory -Force (Join-Path $tmp $d) | Out-Null }
+    foreach ($d in 'bin\reshade-cache', 'bin\mod-amd') { New-Item -ItemType Directory -Force (Join-Path $tmp $d) | Out-Null }
+    # v2.1 PASTA UNICA: trava final - nada do mod DLSS-NR-on-AMD no zip, em pasta nenhuma.
+    $doMod = @(Get-ChildItem $tmp -Recurse -File | Where-Object { $_.Name -like 'dlssnr_on_amd*' -or $_.Name -eq 'version.dll' })
+    if ($doMod.Count) { throw "arquivo do mod DLSS-NR-on-AMD no zip (licenca proibe): $(($doMod.FullName) -join ', ')" }
+    if (-not (Test-Path (Join-Path $tmp 'bin\mod-amd\LEIA-ME.txt'))) { Write-Host "[!] bin\mod-amd\LEIA-ME.txt nao esta no pacote (rode o montar-portable.ps1): quem tem Radeon fica sem as instrucoes" -ForegroundColor Yellow }
     # versao.txt: o do pacote precisa bater com a versao anunciada (senao o launcher recusa o zip)
     $utf8 = New-Object System.Text.UTF8Encoding $false
     [IO.File]::WriteAllText((Join-Path $tmp 'versao.txt'), "$Versao`r`n", $utf8)
