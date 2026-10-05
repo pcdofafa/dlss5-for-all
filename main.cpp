@@ -19225,9 +19225,10 @@ static void Aviso(const std::wstring& t) {
 // I3: com a janela do perfil aberta por cima, o painel se poe LOGO ABAIXO dela (e nao no
 // topo) - senao os dois se revezariam no topo a cada tique e a pilha piscaria.
 static void RaiseNow() {
+    // BUG 11: sem a janela do Perfil, o menu se poe logo abaixo dos cartazes (ordem fixa): senao menu e aviso se revezam no topo a cada tique.
     if (!g_hud.open || !g_hud.wnd) return;
     HWND acima = JanelaDoPerfil();
-    SetWindowPos(g_hud.wnd, acima ? acima : HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(g_hud.wnd, acima ? acima : Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 static void Tick() {
@@ -19562,10 +19563,10 @@ static void Tick() {
     ULONGLONG now = GetTickCount64();
     if (now - last < 120) return;
     last = now;
-    SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 static void RaiseNow() {
-    if (g_open && g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (g_open && g_wnd) SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 
 static void Shutdown() {
@@ -21234,10 +21235,10 @@ static void Tick() {
     static ULONGLONG last = 0;
     if (now - last < 250) return;
     last = now;
-    SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 static void RaiseNow() {
-    if (g_open && g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (g_open && g_wnd) SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 static void Shutdown() {
     if (g_tip) { DestroyWindow(g_tip); g_tip = nullptr; }
@@ -22512,10 +22513,10 @@ static void Tick() {
     const ULONGLONG now = GetTickCount64();
     if (now - last < 250) return;
     last = now;
-    SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 static void RaiseNow() {
-    if (g_open && g_wnd) SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    if (g_open && g_wnd) SetWindowPos(g_wnd, Cartaz::AbaixoDosAvisos(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }
 static void Shutdown() {
     if (g_wnd) { DestroyWindow(g_wnd); g_wnd = nullptr; }

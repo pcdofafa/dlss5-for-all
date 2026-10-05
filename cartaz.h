@@ -347,6 +347,15 @@ static ULONGLONG Mostrar(HINSTANCE hi, HMONITOR mon, const std::wstring& texto, 
     return u.id;
 }
 
+// BUG 11: onde as outras janelas topmost do app (menu End, Guia, Filtros, Perfil) se inserem para
+// NAO brigar com os cartazes. Cada uma reafirmava HWND_TOPMOST a cada 120-250 ms e o cartaz a cada
+// 500 ms: quem chamava por ultimo ficava por cima, e o aviso e o menu se alternavam na frente um do
+// outro, piscando. Ordem fixa agora: o cartaz mais novo no topo, as outras logo abaixo. Sem cartaz
+// na tela devolve HWND_TOPMOST (o comportamento de antes).
+static HWND AbaixoDosAvisos() {
+    for (size_t i = g_lista.size(); i-- > 0;) if (g_lista[i].wnd) return g_lista[i].wnd;
+    return HWND_TOPMOST;
+}
 static bool Visivel() { return !g_lista.empty(); }
 static ULONGLONG AteQuando(ULONGLONG id) {
     for (const Um& u : g_lista) if (u.id == id) return u.ate;
