@@ -34,6 +34,7 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#include <sddl.h>
 #include <string>
 #include <cstdint>
 #ifdef DLSS5_LAUNCHER
@@ -52,6 +53,25 @@ struct Bilhete {
 
 inline std::wstring NomeEvento(DWORD pid)  { return L"Local\\DLSS5_Lancado_" + std::to_wstring((unsigned long)pid); }
 inline std::wstring NomeBilhete(DWORD pid) { return NomeEvento(pid) + L"_b"; }
+
+// v2.1: O DACL PADRAO DE UM TOKEN ELEVADO SO DA ACESSO A ADMINISTRATORS E SYSTEM. Launcher e app com niveis
+// diferentes (um "executar como administrador" so num deles) viam OpenEventW/OpenFileMappingW falhar com
+// ACCESS_DENIED - o bilhete "invalido" e o app reabrindo o launcher: "cliquei em Iniciar e nada aconteceu".
+// A ACL explicita: SYSTEM/Administrators/dono = tudo; qualquer usuario autenticado = so ESPERAR o evento
+// (SYNCHRONIZE) ou so LER a memoria (SECTION_MAP_READ). Ninguem alem do dono escreve o bilhete, e o app
+// continua exigindo pidLauncher == PID do proprio pai + o pai ser o launcher da raiz: a trava nao muda.
+struct AclAberta {
+    SECURITY_ATTRIBUTES sa{}; PSECURITY_DESCRIPTOR sd = nullptr;
+    explicit AclAberta(const wchar_t* sddl) {
+        if (ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, SDDL_REVISION_1, &sd, nullptr)) {
+            sa.nLength = sizeof(sa); sa.lpSecurityDescriptor = sd; sa.bInheritHandle = FALSE;
+        }
+    }
+    ~AclAberta() { if (sd) LocalFree(sd); }
+    SECURITY_ATTRIBUTES* get() { return sd ? &sa : nullptr; }   // nullptr = o DACL padrao, como na 2.0
+};
+inline const wchar_t* SddlEvento()  { return L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x00100000;;;AU)"; }
+inline const wchar_t* SddlMemoria() { return L"D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x0004;;;AU)"; }
 
 // O lado de quem lancou (launcher e relancamentos do app): espera o filho dizer "conferido"
 // - o evento do PID dele aceso - ou morrer, ate `tetoMs`. Os dois casos liberam quem espera;
@@ -87,18 +107,23 @@ inline INT_PTR AbrirEEsperarConferido(const wchar_t* exe, const wchar_t* args, c
 #ifdef DLSS5_LAUNCHER
 // O lado do launcher: publica evento + bilhete para o filho SUSPENSO `pidFilho`. Os dois
 // handles ficam com quem chamou ate o fim da espera (fechar antes apagaria os objetos).
-inline bool PublicarBilhete(DWORD pidFilho, HANDLE* ev, HANDLE* mapa) {
-    *ev = CreateEventW(nullptr, TRUE, FALSE, NomeEvento(pidFilho).c_str());
-    *mapa = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(Bilhete), NomeBilhete(pidFilho).c_str());
-    if (!*ev || !*mapa) return false;
+// `erro` (opcional) recebe o GetLastError() do primeiro passo que falhou, e `etapa` o nome dele, para o log.
+inline bool PublicarBilhete(DWORD pidFilho, HANDLE* ev, HANDLE* mapa, DWORD* erro = nullptr, const char** etapa = nullptr) {
+    auto falha = [&](const char* e) { if (erro) *erro = GetLastError(); if (etapa) *etapa = e; return false; };
+    AclAberta aclEv(SddlEvento()), aclMapa(SddlMemoria());
+    *ev = CreateEventW(aclEv.get(), TRUE, FALSE, NomeEvento(pidFilho).c_str());
+    if (!*ev) return falha("CreateEvent");
+    *mapa = CreateFileMappingW(INVALID_HANDLE_VALUE, aclMapa.get(), PAGE_READWRITE, 0, sizeof(Bilhete), NomeBilhete(pidFilho).c_str());
+    if (!*mapa) return falha("CreateFileMapping");
     Bilhete* b = (Bilhete*)MapViewOfFile(*mapa, FILE_MAP_WRITE, 0, 0, sizeof(Bilhete));
-    if (!b) return false;
+    if (!b) return falha("MapViewOfFile");
     Bilhete n{};
     n.marca = kMarca;
     n.pidLauncher = GetCurrentProcessId();
     const bool ok = BCRYPT_SUCCESS(BCryptGenRandom(nullptr, n.token, sizeof(n.token), BCRYPT_USE_SYSTEM_PREFERRED_RNG));
     if (ok) *b = n;
     UnmapViewOfFile(b);
+    if (!ok) { if (erro) *erro = 0; if (etapa) *etapa = "BCryptGenRandom"; }
     return ok;
 }
 #endif

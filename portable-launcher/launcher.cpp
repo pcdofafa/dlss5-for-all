@@ -195,6 +195,7 @@ static DWORD WINAPI ThreadNovas(LPVOID p) {
 static int Abrir(const std::wstring& pasta, const std::wstring& args) {
     const std::wstring alvo = pasta + L"DLSS5ForAll.exe";
     if (!Existe(alvo)) {
+        atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: app] nao encontrei %ls", alvo.c_str());   // v2.1
         MessageBoxW(nullptr,
             (TS(L"Não encontrei o programa em:\n", L"Could not find the program at:\n") + alvo +
              TS(L"\n\nA pasta precisa ficar ao lado deste executável.",
@@ -214,6 +215,7 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
     if (!CreateProcessW(alvo.c_str(), &buf[0], nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr,
                         pasta.c_str(), &si, &pi)) {
         const DWORD e = GetLastError();
+        atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: app] CreateProcess de %ls falhou (erro do Windows %lu)", alvo.c_str(), (unsigned long)e);   // v2.1
         MessageBoxW(nullptr,
             (TS(L"Não consegui abrir:\n", L"Could not open:\n") + alvo +
              TS(L"\n\nErro do Windows: ", L"\n\nWindows error: ") + std::to_wstring(e)).c_str(),
@@ -221,13 +223,32 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
         return 1;
     }
     HANDLE ev = nullptr, mapa = nullptr;
-    const bool bilhete = Lancamento::PublicarBilhete(pi.dwProcessId, &ev, &mapa);
+    DWORD erroBilhete = 0; const char* etapaBilhete = "";
+    const bool bilhete = Lancamento::PublicarBilhete(pi.dwProcessId, &ev, &mapa, &erroBilhete, &etapaBilhete);
+    // v2.1: o motivo ORIGINAL (etapa + codigo do Windows) vai para o launcher.log - antes so ficava "bilhete FALHOU"
+    if (!bilhete)
+        atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: bilhete do launcher] PublicarBilhete falhou em %hs (erro do Windows %lu)",
+                            etapaBilhete, (unsigned long)erroBilhete);
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     const ULONGLONG t0 = GetTickCount64();
     const bool conferiu = bilhete && Lancamento::EsperarConferido(pi.hProcess, pi.dwProcessId, 10000);
     DWORD saida = STILL_ACTIVE;
     GetExitCodeProcess(pi.hProcess, &saida);
+    // v2.1: O APP SAIU SEM CONFERIR = a pessoa clicou em Iniciar e "nada aconteceu". Agora ha mensagem, com o codigo de saida e
+    // onde estao os logs (o app grava o porque em bin\dlss5forall.log; este lado em launcher.log).
+    if (!conferiu && saida != STILL_ACTIVE) {
+        atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: bilhete/abertura do app] o app saiu sem conferir (codigo de saida %lu, bilhete %ls)",
+                            (unsigned long)saida, bilhete ? L"publicado" : L"FALHOU");
+        MessageBoxW(nullptr,
+            (TS(L"O programa fechou logo ao abrir.\n\nCódigo de saída: ", L"The program closed right after opening.\n\nExit code: ") +
+             std::to_wstring((unsigned long)saida) +
+             (bilhete ? std::wstring() : (TS(L"\nO Windows recusou o bilhete de abertura (erro ", L"\nWindows refused the launch ticket (error ") +
+                                          std::to_wstring((unsigned long)erroBilhete) + L")")) +
+             TS(L"\n\nO motivo está no dlss5forall.log (pasta bin) e no launcher.log.",
+                L"\n\nThe reason is in dlss5forall.log (bin folder) and launcher.log.")).c_str(),
+            L"DLSS5 For All", MB_ICONWARNING | MB_OK);
+    }
     atualizacao::Anotar(g_pastaDados + L"launcher.log", L"app: pid %lu, bilhete %ls, conferido %ls em %llu ms%ls",
                         (unsigned long)pi.dwProcessId, bilhete ? L"publicado" : L"FALHOU", conferiu ? L"sim" : L"NAO",
                         (unsigned long long)(GetTickCount64() - t0), saida == STILL_ACTIVE ? L"" : L" (o app ja saiu)");
@@ -314,6 +335,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // do exe, mas a flag deixa isso explicito antes mesmo de o mod estar instalado (faixa certa
     // no seletor, textos certos).
     const std::wstring argsAmd = args.empty() ? std::wstring(L"--amd") : (args + L" --amd");
+    // v2.1: o botao "Sem DLSS 5" (e --sem-dlss) PASSA a flag ao app: ele pula a sonda e abre com o Neural Render indisponivel
+    // (Frame Gen e filtros normais). Na 2.0 a flag so existia aqui e abria o MESMO app de sempre, que tentava montar a rede.
+    const std::wstring argsSemDlss = args.empty() ? std::wstring(L"--sem-dlss") : (args + L" --sem-dlss");
 
     // O marcador que o atualizar.cmd deixa ao terminar ("ok"/"falhou") vira o evento
     // atualizacao_ok/atualizacao_falhou - e lido (e apagado) antes de qualquer coisa.
@@ -339,7 +363,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 
     if (direto == 1) { atualizacao::SalvarModulo(raiz, L"nvidia"); return sair(Abrir(binNv, args)); }
     if (direto == 2) { atualizacao::SalvarModulo(raiz, L"amd");    return sair(Abrir(binAmd, argsAmd)); }
-    if (direto == 3) { atualizacao::SalvarModulo(raiz, L"sem");    return sair(Abrir(binNv, args)); }
+    if (direto == 3) { atualizacao::SalvarModulo(raiz, L"sem");    return sair(Abrir(binNv, argsSemDlss)); }
 
     // o que esta maquina tem
     Placas pl = EnumerarPlacas();
@@ -619,7 +643,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             }
         }
         if (e == ofertas::detail::ESC_AMD) return sair(Abrir(binAmd, argsAmd));
-        return sair(Abrir(binNv, args));
+        return sair(Abrir(binNv, e == ofertas::detail::ESC_SEM_DLSS ? argsSemDlss : args));   // v2.1: "Sem DLSS 5" leva --sem-dlss ao app
     }
     if (e == ofertas::detail::ESC_LINK) {
         // abriu o grupo, o canal ou o cupom: o app abre assim mesmo, do jeito que der, como a

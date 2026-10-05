@@ -1819,6 +1819,16 @@ static std::wstring g_fonteModo;          // rotulo do modo de video escolhido n
 // g_moduloAmd e decidido na abertura: os dois arquivos que o setup do mod grava estao ao
 // lado do exe (version.dll E dlssnr_on_amd.ini), ou a linha de comando trouxe --amd.
 static bool g_moduloAmd = false;
+// v2.1: REGRA DE PRODUTO - O PROGRAMA NUNCA BLOQUEIA UMA PLACA. Quem nao consegue usar o Neural Render
+// (DLSS 5) abre do mesmo jeito e usa Frame Gen e filtros; so o DLSS 5 fica indisponivel NESTA sessao.
+// Tres entradas: --sem-dlss (o botao "Sem DLSS 5" do launcher), a sonda da rede que falhou (inclusive por
+// estouro de tempo) e a placa que nao serve (sem Tensor Core, ou Radeon sem o modulo AMD ativo).
+// NrBloqueadoNestaSessao() (abaixo de GpuInfo) junta as tres; so ele manda no motor da rede.
+static bool g_semDlssArg = false;          // --sem-dlss: a pessoa entrou pelo botao "Sem DLSS 5"
+static bool g_nrIndispSonda = false;       // a sonda da rede falhou nesta abertura
+static std::wstring g_nrIndispMotivo;      // o porque (codigo da sonda + texto original), para o painel e o log
+static bool NrBloqueadoNestaSessao();      // definida depois de GpuInfo
+static std::string TextoSistemaDiag();     // v2.1: linha de diagnostico (versao, Windows, elevacao); definida junto de ConferirLancamento
 static const wchar_t* kUrlModAmd = L"https://github.com/danielblnc/DLSS-NR-on-AMD/releases/latest";
 
 // ------------------------------------------------------------------ DLSS 2x / 3x (camadas)
@@ -5809,6 +5819,9 @@ static void UpstreamAbrir(DWORD pidJogo) {
     if (pidJogo == 0) return;
     g_nativoUpstream = UpstreamQuerido();   // I6: o modo decide (Upstream, ou Automatico sem duas quedas)
     g_nativoSr = (IniGet(L"nativo_sr") != L"0");
+    // v2.1: sem rede nesta sessao (sonda falhou, --sem-dlss, placa sem Tensor Core / Radeon sem modulo) nem o DLSS antes do upscaling
+    // nem o DLSS SR do app sobem: ambos pedem o NGX da NVIDIA, e o jogo volta ao upscaler dele (a sessao e recusada sem travar).
+    if (NrBloqueadoNestaSessao()) { g_nativoUpstream = false; g_nativoSr = false; }
     PonteUp::g_upAceitaSr = g_nativoSr;
     PonteUp::g_upAceitaRede = g_nativoUpstream;
     FonteUpstream::g_redeNoSr = g_nativoUpstream;
@@ -9004,6 +9017,8 @@ static void DiagnosticoDeAberturaMgr() {
 
 static void CorrigirHookPointNoArranque() {
     if (g_moduloAmd || !RenoDxNovo()) return;
+    // v2.1: rede indisponivel nesta sessao: o Off que AplicarMotorNasChaves gravou e de proposito - nada a "consertar" (e nenhuma marca neural_off_nosso).
+    if (NrBloqueadoNestaSessao()) { Log("neural: rede indisponivel nesta sessao - o HookPoint fica em Off"); return; }
     // NO MOTOR PROPRIO O "Off" E A CONFIGURACAO CERTA, e nao um Auto a consertar: quem
     // avalia a rede e o feeder, e ligar o outro junto derruba o quadro (ver AplicarMotorNasChaves).
     // Sem esta linha, esta funcao "consertaria" o HookPoint para 2 em toda abertura e o
@@ -9577,6 +9592,7 @@ static int g_addonsEstado = ADDONS_DE_ACORDO;
 // Poe as duas chaves de acordo com a escolha. `motivo` so vai para o log.
 static void AplicarMotorNasChaves(const char* motivo) {
     const bool proprio = MotorProprio();
+    const bool nrBloq = NrBloqueadoNestaSessao();   // v2.1: sem rede nesta sessao (sonda falhou, --sem-dlss ou placa sem rede)
     const std::wstring ini = g_exeDir + kIniRs;
     const std::wstring cfg = g_exeDir + L"dlss5-feed.cfg";
 
@@ -9590,7 +9606,8 @@ static void AplicarMotorNasChaves(const char* motivo) {
     // VIVA (pela ponte) difere; sem a ponte, vale o que esta no arquivo.
     if (RenoDxNovo() && !g_moduloAmd) {
         // MGR-2309 item 2: as DUAS chaves (HookPoint e HookMethod); a igualdade vale para as duas.
-        const int alvoHook = proprio ? RS_HOOK_OFF : RS_HOOK_UPSCALED;
+        // v2.1: rede indisponivel nesta sessao (NrBloqueadoNestaSessao) = Off nos DOIS motores; a proxima abertura refaz a conta.
+        const int alvoHook = (proprio || nrBloq) ? RS_HOOK_OFF : RS_HOOK_UPSCALED;
         wchar_t atual[16]{}, atualM[16]{}, v[16]{}, vm[16]{};
         _snwprintf(v, 15, L"%d", alvoHook);
         _snwprintf(vm, 15, L"%d", RsHookMethodDe(alvoHook));
@@ -9607,7 +9624,13 @@ static void AplicarMotorNasChaves(const char* motivo) {
     // tudo acima do branco para ~1.17. Fica ligada por padrao; [ultima] ponte_nr_hdr=0 e o
     // desligamento explicito em 16F, e o proprio feed a desliga (fallback) se a curva nao montar.
     const bool nrEm16F = g_bb16f && IniGet(L"ponte_nr_hdr") == L"0";
-    GravarChaveCfg(cfg, "nr_spike", (proprio && !nrEm16F) ? "1" : "0");
+    // v2.1: com a rede indisponivel o motor proprio tambem fica sem ela (nr_spike=0); Frame Gen e filtros nao dependem desta chave.
+    GravarChaveCfg(cfg, "nr_spike", (proprio && !nrEm16F && !nrBloq) ? "1" : "0");
+    if (nrBloq) {
+        Log("neural: INDISPONIVEL nesta sessao (%s) - HookPoint=Off e nr_spike=0; Frame Gen e filtros seguem",
+            g_semDlssArg ? "--sem-dlss" : g_nrIndispSonda ? U8(g_nrIndispMotivo).c_str() : "placa sem rede neural neste pacote");
+        if (!RenoDxNovo() && !g_moduloAmd && ArquivoExiste(ini)) WritePrivateProfileStringW(L"RenoDX.DLSS5", L"NeuralUplift", L"0", ini.c_str());   // add-on antigo
+    }
     if (nrEm16F && proprio) Log("neural: DESLIGADA nesta sessao por [ultima] ponte_nr_hdr=0 (backbuffer em 16F)");
     else if (g_bb16f && proprio) Log("neural: ligada em 16F dentro da curva reversivel do feed ([ultima] ponte_nr_hdr=0 a desliga)");
     if (proprio) GravarPerfilNoCfg();
@@ -9795,6 +9818,16 @@ struct GpuInfo {
     bool lido = false;   // o DXGI respondeu? sem resposta nao se acusa ninguem
 };
 static GpuInfo g_gpu;
+
+// v2.1: a rede NAO e montada nesta sessao? Ver o bloco "NUNCA BLOQUEIA UMA PLACA" em g_semDlssArg.
+// Placa que nao serve: a que o DXGI descreveu sem Tensor Core, ou Radeon no pacote NVIDIA (sem o modulo
+// AMD ativo o app NVIDIA nao tem rede nenhuma para ela - tentar montar la e candidato a tela preta na
+// RX 580). DXGI que nao respondeu (g_gpu.lido=false) nao acusa ninguem.
+static bool NrBloqueadoNestaSessao() {
+    if (g_semDlssArg || g_nrIndispSonda) return true;
+    if (g_moduloAmd) return false;   // no modulo AMD quem decide e o mod (LerEstadoNeuralAmd)
+    return g_gpu.lido && (!g_gpu.rtx || g_gpu.vendor == 0x1002);
+}
 
 // 0x10DE = NVIDIA, mas o fabricante sozinho NAO responde: a GTX 16xx e NVIDIA e nao tem
 // Tensor Core nenhum. O criterio e o "RTX" no nome, que a propria NVIDIA so usa nas placas
@@ -10035,9 +10068,9 @@ static bool CamadaIniciar(int k, HWND alvo) {
     {
         const std::wstring rsCamada = pasta + L"ReShade.ini";
         if (RenoDxNovoEm(rsCamada))
-            RsGravarHookNoArquivo(rsCamada, RS_HOOK_UPSCALED);   // MGR-2309 item 2: as duas chaves
+            RsGravarHookNoArquivo(rsCamada, NrBloqueadoNestaSessao() ? RS_HOOK_OFF : RS_HOOK_UPSCALED);   // MGR-2309 item 2: as duas chaves (v2.1: Off se a rede esta indisponivel)
         else
-            WritePrivateProfileStringW(L"RenoDX.DLSS5", L"NeuralUplift", L"1", rsCamada.c_str());
+            WritePrivateProfileStringW(L"RenoDX.DLSS5", L"NeuralUplift", NrBloqueadoNestaSessao() ? L"0" : L"1", rsCamada.c_str());
     }
     // No modulo AMD o pedido mora no ini do mod (copiado acima), e vale a mesma regra.
     if (g_moduloAmd)
@@ -10219,6 +10252,7 @@ static bool CamadaIniciar(int k, HWND alvo) {
                          L" --source window --window-hwnd " +
                          std::to_wstring((unsigned long long)(ULONG_PTR)alvo) + L" --overlay";
     if (!nomeCompart.empty()) linha += L" --shared-name \"" + nomeCompart + L"\"";
+    if (g_semDlssArg || g_nrIndispSonda) linha += L" --sem-dlss";   // v2.1: a camada de cima tambem nao monta a rede
     if (g_gpu.lido && !g_gpu.nome.empty()) linha += L" --placa \"" + g_gpu.nome + L"\"";
     STARTUPINFOW si{}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
@@ -10439,6 +10473,17 @@ static void DetectarGpu() {
             Log("gpu: adaptador %u: %s vendor=0x%04X %s%s", i, U8(p.nome).c_str(),
                 (unsigned)d.VendorId, p.software ? "(software) " : "",
                 p.dlss ? (PlacaRadeonParaMod(d.VendorId, p.nome) ? "Radeon compativel com o mod" : "RTX") : "");
+            // v2.1: a versao do DRIVER (UMD do DXGI, w.x.y.z; na NVIDIA os ultimos 5 digitos y.z sao a versao publica, ex. 15.4601 = 546.01) e o
+            // sistema entram no log: todo relato de "nao abre" precisa dos dois. So o log, nada muda no comportamento.
+            {
+                LARGE_INTEGER umd{};
+                if (SUCCEEDED(a->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd))) {
+                    const unsigned c = HIWORD(umd.LowPart), dd = LOWORD(umd.LowPart);
+                    Log("gpu: adaptador %u driver %u.%u.%u.%u%s | %s", i, (unsigned)HIWORD(umd.HighPart), (unsigned)LOWORD(umd.HighPart), c, dd,
+                        d.VendorId == 0x10DE ? (" (NVIDIA " + std::to_string((c % 10) * 100 + dd / 100) + "." + (dd % 100 < 10 ? "0" : "") + std::to_string(dd % 100) + ")").c_str() : "",
+                        TextoSistemaDiag().c_str());
+                }
+            }
         }
         a->Release();
     }
@@ -10772,11 +10817,24 @@ static NeuralEstado LerEstadoNeuralAmd(std::wstring* detalhe) {
 }
 
 static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
+    // v2.1: NUNCA BLOQUEIA UMA PLACA - o DLSS 5 fica INDISPONIVEL (visivel, com o motivo) e o resto segue. A pessoa que entrou
+    // por "Sem DLSS 5" ou cuja sonda da rede falhou cai aqui antes de qualquer outra leitura: nao ha o que ligar nesta sessao.
+    if (g_semDlssArg) {
+        if (detalhe) *detalhe = T(L"você abriu pelo botão \"Sem DLSS 5\" — Frame Gen e filtros funcionam normalmente",
+                                  L"you opened with the \"No DLSS 5\" button — Frame Gen and filters work normally");
+        return NR_SEM_RTX;
+    }
+    if (g_nrIndispSonda) {
+        if (detalhe) *detalhe = TS(L"a rede do DLSS 5 não montou nesta placa agora (", L"the DLSS 5 network did not start on this card now (") +
+                                g_nrIndispMotivo + T(L") — Frame Gen e filtros funcionam; reinicie o PC ou atualize o driver e abra de novo para tentar outra vez",
+                                                     L") — Frame Gen and filters work; restart the PC or update the driver and reopen to try again");
+        return NR_SEM_RTX;
+    }
     // 0. A PLACA AGUENTA? Antes de qualquer arquivo: nenhum deles resolve a falta de
     // Tensor Core (ou, no modulo AMD, de uma Radeon RX 7000/9000), e mandar a pessoa
     // conferir o add-on seria fazer perder tempo com o que nao tem conserto. So acusa
     // quando o DXGI de fato respondeu (g_gpu.lido).
-    if (g_gpu.lido && !g_gpu.rtx) {
+    if (g_gpu.lido && (!g_gpu.rtx || (g_gpu.vendor == 0x1002 && !g_moduloAmd))) {   // v2.1: Radeon no pacote NVIDIA tambem nao tem rede
         if (detalhe) *detalhe = g_gpu.outraRtx.empty()
             ? (g_moduloAmd
                 ? (TS(L"o mod DLSS-NR-on-AMD precisa de uma Radeon RX 7000 ou RX 9000; esta máquina tem ",
@@ -23448,6 +23506,7 @@ static bool AplicarNeuralRenoDxNovo(int alvo) {
 static bool AlternarNeuralRenoDxNovo() { return AplicarNeuralRenoDxNovo(-1); }
 
 static bool AlternarNeural() {
+    if (NrBloqueadoNestaSessao()) { Log("neural: pedido de alternar ignorado - a rede esta indisponivel nesta sessao"); return false; }   // v2.1
     // Modulo AMD: nem ponte nem F6 - o RenoDX nao esta no processo e o mod nao le tecla
     // de liga/desliga (o End dele so abre o overlay). O pedido e o Enabled do ini do mod.
     if (g_moduloAmd) return AlternarNeuralAmd();
@@ -23471,6 +23530,7 @@ static bool AlternarNeural() {
 // hotkey do RenoDX velho, o mod AMD) so existe o toggle, e ali isto cai nele - sao caminhos
 // em que o pedido e o estado nunca divergem, porque a fonte da verdade e a mesma.
 static bool DefinirNeural(bool ligar) {
+    if (ligar && NrBloqueadoNestaSessao()) { Log("neural: pedido de LIGAR ignorado - a rede esta indisponivel nesta sessao"); return false; }   // v2.1
     if (g_moduloAmd)   return AlternarNeuralAmd();
     // O MOTOR PROPRIO NAO OUVE O RENODX, e era isso que fazia o botao mentir.
     // Relato de 14/09/2026: "o botao de desligar tudo do painel nao desliga" e "o F6 diz
@@ -23505,6 +23565,16 @@ static std::wstring AlternarTudo(bool* bypass, bool overlay) {
     const bool neuralOn = (g_hud.neural == NR_ATIVO || g_hud.neural == NR_INICIANDO);
     const bool camadaOn = overlay ? !(*bypass) : true;
     const bool tudoOn   = camadaOn && (neuralOn || !temAddon);
+
+    // v2.1: SEM REDE NESTA SESSAO (NR_SEM_RTX: GTX, Radeon sem modulo, "Sem DLSS 5", sonda que falhou) NAO HA O QUE DESLIGAR. Na 2.0 o
+    // F6 caia no "desliga tudo" (tudoOn = camadaOn && !temAddon) e apagava junto os filtros e a pelicula - relato de usuario de RX 6000.
+    // O F6 agora so avisa; os filtros se ligam e desligam no F7 e a pelicula pelo atalho do filtro.
+    // (Quem ja esta com tudo desligado - g_tudoDesligado, ou a camada em bypass - segue no caminho de religar abaixo.)
+    if (g_hud.neural == NR_SEM_RTX && camadaOn && !g_tudoDesligado) {
+        Log("F6: o Neural Render esta indisponivel nesta sessao - nada a desligar (filtros e Frame Gen intactos)");
+        return T(L"DLSS 5 INDISPONÍVEL NESTA PLACA  -  o F6 não muda nada\nFrame Gen e filtros continuam ligados",
+                 L"DLSS 5 UNAVAILABLE ON THIS CARD  -  F6 changes nothing\nFrame Gen and filters stay on");
+    }
 
     if (tudoOn) {
         // sec. 27 (v3, item 5, pedido do dono): FILTROS E FG INDEPENDENTES DO NR. Com algum filtro que vale sem a rede (os
@@ -27391,6 +27461,10 @@ static std::wstring ArgsDeReabertura(const Choice& C, bool manterAlvo, int gerac
         temFonte = true;
     }
     if (g_moduloAmd) s += L" --amd";   // pode ter vindo de --amd, e nao dos arquivos do mod
+    // v2.1: a rede indisponivel SOBREVIVE a reabertura (reinicio automatico, troca de painel, camadas...): a copia nova nao
+    // sonda de novo nem tenta montar a rede - sem isto ela repetiria a espera da sonda e o laco que a falha ja causou.
+    if (g_semDlssArg) s += L" --sem-dlss";
+    else if (g_nrIndispSonda) s += L" --nr-indisponivel";
     if (!temFonte) {
         // SEM FONTE = a copia nova cai no seletor. Ela ainda assim leva a fonte de AGORA,
         // como --pre-*: sao valores de PRE-SELECAO, nao de abertura -- o seletor abre com
@@ -28054,10 +28128,55 @@ static bool GravarRecurso(int id, const std::wstring& destino, bool substituir) 
     if (!ok) DeleteFileW(tmp.c_str());
     return ok;
 }
+// v2.1: DIAGNOSTICO DE ABERTURA. Uma linha com o que o dono precisa para ler qualquer relato: versao do programa, build do
+// Windows (RtlGetVersion: o GetVersionEx mente sem manifesto), elevacao e sessao. A placa e o driver saem na linha "gpu:".
+static std::string TextoSistemaDiag() {
+    typedef LONG (WINAPI *FnRtlVer)(OSVERSIONINFOW*);
+    OSVERSIONINFOW vi{}; vi.dwOSVersionInfoSize = sizeof(vi);
+    const HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+    const FnRtlVer rtl = nt ? (FnRtlVer)(void*)GetProcAddress(nt, "RtlGetVersion") : nullptr;
+    if (rtl) rtl(&vi);
+    int elevado = -1;
+    HANDLE tk = nullptr;
+    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tk)) {
+        TOKEN_ELEVATION el{}; DWORD n = 0;
+        if (GetTokenInformation(tk, TokenElevation, &el, sizeof(el), &n)) elevado = el.TokenIsElevated ? 1 : 0;
+        CloseHandle(tk);
+    }
+    DWORD sessao = 0; ProcessIdToSessionId(GetCurrentProcessId(), &sessao);
+    char b[256];
+    snprintf(b, sizeof b, "programa %s | Windows %lu.%lu build %lu | elevado=%d | sessao=%lu | pid=%lu",
+             U8(APP_VERSION).c_str(), (unsigned long)vi.dwMajorVersion, (unsigned long)vi.dwMinorVersion,
+             (unsigned long)vi.dwBuildNumber, elevado, (unsigned long)sessao, (unsigned long)GetCurrentProcessId());
+    return b;
+}
+// v2.1: o log do app (dlss5forall.log) so abre DEPOIS da conferencia do lancamento, e era ali que o app saia mudo ("cliquei em
+// Iniciar e nada aconteceu"). Esta linha vai para o MESMO arquivo (na pasta do exe; se ela nao aceita escrita, em
+// %LOCALAPPDATA%\DLSS5ForAll\); a rotacao de sessoes do wWinMain o guarda como .1 quando a proxima abertura chegar a abrir o log.
+static void LogPreAbertura(const std::wstring& dirExe, const char* fmt, ...) {
+    char b[1024];
+    SYSTEMTIME st; GetLocalTime(&st);
+    int n = snprintf(b, sizeof b, "[%02d:%02d:%02d.%03d] ", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    va_list ap; va_start(ap, fmt);
+    vsnprintf(b + n, sizeof b - n, fmt, ap);
+    va_end(ap);
+    std::vector<std::wstring> destinos = { dirExe };
+    wchar_t base[MAX_PATH]{};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH) && base[0]) destinos.push_back(std::wstring(base) + L"\\DLSS5ForAll\\");
+    for (const std::wstring& d : destinos) {
+        if (d != dirExe) CreateDirectoryW(d.c_str(), nullptr);
+        FILE* f = _wfopen((d + L"dlss5forall.log").c_str(), L"ab");
+        if (!f) continue;
+        fputs(b, f); fputc('\n', f); fclose(f);
+        return;
+    }
+}
+static DWORD g_lancErroEv = 0, g_lancErroMapa = 0;   // v2.1: GetLastError ao abrir o evento/memoria do bilhete (0 = abriu)
 static bool ConferirLancamento() {
     auto liberar = [](const char* motivo) {
         g_lancamentoMotivo = motivo;
-        g_lancamentoConferido = CreateEventW(nullptr, TRUE, FALSE, Lancamento::NomeEvento(GetCurrentProcessId()).c_str());
+        Lancamento::AclAberta acl(Lancamento::SddlEvento());   // v2.1: o launcher (de outro nivel de elevacao) tem de conseguir esperar
+        g_lancamentoConferido = CreateEventW(acl.get(), TRUE, FALSE, Lancamento::NomeEvento(GetCurrentProcessId()).c_str());
         if (g_lancamentoConferido) SetEvent(g_lancamentoConferido);   // o "conferido" de quem nos lancou
         SetEnvironmentVariableW(L"DLSS5_REDIRECIONADO", nullptr);     // nao passa para os nossos filhos
         return true;
@@ -28124,7 +28243,10 @@ static bool ConferirLancamento() {
     // (a) o bilhete do launcher
     {
         HANDLE ev = OpenEventW(SYNCHRONIZE, FALSE, Lancamento::NomeEvento(GetCurrentProcessId()).c_str());
+        const DWORD erEv = ev ? 0 : GetLastError();      // v2.1: para o log (ACCESS_DENIED = niveis de elevacao diferentes)
         HANDLE mapa = OpenFileMappingW(FILE_MAP_READ, FALSE, Lancamento::NomeBilhete(GetCurrentProcessId()).c_str());
+        const DWORD erMapa = mapa ? 0 : GetLastError();
+        g_lancErroEv = erEv; g_lancErroMapa = erMapa;
         bool valido = false;
         if (ev && mapa) {
             if (const Lancamento::Bilhete* b = (const Lancamento::Bilhete*)MapViewOfFile(mapa, FILE_MAP_READ, 0, 0, sizeof(Lancamento::Bilhete))) {
@@ -28161,6 +28283,14 @@ static bool ConferirLancamento() {
     CarregarIdioma(D + L"dlss5forall.ini");
     wchar_t red[4]{};
     const bool jaRedirecionado = GetEnvironmentVariableW(L"DLSS5_REDIRECIONADO", red, 4) && red[0] == L'1';
+    // v2.1: ESTA SAIDA ERA MUDA. Agora deixa no log o porque, com o codigo ORIGINAL do Windows: pai nao achado, bilhete
+    // sem acesso (ERROR_ACCESS_DENIED = 5: launcher e app com niveis de elevacao diferentes) ou ausente (2 = o launcher
+    // nao publicou o bilhete). Componente: bilhete do launcher.
+    const std::string diagLanc = "ERRO DE INICIALIZACAO [componente: bilhete do launcher] app aberto sem a conferencia do launcher: pai pid=" +
+        std::to_string((unsigned long)paiPid) + " exe=" + U8(paiExe.empty() ? std::wstring(L"(nao lido)") : paiExe) +
+        " | OpenEvent erro=" + std::to_string((unsigned long)g_lancErroEv) + " OpenFileMapping erro=" + std::to_string((unsigned long)g_lancErroMapa) +
+        " | ja redirecionado=" + std::to_string(jaRedirecionado ? 1 : 0) + " | " + TextoSistemaDiag();
+    LogPreAbertura(D, "%s", diagLanc.c_str());
     auto existe = [](const std::wstring& c) { return GetFileAttributesW(c.c_str()) != INVALID_FILE_ATTRIBUTES; };
     // abre `exe` com `extra` + os MESMOS argumentos (o launcher os repassa ao app depois da tela)
     auto abrirLauncher = [&](const std::wstring& exe, const std::wstring& extra, const std::wstring& pasta) {
@@ -28217,10 +28347,17 @@ static bool ConferirLancamento() {
         }
     }
     // 3. so se ate o LOCALAPPDATA falhou (ou o launcher nos devolveu sem bilhete: DLSS5_REDIRECIONADO)
-    MessageBoxW(nullptr,
-                T(L"Abra o DLSS5ForAll pela pasta principal do programa.",
-                  L"Open DLSS5ForAll from the program's main folder."),
-                L"DLSS5 For All", MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+    // v2.1: a caixa diz o codigo do Windows e onde esta o log - "abra pela pasta principal" sozinho nao ajudava quem JA abriu por ela.
+    {
+        std::wstring t = TS(L"Abra o DLSS5ForAll pela pasta principal do programa.",
+                            L"Open DLSS5ForAll from the program's main folder.");
+        if (g_lancErroEv || g_lancErroMapa)
+            t += TS(L"\n\nSe você já abriu por ela: o Windows recusou a conferência (erro ",
+                    L"\n\nIf you already did: Windows refused the check (error ") +
+                 std::to_wstring((unsigned long)(g_lancErroEv ? g_lancErroEv : g_lancErroMapa)) +
+                 TS(L"). Veja o dlss5forall.log, na pasta bin do programa.", L"). See dlss5forall.log in the program's bin folder.");
+        MessageBoxW(nullptr, t.c_str(), L"DLSS5 For All", MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+    }
     return false;
 }
 
@@ -28306,7 +28443,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // (--reabrindo) E o app normal e continua pegando o mutex.
     const bool semMutex = ignoraInstancia && !LinhaTemArgumento(L"--reabrindo");
     g_mutexInstancia = semMutex ? nullptr : CreateMutexW(nullptr, FALSE, DLSS5_MUTEX_INSTANCIA);
-    const bool outraInstancia = (g_mutexInstancia != nullptr && GetLastError() == ERROR_ALREADY_EXISTS);
+    // v2.1: ACCESS_DENIED ao criar = o mutex existe e e de um processo de OUTRO nivel de elevacao (a outra copia roda como
+    // administrador e esta nao): tambem e "ja existe outra". Antes caia em "nao ha outra" e as duas camadas subiam juntas.
+    const DWORD erroMutex = GetLastError();
+    const bool outraInstancia = (g_mutexInstancia != nullptr && erroMutex == ERROR_ALREADY_EXISTS) ||
+                                (!semMutex && g_mutexInstancia == nullptr && erroMutex == ERROR_ACCESS_DENIED);
 
     {
         wchar_t p[MAX_PATH]; GetModuleFileNameW(nullptr, p, MAX_PATH);
@@ -28851,6 +28992,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // add-ons do ReShade (X-ADDON). O marcador existe para nao reabrir de novo: se a lista
         // continuar em desacordo, o arranque loga e segue - reabrir outra vez seria um laco.
         else if (a == L"--addons-ok") { argAddonsOk = true; }
+        // v2.1: --sem-dlss = o botao "Sem DLSS 5" do launcher (pula a sonda; Neural Render indisponivel, Frame Gen e filtros ok).
+        // --nr-indisponivel = a sonda falhou na copia anterior e esta herda o resultado (sem sondar de novo, sem laco).
+        else if (a == L"--sem-dlss") { g_semDlssArg = true; }
+        else if (a == L"--nr-indisponivel") { g_nrIndispSonda = true; g_nrIndispMotivo = L"herdado da abertura anterior (ver sonda_antes_ult no ini)"; }
         else if (a == L"--reabrir-painel") argReabrirPainel = true;
         else if (a == L"--reabrir-perfil") argReabrirPerfil = true;
         else if (a == L"--cursor") argCursor = true;
@@ -29434,34 +29579,57 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // ---------------------------------------------------------------- NS-2309 item 4: SONDA DA REDE ANTES DE ABRIR
     // Ideia observada no NeuralScreen (pre-voo num processo descartavel; PolyForm), codigo proprio. Ultimo ponto antes de
     // qualquer device D3D deste processo: um processo DESCARTAVEL (a copia dlss5-sonda.exe em %TEMP%, sem o ReShade)
-    // cria device D3D12, inicializa o NGX, monta a rede e roda 1 passe (ReinicioAuto::SondaNgxMain), com teto de 3 s.
-    // Se o driver/rede estiverem quebrados, quem cai e a sonda - e a pelicula NAO abre (cartaz curto e saida limpa),
-    // em vez de o app cair no meio do jogo. Chave [ultima] sonda_antes (padrao 1; 0 = nao sonda).
-    // So com placa NVIDIA e a rede na pasta (no AMD a rede nao roda; sem o dll o feed ja diz isso sozinho).
-    if (!g_moduloAmd && !g_camada2 && !g_ponteFeeder && IniGet(L"sonda_antes") != L"0" &&
+    // cria device D3D12, inicializa o NGX, monta a rede e roda 1 passe (ReinicioAuto::SondaNgxMain), com um teto de tempo.
+    // Se o driver/rede estiverem quebrados, quem cai e a sonda - em vez de o app cair no meio do jogo.
+    // Chaves de [ultima]: sonda_antes (padrao 1; 0 = nao sonda) e sonda_antes_ms (teto, padrao 10000).
+    //
+    // v2.1: A SONDA NUNCA FECHA O APP. A 2.0 fechava ("A REDE NAO MONTOU NESTA PLACA AGORA / nada foi aberto") em qualquer codigo
+    // que nao fosse 0/20/15/16 - inclusive o 14, que e so "a sonda nao voltou em 3 s" - e 14 usuarios com RTX 2060..5060 (a 1.2
+    // abria nas mesmas maquinas) ficaram sem programa. Agora a falha so desliga o Neural Render NESTA sessao
+    // (NrBloqueadoNestaSessao: HookPoint=Off e nr_spike=0 em AplicarMotorNasChaves, F6 e botao nao ligam a rede); Frame Gen e
+    // filtros nao dependem dela. O codigo e o texto ORIGINAL da sonda vao para [ultima] sonda_antes_ult e para o log. A copia
+    // nova de uma reabertura herda isso por --nr-indisponivel (ArgsDeReabertura): nao sonda de novo e nao tenta montar a rede.
+    //
+    // O TETO: 3000 ms era curto para a PRIMEIRA montagem. Dentro dele cabem a copia de 7,9 MB para o %TEMP% (varrida pelo antivirus), o
+    // processo, o device, o _nvngx.dll, a carga do nvngx_dlssnr.dll (165 MB) e o CreateFeature - e a propria montagem da rede dentro
+    // do app foi medida em ~1,5 s no log do dono, numa maquina rapida (esteira.h). Em placa media, CPU lenta ou disco com antivirus
+    // 3 s estoura. O teto novo e so o limite de um processo que SAI ASSIM QUE TERMINA (nao e uma espera fixa); 10 s so e gasto
+    // quando a sonda trava de verdade, e agora isso deixa de custar o app.
+    // SEM NVIDIA / SEM A REDE: --sem-dlss, --nr-indisponivel, placa sem Tensor Core e Radeon sem o modulo AMD nao sondam e nao montam
+    // a rede (NrBloqueadoNestaSessao) - antes a sonda rodava ate na GTX e fechava o app.
+    if (!g_moduloAmd && !g_camada2 && !g_ponteFeeder && IniGet(L"sonda_antes") != L"0" && !NrBloqueadoNestaSessao() &&
         GetFileAttributesW((g_exeDir + L"nvngx_dlssnr.dll").c_str()) != INVALID_FILE_ATTRIBUTES) {
+        DWORD tetoSondaMs = 10000;
+        {
+            const std::wstring v = IniGet(L"sonda_antes_ms");
+            const int n = v.empty() ? 0 : _wtoi(v.c_str());
+            if (n >= 1000 && n <= 60000) tetoSondaMs = (DWORD)n;
+        }
         const ULONGLONG t0 = GetTickCount64();
         std::string det;
-        const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, 3000, &det);
+        const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det);
         const ULONGLONG ms = GetTickCount64() - t0;
-        if (cod == 0 || cod == 20) {
-            // 20 = sem placa NVIDIA: nao e defeito de driver, e a rede simplesmente nao roda aqui (o feed ja lida com isso)
-            Log("sonda da rede antes de abrir: %s (codigo %d, %llu ms; [ultima] sonda_antes=0 desliga)", det.c_str(), cod, (unsigned long long)ms);
+        // a ETAPA onde parou (os codigos de SondaNgxMain em reinicio_auto.h), para o log e para quem le o ini sem o codigo-fonte
+        const char* etapa = cod == 14 ? "estouro de tempo" : cod == 20 ? "nenhuma placa NVIDIA" : cod == 21 ? "device D3D12" :
+            cod == 22 ? "fila/lista/fence/texturas" : cod == 23 ? "_nvngx.dll do driver" : cod == 24 ? "Init do NGX do driver" :
+            cod == 25 ? "carga do nvngx_dlssnr.dll" : cod == 26 ? "Init_Ext da rede" : cod == 27 ? "AllocateParameters" :
+            cod == 28 ? "CreateFeature (montar a rede)" : cod == 29 ? "Evaluate (1o passe)" : cod == 30 ? "GPU nao terminou" :
+            (cod == 15 || cod == 16) ? "nao rodou" : "crash da sonda";
+        if (cod == 0) {
+            Log("sonda da rede antes de abrir: %s (codigo %d, %llu ms, teto %lu ms; [ultima] sonda_antes=0 desliga)", det.c_str(), cod, (unsigned long long)ms, (unsigned long)tetoSondaMs);
         } else if (cod == 15 || cod == 16) {
-            // nao e a placa: nao conseguimos nem lancar a sonda - nao impede a abertura
+            // nao e a placa: nao conseguimos nem lancar a sonda - nao impede a abertura (nem tira a rede)
             Log("sonda da rede antes de abrir: NAO rodou (%s, codigo %d) - abrindo mesmo assim", det.c_str(), cod);
         } else {
-            Log("sonda da rede antes de abrir: FALHOU (%s, codigo %d, %llu ms) - a pelicula NAO abre; "
-                "o driver/rede nao montou 1 passe num processo descartavel ([ultima] sonda_antes=0 desliga esta checagem)",
-                det.c_str(), cod, (unsigned long long)ms);
-            IniSet(L"sonda_antes_ult", std::to_wstring(cod) + L" " + std::wstring(det.begin(), det.end()));
-            ShowToast(hi, C.mon, T(L"A REDE NÃO MONTOU NESTA PLACA AGORA\nnada foi aberto · reinicie o PC ou atualize o driver",
-                                   L"THE NETWORK DID NOT START ON THIS CARD NOW\nnothing was opened · restart the PC or update the driver"), 5000);
-            for (int i = 0; i < 120 && ToastVisivel(); i++) {
-                MSG m; while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&m); DispatchMessageW(&m); }
-                Sleep(50); ToastTick();
-            }
-            return 0;
+            // v2.1: qualquer outro codigo (inclusive 20 = sem NVIDIA e 14 = estouro) tira SO a rede desta sessao
+            g_nrIndispSonda = true;
+            const std::string txt = "sonda codigo " + std::to_string(cod) + " (" + etapa + "): " + det + " [" + std::to_string((unsigned long long)ms) +
+                                    " ms de " + std::to_string((unsigned long)tetoSondaMs) + " ms]";
+            g_nrIndispMotivo = std::wstring(txt.begin(), txt.end());
+            Log("ERRO DE INICIALIZACAO [componente: rede neural / DLSS 5] %s - o app ABRE sem o Neural Render nesta sessao; "
+                "Frame Gen e filtros seguem ([ultima] sonda_antes=0 desliga a checagem; sonda_antes_ms=<ms> muda o teto)", txt.c_str());
+            Log("diagnostico: %s", TextoSistemaDiag().c_str());
+            IniSet(L"sonda_antes_ult", std::to_wstring(cod) + L" " + std::wstring(det.begin(), det.end()) + L" | " + std::to_wstring((unsigned long long)ms) + L" ms");
         }
     }
 
@@ -31714,7 +31882,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     ULONGLONG pediuSair = 0;   // primeira pressao do atalho de sair (confirma em 2 s)
     ULONGLONG confirmaAte = 0; // ate quando o botao "Sair" do painel fica em confirmacao
     ULONGLONG confirmaPadraoAte = 0; // X-CONSOLE: idem para "Voltar ao padrao"
-    bool avisouNeural = false; // aviso de "o neural nao esta rodando", uma vez so
+    // v2.1: quem entrou por "Sem DLSS 5" (ou herdou a falha da sonda numa reabertura) ja sabe: sem aviso
+    bool avisouNeural = g_semDlssArg || (g_nrIndispSonda && g_nrIndispMotivo.rfind(L"herdado", 0) == 0);   // aviso de "o neural nao esta rodando", uma vez so
     ULONGLONG verificaNeuralAte = 0; int neuralAlvo = 0;   // confere o neural depois do F6
     uint32_t  neuralEntregasAntes = 0;   // NeuralDelivered() de quando o toque foi armado
     bool      neuralAnuncia = false;     // o cartaz do resultado e do botao do card
@@ -39201,7 +39370,7 @@ L"Do you want to continue?");
             // DEPOIS de ele mesmo desligar tudo no botao mestre. Um aviso que repete de volta
             // o que a pessoa acabou de pedir e ruido, e aqui era ruido que empurrava para o
             // clique errado.
-            if (!avisouNeural && now - inicioMs > 6000 && !g_tudoDesligado && !bypass &&
+            if (!avisouNeural && now - inicioMs > (g_nrIndispSonda ? 1500u : 6000u) && !g_tudoDesligado && !bypass &&
                 (g_hud.neural == NR_DESLIGADO || g_hud.neural == NR_SEM_ADDON ||
                  g_hud.neural == NR_SEM_RTX)) {
                 avisouNeural = true;
@@ -39222,6 +39391,11 @@ L"Do you want to continue?");
                           L"Neural Rendering is off\n"
                           L"it is the whole reason this app exists — turn it on in the panel") +
                        (TemAtalho(AT_PAINEL) ? (L" (" + TextoAtalho(AT_PAINEL) + L")") : std::wstring()));
+                // v2.1: a sonda da rede falhou - aviso CURTO e que nao bloqueia nada (a 2.0 fechava o app aqui). O motivo
+                // original (codigo + texto da sonda) esta no log e em [ultima] sonda_antes_ult.
+                if (g_nrIndispSonda)
+                    t = TS(L"O DLSS 5 não ficou disponível nesta placa agora\nFrame Gen e filtros continuam funcionando",
+                           L"DLSS 5 is not available on this card right now\nFrame Gen and filters keep working");
                 Log("aviso: neural nao esta ativo (%s)", U8(g_hud.neuralDetalhe).c_str());
                 ShowToast(hi, C.mon, t, 7000);
             }
