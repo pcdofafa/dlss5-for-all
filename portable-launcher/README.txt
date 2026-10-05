@@ -44,12 +44,10 @@ HOW TO USE IN 5 STEPS
 1. Open the game. Set it to windowed or borderless.
 
 2. Double-click DLSS5ForAll.exe.
-   The community screen shows up. Below the community buttons there are two:
-     USE DLSS 5 ON AN NVIDIA CARD   (green)
-     USE DLSS 5 ON AN AMD CARD      (red)
-   The one your PC can't use is grey, with the reason written on it.
-   If both are grey, OPEN WITHOUT DLSS 5 appears: the program still opens,
-   with the effects only (sharpness, anti-aliasing...).
+   The community screen shows up. Click START (it is the only button):
+   the launcher opens the right program for your card (NVIDIA or AMD).
+   If the card has no DLSS 5, the program still opens, with the effects
+   only (sharpness, anti-aliasing...).
 
 3. In the selector, pick the SOURCE:
      Window   -> pick the game from the list.  LIGHTEST. (recommended)

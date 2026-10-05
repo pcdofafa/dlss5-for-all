@@ -44,12 +44,10 @@ COMO USAR EM 5 PASSOS
 1. Abre o jogo. Deixa ele em janela ou borderless.
 
 2. Dá dois cliques em DLSS5ForAll.exe.
-   Aparece a tela do grupo. Embaixo dos botões do grupo tem dois:
-     USAR O DLSS 5 EM PLACA NVIDIA   (verde)
-     USAR O DLSS 5 EM PLACA AMD      (vermelho)
-   O que não serve no seu PC fica cinza, com o motivo escrito nele.
-   Se os dois estiverem cinzas, aparece ABRIR SEM DLSS 5: o programa
-   abre mesmo assim, só com os efeitos (nitidez, anti-serrilhado...).
+   Aparece a tela do grupo. Clica em INICIAR (é o único botão): o
+   launcher abre o programa certo para a sua placa (NVIDIA ou AMD).
+   Se a placa não tiver DLSS 5, o programa abre mesmo assim, só com
+   os efeitos (nitidez, anti-serrilhado...).
 
 3. No seletor, escolhe a FONTE:
      Janela   -> escolhe o jogo na lista.  MAIS LEVE. (recomendado)
