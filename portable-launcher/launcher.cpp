@@ -249,9 +249,9 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
                 L"\n\nThe reason is in dlss5forall.log (bin folder) and launcher.log.")).c_str(),
             L"DLSS5 For All", MB_ICONWARNING | MB_OK);
     }
-    atualizacao::Anotar(g_pastaDados + L"launcher.log", L"app: pid %lu, bilhete %ls, conferido %ls em %llu ms%ls",
+    atualizacao::Anotar(g_pastaDados + L"launcher.log", L"app: pid %lu, bilhete %ls, conferido %ls em %llu ms%ls, codigo de saida %lu",
                         (unsigned long)pi.dwProcessId, bilhete ? L"publicado" : L"FALHOU", conferiu ? L"sim" : L"NAO",
-                        (unsigned long long)(GetTickCount64() - t0), saida == STILL_ACTIVE ? L"" : L" (o app ja saiu)");
+                        (unsigned long long)(GetTickCount64() - t0), saida == STILL_ACTIVE ? L"" : L" (o app ja saiu)", (unsigned long)saida);
     if (ev) CloseHandle(ev);
     if (mapa) CloseHandle(mapa);
     CloseHandle(pi.hProcess);
