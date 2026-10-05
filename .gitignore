@@ -76,4 +76,3 @@ bin/mod-amd/*
 !bin/mod-amd/preparar-mod-amd.ps1
 version.dll
 dlssnr_on_amd*
-!perfil-amd/dlssnr_on_amd.ini.referencia

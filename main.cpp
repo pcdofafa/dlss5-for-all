@@ -27883,7 +27883,7 @@ static bool TrocarDePacote(const Choice& C, int geracao) {
             if (fim == args.size() || args[fim] == L' ') args.erase(k, f.size()); else k = fim;
         }
     };
-    tirar(L"--amd"); tirar(L"--sem-dlss"); tirar(L"--nr-indisponivel");
+    tirar(L"--amd"); tirar(L"--sem-dlss"); tirar(L"--nr-indisponivel"); tirar(L"--nr-pesado");
     if (alvoAmd) args += L" --amd";
     std::wstring exe = destino + L"DLSS5ForAll.exe";
     if (_wcsicmp(destino.c_str(), g_exeDir.c_str()) == 0) {   // pasta unica: o MESMO exe, com o nome que ele tiver

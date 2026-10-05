@@ -2,11 +2,10 @@
 //  launcher.cpp - o executavel de fora da versao PORTABLE do DLSS5 For All.
 //
 //  E A INTERFACE UNICA do pacote. Mostra a tela do grupo (a mesma de sempre: QR, "QUERO
-//  AS OFERTAS", "APOIAR O CANAL") e, no lugar do botao "INICIAR PROGRAMA", dois botoes:
-//    USAR O DLSS 5 EM PLACA NVIDIA  -> abre bin\DLSS5ForAll.exe      (cadeia NVIDIA)
-//    USAR O DLSS 5 EM PLACA AMD     -> abre bin\DLSS5ForAll.exe --amd (v2.1: pasta unica; o mod mora em bin\mod-amd)
-//  O que nao serve nesta maquina fica cinza com o motivo escrito no botao. Com os dois
-//  cinzas aparece "ABRIR SEM DLSS 5": o app continua servindo como captura + ReShade.
+//  AS OFERTAS", "APOIAR O CANAL") e um unico botao INICIAR. v2.1 PASTA UNICA: INICIAR abre
+//  bin\DLSS5ForAll.exe (cadeia NVIDIA) ou, quando so a Radeon serve e o mod esta em bin\mod-amd,
+//  bin\DLSS5ForAll.exe --amd. Nao ha botao AMD: quem escolhe a placa e o seletor do app.
+//  Sem placa que sirva aparece "ABRIR SEM DLSS 5": o app continua servindo como captura + ReShade.
 //
 //  Quem sabe o que e compativel e este arquivo (enumera as placas pelo DXGI); a tela so
 //  desenha e devolve a escolha (splash_ofertas.h, modo launcher). Cada bin tem a propria
