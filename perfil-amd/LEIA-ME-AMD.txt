@@ -110,7 +110,7 @@ PASSO A PASSO (uma vez só)
    Se estiver "TUDO NO LUGAR", feche e vá para o passo 6.
 
 6. Volte para a pasta de cima e abra o DLSS5ForAll.exe de lá. Clique
-   no botão vermelho USAR O DLSS 5 EM PLACA AMD. O resto é igual ao
+   em INICIAR (é o único botão do launcher). O resto é igual ao
    tutorial normal (LEIA-ME.txt): fonte, sobrepor, INICIAR.
    Tem duas placas no PC? Em "Placa de vídeo que roda o filtro"
    escolha a Radeon. O mod só enxerga a Radeon; se o app rodar na

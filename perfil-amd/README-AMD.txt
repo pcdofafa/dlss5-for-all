@@ -115,7 +115,7 @@ STEP BY STEP (one time only)
    close it and go to step 6.
 
 6. Go back to the folder above and open the DLSS5ForAll.exe there.
-   Click the red button USE DLSS 5 ON AN AMD CARD. The rest is the
+   Click START (the launcher's only button). The rest is the
    normal tutorial (README.txt): source, overlay, START.
    Two cards in the PC? Under "Graphics card that runs the filter"
    pick the Radeon. The mod only sees the Radeon; if the app runs on
