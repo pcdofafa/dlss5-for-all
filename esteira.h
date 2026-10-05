@@ -58,7 +58,10 @@ inline double Ms() {
     return 1000.0 * (double)c.QuadPart / (double)f.QuadPart;
 }
 
-inline int  g_medir = -1;        // -1 = ainda nao lido (Ligado() le a chave na primeira vez)
+// BUG 3: quem sabe o ESTADO do app (neural/filtros/FG/F6/modo) e o main.cpp; a linha `esteira 1s` ganha um
+// sufixo " | estado: ..." para o log dizer o que estava ligado quando os tempos foram medidos.
+inline void (*g_estadoFn)(char* buf, size_t n) = nullptr;
+inline int  g_medir = -1;       // -1 = ainda nao lido (Ligado() le a chave na primeira vez)
 constexpr int kVooPadrao = 1;   // decidido pela medida (sec. 18): ver o valor e o porque no relatorio
 inline int  g_voo = 1;           // quadros em voo pedidos para a cadeia oculta (1..3)
 inline bool g_vooAplicado = false;
@@ -1109,12 +1112,14 @@ inline void Relatorio() {
     }
     if (!g_ritmo) g_dgN = 0;
     Degrau::g_N = (g_ritmo && g_dgN >= 2) ? g_dgN : 0;
+    char estadoTxt[220] = "(sem informacao)";
+    if (g_estadoFn) g_estadoFn(estadoTxt, sizeof estadoTxt);
     ::Log("esteira 1s | %.1f quadros/s (tela %.1f/s, voo %d) | CPU p50/p95 ms: idade(carimbo->tick) %s | slot %s | tick %s | dedup %s | laco+desenho %s | Present %s | ler %s | enviar %s | acordar %s | resto %s | volta %s | intervalo %s"
         " | GPU p50/p95 ms: pre %s | rede %s | pos %s | vao %s | quadro %s | SERIAL(pre+pos+vao) %s | teto pela rede %.0f/s"
         " | tela p50/p95 ms: ponte->apresentador %s | ->Present %s | carimbo->Present %s"
         " | ordem: inversoes rede %llu tela %llu (sessao rede %llu tela %llu, n %llu, carimbo repetido %llu, sem carimbo %llu) | gpu %llu resolvidos, %llu perdidos"
         " | ocupacao GPU %.0f%% (pacote %.2f ms x quadros + copias; trabalho pre+pos %.2f ms, parede %.2f ms = %.0f%%; janela A-D %.0f%%) | guarda %s (sustentavel com folga ~%.0f/s) | ritmo %s %.0f/s (esperas %llu, media %.2f ms, fonte %.0f%%)"
-        " | placa inteira %.0f%% (NVML, teto %.0f%%) | degrau %s N=%d (devolucoes %u, no prazo %u: acerto %u cedo %u tarde %u; copias %u; espacamento N %u outros %u; lead %.2f ms; segurados %d)",
+        " | placa inteira %.0f%% (NVML, teto %.0f%%) | degrau %s N=%d (devolucoes %u, no prazo %u: acerto %u cedo %u tarde %u; copias %u; espacamento N %u outros %u; lead %.2f ms; segurados %d) | estado: %s",
         qps, 1000.0 * (double)nTela / dur, g_voo,
         pp(g_s[S_IDADE]).c_str(), pp(g_s[S_SLOT]).c_str(), pp(g_s[S_TICK]).c_str(), pp(g_s[S_DEDUP]).c_str(), pp(g_s[S_DESENHO]).c_str(),
         pp(g_s[S_PRESENT]).c_str(), pp(g_s[S_LER]).c_str(), pp(g_s[S_ENVIAR]).c_str(), pp(g_s[S_ACORDAR]).c_str(), pp(g_s[S_APOS]).c_str(), pp(g_s[S_VOLTA]).c_str(), pp(g_s[S_INTERV]).c_str(),
@@ -1127,7 +1132,7 @@ inline void Relatorio() {
         (unsigned long long)g_gpuResolvidos, (unsigned long long)g_gpuPerdidos,
         ocup >= 0.0 ? 100.0 * ocup : -1.0, g_pacoteMs, prePosTrab, prePosMedio, ocupParede >= 0.0 ? 100.0 * ocupParede : -1.0, 100.0 * ocupJan, g_guarda ? "ATIVA" : "solta", sustFolga,
         !ritmoPode ? "desligado" : g_ritmo ? "ATIVO" : "solto", g_ritmo ? RitmoFps() : 0.0, (unsigned long long)nEsp, espMed, fonteOcup >= 0.0 ? 100.0 * fonteOcup : -1.0,
-        placa >= 0.0 ? 100.0 * placa : -1.0, 100.0 * kPlacaLim, !g_degrauChave ? "desligado" : DegrauAtivo() ? "ATIVO" : "solto", g_dgN, dgLib, dgEmDia, dgAc, dgCedo, dgTarde, dgCop, dgEspN, dgEspOut, Degrau::g_lead, Degrau::g_cap ? Degrau::g_cap->DegrauSegurados() : 0);
+        placa >= 0.0 ? 100.0 * placa : -1.0, 100.0 * kPlacaLim, !g_degrauChave ? "desligado" : DegrauAtivo() ? "ATIVO" : "solto", g_dgN, dgLib, dgEmDia, dgAc, dgCedo, dgTarde, dgCop, dgEspN, dgEspOut, Degrau::g_lead, Degrau::g_cap ? Degrau::g_cap->DegrauSegurados() : 0, estadoTxt);
     g_somaAD = g_somaPrePos = 0.0;
     (void)gq50;
     for (int s = 0; s < S_N; s++) if (s != S_TFILA && s != S_TCAD && s != S_TCARIMBO) g_s[s].reset();

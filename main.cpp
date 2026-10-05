@@ -30920,6 +30920,15 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                 ritmoG ? "LIGADA" : "desligada (so aviso)");
             Log("esteira: guarda de folga da GPU LIGADA (ocupacao > %.0f%% por 2 s = 1 pacote em voo + AVISO; [ultima] esteira_guarda_pct) | nr_escala_auto=%d (%s)",
                 100.0 * Esteira::kGuardaLim, escalaAuto ? 1 : 0, escalaAuto ? "grava o degrau seguinte para a proxima abertura" : "padrao: inerte, decisao do dono");
+            // BUG 3: o estado que acompanha cada linha `esteira 1s` (o que estava ligado quando os tempos foram medidos).
+            Esteira::g_estadoFn = [](char* b, size_t n) {
+                const char* nr = g_hud.neural == NR_ATIVO ? "ativo" : g_hud.neural == NR_INICIANDO ? "iniciando" : g_hud.neural == NR_DESLIGADO ? "desligado"
+                               : g_hud.neural == NR_SEM_RTX ? "indisponivel(placa)" : "indisponivel(add-on)";
+                const char* fg = FluidezModoAtual() == FLUIDEZ_INTERPOLADA ? "interpolada" : FluidezModoAtual() == FLUIDEZ_PROJETADA ? "projetada" : "off";
+                snprintf(b, n, "neural=%s passes=%d F6tudo_desligado=%d bypass=%d filtros_ligados=%d fg=%s modo=%s work_res=%d%% hdr=%d",
+                         nr, g_hud.nrPasses, (int)g_tudoDesligado, (int)g_hud.bypass, (int)Filtros::ContinuamSemNr(), fg,
+                         NomeModoProc(g_modoEscolha), g_workResAtual, (int)g_hud.hdrFound);
+            };
             Log("esteira: medida por etapa %s%s | quadros em voo da cadeia oculta (com o apresentador na tela) = %d%s",
                 medir ? "LIGADA (linha `esteira 1s`)" : "desligada", envM ? " - DLSS5_ESTEIRA_MEDIR" : !iM.empty() ? " - [ultima] esteira_medir" : " - padrao",
                 Esteira::g_voo, envV ? " - DLSS5_ESTEIRA_VOO" : !iV.empty() ? " - [ultima] esteira_voo" : " - padrao");
