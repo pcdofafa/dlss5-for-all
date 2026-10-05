@@ -1,6 +1,6 @@
 // =====================================================================================
 //  atualizacao.h - o lado do launcher que fala com a web: versao nova, publi remota,
-//  contagem anonima de uso, relatorio do autor, e a troca dos arquivos.
+//  contagem anonima de uso, relatorio do autor, o aviso de versao nova e (modo direto) a troca dos arquivos.
 //
 //  Usado SO pelo launcher (portable-launcher\launcher.cpp). O app (main.cpp) nao inclui
 //  isto: quem troca arquivos e o launcher, porque e ele que esta na raiz do pacote e e o
@@ -37,11 +37,25 @@
 //  launcher.log. O manifesto de versao respeita um intervalo de 6 h SO quando contar=0
 //  (com contar=1 e justamente esse GET que conta a abertura, entao ele vai toda vez).
 //
-//  MANIFESTO (versao.json):
-//    {"versao":"1.2","data":"2026-09-10","url":"https://.../DLSS5ForAll-1.2.zip",
-//     "sha256":"<64 hex>","notas":"texto curto","notas_en":"short text","minima_para_auto":"1.1"}
-//  `versao` compara por partes numericas ("1.10" > "1.9"). `minima_para_auto` e a menor
-//  versao INSTALADA que pode atualizar sozinha (caixa "automaticamente"); vazia = todas.
+//  MANIFESTO (versao.json) - v2.1: DOIS MODOS, escolhidos pelo manifesto a cada lancamento.
+//    campos: versao (obrigatorio), pagina, notas, notas_en, data, tamanho_bytes (opcionais) e,
+//    SO para o modo direto, o zip: zip_url + zip_sha256 (os dois juntos).
+//    MODO SITE (padrao, o mais simples): so `versao` (+ pagina/notas). A caixa "Nova versao
+//      disponivel" abre a pagina de download no navegador ("pagina", so https de
+//      pcdofafa.com.br; padrao kPaginaDownloadPadrao) e o programa INSTALADO segue abrindo.
+//      Nada e baixado nem trocado pelo launcher.
+//    MODO DIRETO: o manifesto traz tambem o zip. A caixa oferece "Atualizar agora" (baixa,
+//      confere o SHA-256 e entrega a troca ao atualizar.cmd - ver APLICAR), "Abrir a pagina do
+//      site" e "Agora nao". Se o download/hash/troca falhar, a mensagem oferece abrir a pagina.
+//    {"versao":"2.2","pagina":"https://www.pcdofafa.com.br/dlss","notas":"texto curto","notas_en":"short text"}
+//    {"versao":"2.2","zip_url":"https://.../DLSS5ForAll-2.2.zip","zip_sha256":"<64 hex>","notas":"..."}
+//  POR QUE O LAUNCHER 1.2 NAO ATUALIZA POR ESTE MANIFESTO: o parser da 1.2 so aceita um manifesto
+//  com `url` + `sha256` validos (senao "manifesto invalido", sem aviso). Os campos desta versao
+//  (pagina, zip_url, zip_sha256) ele nao conhece; entao so os usa quem o dono QUER que a 1.2
+//  atualize direto: preencher TAMBEM `url` + `sha256` (o 2.1+ os aceita como o zip quando
+//  zip_url/zip_sha256 faltam). `versao` compara por partes numericas ("1.10" > "1.9").
+//  `minima_para_auto` (opcional) e a menor versao INSTALADA que pode atualizar sozinha (caixa
+//  "automaticamente", so no modo direto); vazia = todas.
 //
 //  PUBLI (ofertas.json): todos os campos opcionais; os presentes sobrepoem o ofertas.ini
 //    {"versao_conteudo":"2026-09-10a","titulo":"...","titulo_en":"...","mensagem":"...",
@@ -54,19 +68,22 @@
 //
 //  AVISO DE VERSAO NOVA: nao e banner. Depois que a pessoa clica num botao de INICIAR, se a
 //  verificacao ja respondeu que ha versao nova, aparece a caixa padrao do Windows
-//  (TaskDialogIndirect: "Nova versao disponivel", "Sim, atualizar" / "Agora nao", com a
-//  caixa de verificacao "Atualizar automaticamente nas proximas vezes"). Se a verificacao
-//  ainda nao respondeu, nao espera: o programa abre sem pergunta. Fechou a tela sem
-//  escolher = sem pergunta. Com a caixa marcada (e a versao instalada >= minima_para_auto)
+//  (TaskDialogIndirect, ver PerguntarAtualizar), UMA vez por abertura do launcher e sempre
+//  que houver versao nova. Se a verificacao ainda nao respondeu, nao espera: o programa abre
+//  sem pergunta. Fechou a tela sem escolher = sem pergunta. Seja qual for a resposta, o
+//  programa instalado abre em seguida (a nao ser que a troca direta tenha sido aplicada: ai o
+//  launcher sai e o atualizar.cmd o reabre). A pilula "atualizacao disponivel" da tela le o mesmo sinal.
+//  Modo direto com a caixa "automaticamente" marcada (e versao instalada >= minima_para_auto)
 //  nao pergunta: vai direto para a janela de progresso, que e o aviso curto na tela.
 //
-//  APLICAR (BaixarEAplicar): baixa o zip para %TEMP%\DLSS5ForAll-atualizacao\ conferindo o
+//  APLICAR (BaixarEAplicar, SO modo direto): baixa o zip para %TEMP%\DLSS5ForAll-atualizacao\ conferindo o
 //  SHA-256 (BCrypt) enquanto grava; extrai com o tar.exe do Windows (ou Expand-Archive);
 //  confere o versao.txt; mescla o ofertas.ini novo no da pessoa (so acrescenta chaves que
 //  faltam); copia o launcher e os DLSS5ForAll.exe atuais para <raiz>\backup-versao-anterior\;
 //  escreve e dispara o atualizar.cmd, que espera este launcher e os exes do pacote sairem
 //  de uso, copia o preparo por cima com robocopy EXCETO o que e da pessoa
-//  (kArquivosDaPessoa), grava atualizacao.log, apaga o preparo e o zip, deixa o marcador
+//  (kArquivosDaPessoa/kPastasDaPessoa, inclusive o mod AMD em bin\mod-amd; sem /PURGE nem /MIR:
+//  nada e apagado), grava atualizacao.log, apaga o preparo e o zip, deixa o marcador
 //  atualizacao-resultado.txt (ok/falhou) na raiz e reabre o launcher com
 //  --atualizado=<versao anterior> e a MESMA escolha de modulo (--nvidia/--amd/--sem-dlss).
 //  O launcher reaberto le o marcador e manda o evento atualizacao_ok/atualizacao_falhou.
@@ -111,6 +128,11 @@ constexpr DWORD  kTimeoutBuscaMs        = 3000;          // total, do DNS ao ult
 constexpr DWORD  kTimeoutEventoMs       = 2000;
 constexpr size_t kJsonMax               = 64 * 1024;     // teto de qualquer JSON que baixamos
 constexpr ULONGLONG kPacoteMax          = 2ull * 1024 * 1024 * 1024;   // 2 GB
+// v2.1: a pagina de download do site (o modo "site" abre esta, salvo `pagina` valida no manifesto) e o
+// evento de contagem do clique que a abre. O servidor so conhece os nomes da sua lista (resumo.js
+// EVENTOS): enquanto `abriu_pagina_download` nao estiver la, o clique reaproveita `clique_atualizar`.
+constexpr const wchar_t* kPaginaDownloadPadrao = L"https://www.pcdofafa.com.br/dlss";
+constexpr const wchar_t* kEventoPaginaDownload = L"clique_atualizar";
 
 // O que o atualizar.cmd NUNCA copia por cima (robocopy /XF): arquivos que a pessoa poe,
 // edita ou que sao gerados na maquina dela. `*.ini` e `*.cfg` cobrem ReShade.ini,
@@ -128,7 +150,9 @@ inline const wchar_t* kArquivosDaPessoa =
     L"*.ini *.cfg *.log *.log.* renodx-dlss*.addon64 nvngx_*.dll version.dll "
     L"dlssnr_on_amd* relatorio-uso.txt";
 // pastas inteiras que ficam como estao (cache do ReShade, camada 2 gerada, o backup, o cache da publi)
-inline const wchar_t* kPastasDaPessoa = L"reshade-cache bin-camada2 camada2 backup-versao-anterior cache";
+// v2.1: `mod-amd` e o mod AMD (bin\mod-amd): robocopy /XD casa o NOME da pasta em qualquer nivel, entao
+// ela nunca e tocada. Sem /PURGE nem /MIR em lugar nenhum, o atualizar.cmd tambem nunca APAGA nada.
+inline const wchar_t* kPastasDaPessoa = L"reshade-cache bin-camada2 camada2 backup-versao-anterior cache mod-amd";
 
 // ----------------------------------------------------------------- utilitarios
 inline std::wstring Utf8ParaW(const std::string& s) {
@@ -419,13 +443,16 @@ inline std::wstring Limpo(std::wstring s, size_t max) {
 
 // ----------------------------------------------------------------- manifesto
 struct Manifesto {
-    std::wstring versao, data, url, sha256, notas, notasEn, minimaParaAuto;
-    // O TAMANHO DO DOWNLOAD, em bytes. O publicar-versao.ps1 sempre grava `tamanho_bytes` no
-    // versao.json (ele ja existia para a pagina de download); a caixa que pergunta passou a
-    // mostra-lo, porque "quer baixar?" sem dizer quanto pesa e uma pergunta pela metade - e
-    // quem esta num plano limitado ou numa rede lenta precisa exatamente desse numero.
-    // Ausente ou absurdo = a caixa simplesmente nao fala de tamanho.
+    std::wstring versao, data, notas, notasEn, minimaParaAuto;
+    // v2.1: a PAGINA DE DOWNLOAD do site (opcional no JSON; quem a valida e ChecarVersao, que
+    // grava aqui a pagina aceita ou kPaginaDownloadPadrao) e o ZIP do modo direto (zip_url +
+    // zip_sha256, ou `url` + `sha256` do manifesto antigo). Sem os dois, e o modo "site".
+    std::wstring pagina, zipUrl, zipSha256;
+    // O TAMANHO DO DOWNLOAD, em bytes (tamanho_bytes), so faz sentido no modo direto: a caixa o
+    // mostra porque "quer baixar?" sem dizer quanto pesa e uma pergunta pela metade. Ausente ou
+    // absurdo = a caixa simplesmente nao fala de tamanho.
     long long bytes = 0;
+    bool Direto() const { return !zipUrl.empty() && !zipSha256.empty(); }
     const std::wstring& NotasNoIdioma() const { return (EmIngles() && !notasEn.empty()) ? notasEn : notas; }
     // "48,3 MB" / "980 KB" - o tamanho como a pessoa o le. Vazio quando nao ha numero.
     std::wstring TamanhoLegivel() const {
@@ -442,15 +469,24 @@ struct Manifesto {
         return b;
     }
 };
-inline bool LerManifesto(const std::string& json, Manifesto& m, std::wstring& erro) {
+// 64 hexadecimais (o resto e tratado como ausente)
+inline bool Sha256Valido(const std::wstring& s) {
+    if (s.size() != 64) return false;
+    for (wchar_t c : s) if (!iswxdigit(c)) return false;
+    return true;
+}
+// As notas vao para dentro do TaskDialog, que com hyperlinks ligados interpreta <a href>: sem < e >
+// o texto de um arquivo editavel nao desenha link nenhum.
+inline std::wstring SemMarcacao(std::wstring s) { for (auto& c : s) if (c == L'<' || c == L'>') c = L' '; return Trim(s); }
+// `aviso` sai com o motivo quando o manifesto trouxe um zip incompleto ou com hash ruim (vira modo site).
+inline bool LerManifesto(const std::string& json, Manifesto& m, std::wstring& erro, std::wstring* aviso = nullptr) {
     Json j;
     if (!LerJson(json, j) || j.t != Json::OBJ) { erro = L"JSON invalido"; return false; }
     m.versao = Limpo(j.Str("versao"), 32);
     m.data = Limpo(j.Str("data"), 32);
-    m.url = Limpo(j.Str("url"), 2048);
-    m.sha256 = Minusculas(Limpo(j.Str("sha256"), 64));
-    m.notas = Limpo(j.Str("notas"), 400);
-    m.notasEn = Limpo(j.Str("notas_en"), 400);
+    m.pagina = Limpo(j.Str("pagina"), 2048);
+    m.notas = SemMarcacao(Limpo(j.Str("notas"), 400));
+    m.notasEn = SemMarcacao(Limpo(j.Str("notas_en"), 400));
     m.minimaParaAuto = Limpo(j.Str("minima_para_auto"), 32);
     {   // tamanho_bytes: opcional. Um valor fora de faixa (negativo, ou maior que 4 GB) e
         // tratado como ausente - melhor a caixa nao falar de tamanho do que anunciar um
@@ -459,9 +495,16 @@ inline bool LerManifesto(const std::string& json, Manifesto& m, std::wstring& er
         if (t > 0 && t < 4LL * 1024 * 1024 * 1024) m.bytes = t;
     }
     if (!VersaoValida(m.versao)) { erro = L"versao ausente ou invalida"; return false; }
-    if (m.url.empty()) { erro = L"url ausente"; return false; }
-    if (m.sha256.size() != 64) { erro = L"sha256 ausente ou com tamanho errado"; return false; }
-    for (wchar_t c : m.sha256) if (!iswxdigit(c)) { erro = L"sha256 nao e hexadecimal"; return false; }
+    // O ZIP (modo direto): zip_url + zip_sha256 e o nome novo; url + sha256 e o do manifesto da
+    // 1.2 (continua valendo, para quem quer a 1.2 atualizando direto tambem). Um par pela metade
+    // ou com hash que nao e hexadecimal NAO invalida o aviso: cai no modo site, com o motivo no log.
+    m.zipUrl.clear(); m.zipSha256.clear();
+    const std::wstring zu = Limpo(j.Str("zip_url"), 2048), zs = Minusculas(Limpo(j.Str("zip_sha256"), 64));
+    const std::wstring au = Limpo(j.Str("url"), 2048),     as = Minusculas(Limpo(j.Str("sha256"), 64));
+    if (!zu.empty() && Sha256Valido(zs))      { m.zipUrl = zu; m.zipSha256 = zs; }
+    else if (!au.empty() && Sha256Valido(as)) { m.zipUrl = au; m.zipSha256 = as; }
+    if (aviso && !m.Direto() && (!zu.empty() || !zs.empty() || !au.empty() || !as.empty()))
+        *aviso = L"zip incompleto (precisa de zip_url + zip_sha256 com 64 hexadecimais) - fica o modo site";
     if (!m.minimaParaAuto.empty() && !VersaoValida(m.minimaParaAuto)) m.minimaParaAuto.clear();
     return true;
 }
@@ -756,6 +799,18 @@ inline bool QuebrarUrl(const std::wstring& u, Url& o) {
     return true;
 }
 inline bool UrlDeTeste(const std::wstring& u) { Url x; return QuebrarUrl(u, x) && x.local; }
+// v2.1: a PAGINA DE DOWNLOAD que o manifesto pode indicar. So https, so o dominio do projeto
+// (pcdofafa.com.br e subdominios): o manifesto vem de um endereco que o ini deixa editar, e um
+// botao "baixar a nova versao" nao pode levar a lugar nenhum que o dono nao controla. QuebrarUrl
+// separa usuario@host, entao "https://pcdofafa.com.br@outro.com/" tem host outro.com e e recusada.
+inline bool PaginaDoSiteValida(const std::wstring& u) {
+    if (u.empty() || u.size() > 2048) return false;
+    for (wchar_t c : u) if (c <= L' ' || c == 0x7F || c == L'"' || c == L'<' || c == L'>' || c == L'|' || c == L'^' || c == L'\\') return false;
+    Url x;
+    if (!QuebrarUrl(u, x) || !x.https || x.local) return false;
+    const std::wstring h = Minusculas(x.host), d = L"pcdofafa.com.br";
+    return h == d || (h.size() > d.size() + 1 && h.compare(h.size() - d.size() - 1, std::wstring::npos, L"." + d) == 0);
+}
 
 // ----------------------------------------------------------------- HTTP (WinHTTP)
 // Um GET. `corpo(dados, n)` recebe cada pedaco e devolve false para abortar (cancelamento).
@@ -937,10 +992,23 @@ inline void ChecarVersao(Verificacao* v, bool primeira) {
     }
     if (primeira) v->rede.store(1);   // a rede esta ai (a vitrine pode abrir), valha o manifesto ou nao
     CarimbarVerificacao(v->raiz);
-    Manifesto m;
-    if (!LerManifesto(json, m, erro)) { if (primeira) { Anotar(log, L"versao: manifesto invalido (%ls)", erro.c_str()); v->pronto.store(2); } return; }
-    Url uz;
-    if (!QuebrarUrl(m.url, uz) || (uz.local && !v->teste)) { if (primeira) { Anotar(log, L"versao: url do pacote recusada (%ls)", m.url.c_str()); v->pronto.store(2); } return; }
+    Manifesto m; std::wstring aviso;
+    if (!LerManifesto(json, m, erro, &aviso)) { if (primeira) { Anotar(log, L"versao: manifesto invalido (%ls)", erro.c_str()); v->pronto.store(2); } return; }
+    if (primeira && !aviso.empty()) Anotar(log, L"versao: %ls", aviso.c_str());
+    // A pagina de download: a do manifesto so se for https do pcdofafa.com.br; senao a embutida.
+    if (!m.pagina.empty() && !PaginaDoSiteValida(m.pagina)) {
+        if (primeira) Anotar(log, L"versao: pagina do manifesto recusada (so https de pcdofafa.com.br): %ls", m.pagina.substr(0, 200).c_str());
+        m.pagina.clear();
+    }
+    if (m.pagina.empty()) m.pagina = kPaginaDownloadPadrao;
+    // O zip do modo direto: https (ou 127.0.0.1 de teste); recusado = vira modo site, o aviso continua
+    if (m.Direto()) {
+        Url uz;
+        if (!QuebrarUrl(m.zipUrl, uz) || (uz.local && !v->teste)) {
+            if (primeira) Anotar(log, L"versao: url do pacote recusada (%ls) - fica o modo site", m.zipUrl.substr(0, 200).c_str());
+            m.zipUrl.clear(); m.zipSha256.clear();
+        }
+    }
     if (CompararVersao(m.versao, DLSS5_VERSAO) <= 0) {
         if (primeira) {
             Anotar(log, L"versao: manifesto %ls, instalada %ls - ja esta na ultima (%llu ms)", m.versao.c_str(), DLSS5_VERSAO, (unsigned long long)(GetTickCount64() - t0));
@@ -951,10 +1019,10 @@ inline void ChecarVersao(Verificacao* v, bool primeira) {
     if (!primeira && v->pronto.load() == 1 && v->manifesto.versao == m.versao) return;   // ja anunciada
     v->manifesto = m;
     v->automatica = LerAutomatica(v->raiz);
-    v->podeAuto = m.minimaParaAuto.empty() || CompararVersao(DLSS5_VERSAO, m.minimaParaAuto) >= 0;
-    Anotar(log, primeira ? L"versao: NOVA VERSAO %ls (instalada %ls) em %llu ms; automatica=%d podeAuto=%d"
-                         : L"versao: NOVA VERSAO %ls publicada com a janela aberta (instalada %ls) em %llu ms; automatica=%d podeAuto=%d",
-           m.versao.c_str(), DLSS5_VERSAO, (unsigned long long)(GetTickCount64() - t0), (int)v->automatica, (int)v->podeAuto);
+    v->podeAuto = m.Direto() && (m.minimaParaAuto.empty() || CompararVersao(DLSS5_VERSAO, m.minimaParaAuto) >= 0);
+    Anotar(log, primeira ? L"versao: NOVA VERSAO %ls (instalada %ls) em %llu ms; modo=%ls automatica=%d podeAuto=%d"
+                         : L"versao: NOVA VERSAO %ls publicada com a janela aberta (instalada %ls) em %llu ms; modo=%ls automatica=%d podeAuto=%d",
+           m.versao.c_str(), DLSS5_VERSAO, (unsigned long long)(GetTickCount64() - t0), m.Direto() ? L"direto" : L"site", (int)v->automatica, (int)v->podeAuto);
     v->pronto.store(1);
     Acordar();   // a pilula "atualizacao disponivel" aparece sozinha na tela que ja esta aberta
 }
@@ -1182,32 +1250,37 @@ inline void EncerrarVerificacao(Verificacao& v, DWORD msEventos = 2000) {
 
 // ----------------------------------------------------------------- a pergunta (caixa do Windows)
 // TaskDialogIndirect (comctl32 v6, ativado pelo manifesto do launcher): titulo "DLSS5 For
-// All", "Nova versao disponivel", "A versao X esta pronta. Quer atualizar agora?" + notas
-// curtas, icone de informacao, botoes "Sim, atualizar" (padrao, Enter) e "Agora nao"
-// (Esc), e a caixa de verificacao "Atualizar automaticamente nas proximas vezes". Sem
-// TaskDialogIndirect (comctl32 antigo) cai no MessageBoxW Sim/Nao e a caixa fica so no ini.
-// Devolve 1 = sim, 0 = nao; `automatica` sai com o estado da caixa.
-// A CAIXA E CURTA DE PROPOSITO (11/09/2026). Ela existe para uma decisao de dois caminhos -
-// atualizar agora ou depois -, e quanto mais texto ela tem, mais tempo a pessoa gasta para
-// tomar uma decisao que ela ja tinha tomado ao abrir o programa. Entao: o titulo diz o que
-// aconteceu, o corpo diz QUAL versao, e acabou.
-//
-// O que saiu de dentro dela, e para onde foi:
-//  - as NOTAS de versao (a lista do que mudou) agora ficam atras do link "o que mudou", no
-//    rodape. Quem quer a lista clica; quem so quer atualizar nao passa por ela.
-//  - o TAMANHO e a DATA descem para o rodape, em letra menor: continuam disponiveis para
-//    quem esta numa rede limitada, sem ocupar a linha da pergunta.
+// All", "Nova versao disponivel", a versao e as notas, icone de informacao. Dois jeitos, pelo
+// manifesto (Manifesto::Direto):
+//   MODO SITE   botoes "Abrir a pagina de download" (padrao, Enter) e "Agora nao" (Esc). Sem
+//               caixa "automaticamente": nada e baixado por aqui.
+//   MODO DIRETO botoes "Atualizar agora" (padrao), "Abrir a pagina do site" e "Agora nao", e a
+//               caixa de verificacao "Atualizar automaticamente nas proximas vezes".
+// Sem TaskDialogIndirect (comctl32 antigo) cai no MessageBoxW Sim/Nao (no modo direto, Sim =
+// atualizar agora; o site fica para a mensagem de falha) e a caixa automatica fica so no ini.
+// Devolve RESP_NADA (agora nao / fechou), RESP_ATUALIZAR (so no modo direto: baixar e trocar) ou
+// RESP_SITE (abrir a pagina; quem abre e o chamador). `automatica` sai com o estado da caixa.
+// O programa instalado abre depois de QUALQUER resposta, menos a troca direta que deu certo.
+// A CAIXA E CURTA DE PROPOSITO (11/09/2026): uma decisao de dois caminhos. O que e detalhe
+// (tamanho, data, o link "o que mudou") desce para o rodape, em letra menor. As notas da versao
+// voltaram para o corpo na 2.1 (uma ou duas frases, ate 400 caracteres): no modo site e por
+// elas que a pessoa decide ir baixar.
+enum RespostaAviso { RESP_NADA = 0, RESP_ATUALIZAR = 1, RESP_SITE = 2 };
 inline int PerguntarAtualizar(const Manifesto& m, bool& automatica,
                               const std::wstring& urlNovidades = std::wstring()) {
+    const bool direto = m.Direto();
     const std::wstring titulo = L"DLSS5 For All";
-    const std::wstring instrucao = TS(L"Nova atualização disponível", L"New update available");
-    const std::wstring conteudo = TS(L"Versão ", L"DLSS5 For All version ") + m.versao +
-                                  TS(L" do DLSS5 For All.", L".");
-    // O RODAPE: tamanho, data e o link das novidades. Tudo o que e detalhe fica aqui, na
-    // letra pequena do TaskDialog, e nada disso e obrigatorio - sem tamanho e sem link, o
-    // rodape simplesmente nao aparece.
+    const std::wstring instrucao = TS(L"Nova versão disponível", L"New version available");
+    std::wstring conteudo = direto
+        ? (TS(L"A versão ", L"DLSS5 For All version ") + m.versao + TS(L" do DLSS5 For All está pronta.", L" is ready."))
+        : (TS(L"A versão ", L"DLSS5 For All version ") + m.versao +
+           TS(L" do DLSS5 For All está no site. Baixe e instale por lá, do zero; o programa instalado continua abrindo normalmente.",
+              L" is on the website. Download and install it from there, from scratch; the installed program keeps opening normally."));
+    if (!m.NotasNoIdioma().empty()) conteudo += L"\n\n" + m.NotasNoIdioma();
+    // O RODAPE: tamanho (so do zip, modo direto), data e o link das novidades. Nada e obrigatorio:
+    // sem nada disso o rodape simplesmente nao aparece.
     std::wstring rodape;
-    if (!m.TamanhoLegivel().empty()) rodape = m.TamanhoLegivel();
+    if (direto && !m.TamanhoLegivel().empty()) rodape = m.TamanhoLegivel();
     if (!m.data.empty()) rodape += (rodape.empty() ? L"" : L" · ") + m.data;
     if (!urlNovidades.empty()) {
         // o <a href> so vira link com TDF_ENABLE_HYPERLINKS; o clique chega no callback
@@ -1215,14 +1288,22 @@ inline int PerguntarAtualizar(const Manifesto& m, bool& automatica,
         rodape += L"<a href=\"novidades\">" + std::wstring(TS(L"o que mudou", L"what changed")) + L"</a>";
     }
     const std::wstring caixa = TS(L"Atualizar automaticamente", L"Update automatically");
-    const std::wstring sim = TS(L"Atualizar agora", L"Update now"), nao = TS(L"Depois", L"Later");
+    const std::wstring atualizar = TS(L"Atualizar agora", L"Update now");
+    const std::wstring site = direto ? std::wstring(TS(L"Abrir a página do site", L"Open the website"))
+                                     : std::wstring(TS(L"Abrir a página de download", L"Open the download page"));
+    const std::wstring nao = TS(L"Agora não", L"Not now");
 
     typedef HRESULT(WINAPI* PFN)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
     HMODULE cc = LoadLibraryW(L"comctl32.dll");
     PFN td = cc ? (PFN)(void*)GetProcAddress(cc, "TaskDialogIndirect") : nullptr;
-    int resposta = 0;
+    int resposta = RESP_NADA;
     if (td) {
-        TASKDIALOG_BUTTON botoes[2] = { { 100, sim.c_str() }, { 101, nao.c_str() } };
+        // 100 = o botao principal (Enter); 102 = o site (so no modo direto); 101 = agora nao (Esc)
+        TASKDIALOG_BUTTON botoes[3];
+        UINT n = 0;
+        if (direto) { botoes[n++] = { 100, atualizar.c_str() }; botoes[n++] = { 102, site.c_str() }; }
+        else        { botoes[n++] = { 102, site.c_str() }; }
+        botoes[n++] = { 101, nao.c_str() };
         TASKDIALOGCONFIG cfg{};
         cfg.cbSize = sizeof(cfg);
         cfg.hInstance = nullptr;
@@ -1231,38 +1312,51 @@ inline int PerguntarAtualizar(const Manifesto& m, bool& automatica,
         cfg.pszMainIcon = TD_INFORMATION_ICON;
         cfg.pszMainInstruction = instrucao.c_str();
         cfg.pszContent = conteudo.c_str();
-        cfg.cButtons = 2; cfg.pButtons = botoes; cfg.nDefaultButton = 100;
-        cfg.pszVerificationText = caixa.c_str();
+        cfg.cButtons = n; cfg.pButtons = botoes; cfg.nDefaultButton = direto ? 100 : 102;
+        if (direto) cfg.pszVerificationText = caixa.c_str();
         if (!rodape.empty()) {
             cfg.pszFooter = rodape.c_str();
-            if (!urlNovidades.empty()) {
-                cfg.dwFlags |= TDF_ENABLE_HYPERLINKS;
-                // O clique no "o que mudou" abre o navegador e NAO fecha a caixa: a pessoa le
-                // a lista e volta para responder. lpCallbackData leva o endereco, porque o
-                // callback e uma funcao livre (sem captura) - a assinatura do TaskDialog exige.
-                cfg.lpCallbackData = (LONG_PTR)&urlNovidades;
-                cfg.pfCallback = [](HWND, UINT msg, WPARAM, LPARAM lp, LONG_PTR dados) -> HRESULT {
-                    if (msg == TDN_HYPERLINK_CLICKED && dados) {
-                        (void)lp;
-                        ofertas::detail::OpenLink(*(const std::wstring*)dados);
-                    }
-                    return S_OK;
-                };
-            }
         }
-        if (automatica) cfg.dwFlags |= TDF_VERIFICATION_FLAG_CHECKED;
-        int botao = 0; BOOL marcada = automatica ? TRUE : FALSE;
+        // Hyperlinks ligados SEMPRE que ha link no rodape. O clique no "o que mudou" abre o
+        // navegador e NAO fecha a caixa: a pessoa le a lista e volta para responder. lpCallbackData
+        // leva o endereco, porque o callback e uma funcao livre (sem captura) - a assinatura do
+        // TaskDialog exige.
+        if (!urlNovidades.empty() && !rodape.empty()) {
+            cfg.dwFlags |= TDF_ENABLE_HYPERLINKS;
+            cfg.lpCallbackData = (LONG_PTR)&urlNovidades;
+            cfg.pfCallback = [](HWND, UINT msg, WPARAM, LPARAM lp, LONG_PTR dados) -> HRESULT {
+                if (msg == TDN_HYPERLINK_CLICKED && dados) {
+                    (void)lp;
+                    ofertas::detail::OpenLink(*(const std::wstring*)dados);
+                }
+                return S_OK;
+            };
+        }
+        if (direto && automatica) cfg.dwFlags |= TDF_VERIFICATION_FLAG_CHECKED;
+        int botao = 0; BOOL marcada = (direto && automatica) ? TRUE : FALSE;
         if (SUCCEEDED(td(&cfg, &botao, nullptr, &marcada))) {
-            resposta = (botao == 100) ? 1 : 0;   // IDCANCEL (Esc/X) = agora nao
-            automatica = marcada != FALSE;
+            resposta = (botao == 100) ? RESP_ATUALIZAR : (botao == 102) ? RESP_SITE : RESP_NADA;   // IDCANCEL (Esc/X) = agora nao
+            if (direto) automatica = marcada != FALSE;
         }
     } else {
-        const int r = MessageBoxW(nullptr, (instrucao + L"\n\n" + conteudo).c_str(), titulo.c_str(),
+        const std::wstring texto = instrucao + L"\n\n" + conteudo + (direto ? L"" : (L"\n\n" + site + L"?"));
+        const int r = MessageBoxW(nullptr, texto.c_str(), titulo.c_str(),
                                   MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON1 | MB_TOPMOST);
-        resposta = (r == IDYES) ? 1 : 0;
+        resposta = (r == IDYES) ? (direto ? RESP_ATUALIZAR : RESP_SITE) : RESP_NADA;
     }
     if (cc) FreeLibrary(cc);
     return resposta;
+}
+// Falhou o download, o hash ou a troca (modo direto): diz o motivo e OFERECE a pagina do site, para
+// instalar do zero. Sim abre a pagina (quem chama conta o clique); o programa instalado abre em seguida.
+inline bool ErroOferecerSite(const std::wstring& erro, const std::wstring& log, const std::wstring& pagina) {
+    const std::wstring txt = erro + TS(L"\n\nDetalhes em:\n", L"\n\nDetails in:\n") + log +
+        TS(L"\n\nQuer abrir a página de download no site para instalar a nova versão do zero?",
+           L"\n\nOpen the download page on the website to install the new version from scratch?");
+    const int r = MessageBoxW(nullptr, txt.c_str(), L"DLSS5 For All", MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON1);
+    if (r != IDYES) return false;
+    ofertas::detail::OpenLink(pagina);
+    return true;
 }
 
 // ----------------------------------------------------------------- mescla do ofertas.ini
@@ -1554,12 +1648,12 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
     Trabalho& W = *(Trabalho*)p;
     Progresso& P = *W.P;
     auto falha = [&](const std::wstring& e) { P.ok = false; P.erro = e; Anotar(W.log, L"FALHA: %ls", e.c_str()); PostMessageW(P.h, WM_PROG_FIM, 0, 0); return 0; };
-    Anotar(W.log, L"---- versao %ls -> %ls | zip %ls", DLSS5_VERSAO, W.m.versao.c_str(), W.m.url.c_str());
+    Anotar(W.log, L"---- versao %ls -> %ls | zip %ls", DLSS5_VERSAO, W.m.versao.c_str(), W.m.zipUrl.c_str());
 
     bool jaTem = false;
     if (Existe(W.zip)) {
         Estado(P, 1, TS(L"Conferindo um download anterior…", L"Checking an earlier download…"));
-        jaTem = Sha256DoArquivo(W.zip) == W.m.sha256;
+        jaTem = Sha256DoArquivo(W.zip) == W.m.zipSha256;
         if (!jaTem) DeleteFileW(W.zip.c_str());
         Anotar(W.log, L"zip anterior em %ls: %ls", W.zip.c_str(), jaTem ? L"hash confere, reaproveitado" : L"hash nao confere, apagado");
     }
@@ -1569,7 +1663,7 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
         if (f == INVALID_HANDLE_VALUE) return falha(TS(L"Não consegui criar o arquivo em ", L"Could not create the file at ") + W.zip);
         Sha256 sh; ULONGLONG feito = 0, total = 0; std::wstring erro; bool semEspaco = false;
         ULONGLONG ultimoAviso = 0;
-        const bool ok = Get(W.m.url, Timeouts{ 5000, 10000, 15000, 30000 }, 0, &P.cancelar, &total,
+        const bool ok = Get(W.m.zipUrl, Timeouts{ 5000, 10000, 15000, 30000 }, 0, &P.cancelar, &total,
             [&](const BYTE* d, DWORD n) {
                 if (feito == 0) {
                     if (total > kPacoteMax) { erro = TS(L"pacote grande demais", L"package too large"); return false; }
@@ -1595,8 +1689,8 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
         }
         Estado(P, 1, TS(L"Conferindo o arquivo (SHA-256)…", L"Verifying the file (SHA-256)…"), feito, total);
         const std::wstring hex = sh.Hex();
-        Anotar(W.log, L"baixado %llu bytes; sha256=%ls esperado=%ls", (unsigned long long)feito, hex.c_str(), W.m.sha256.c_str());
-        if (hex != W.m.sha256) {
+        Anotar(W.log, L"baixado %llu bytes; sha256=%ls esperado=%ls", (unsigned long long)feito, hex.c_str(), W.m.zipSha256.c_str());
+        if (hex != W.m.zipSha256) {
             DeleteFileW(W.zip.c_str());
             return falha(TS(L"O arquivo baixado não confere com o manifesto (SHA-256). Nada foi alterado. Tente de novo mais tarde.",
                             L"The downloaded file does not match the manifest (SHA-256). Nothing was changed. Try again later."));
@@ -1663,7 +1757,7 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
 }
 
 // -------------------------------------------------------------------------------------
-//  BAIXAR E APLICAR. Mostra a janelinha, roda o trabalho na thread e, no fim, dispara o
+//  BAIXAR E APLICAR (SO NO MODO DIRETO: manifesto com zip). Mostra a janelinha, roda o trabalho na thread e, no fim, dispara o
 //  atualizar.cmd. Devolve true quando o .cmd foi disparado: o launcher deve SAIR na hora,
 //  porque o .cmd espera exatamente por isso (e reabre com `flagModulo`: --nvidia, --amd ou
 //  --sem-dlss, a escolha que a pessoa tinha feito). false: nada foi trocado; `erro` traz o
@@ -1671,6 +1765,8 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
 // -------------------------------------------------------------------------------------
 inline bool BaixarEAplicar(HINSTANCE hi, const std::wstring& raiz, const Manifesto& m, bool automatica,
                            const std::wstring& flagModulo, std::wstring& erro, std::wstring& logPath) {
+    // v2.1: so o modo direto baixa e troca arquivos; sem zip (+ SHA-256) no manifesto nao ha o que fazer
+    if (!m.Direto()) { erro = L"manifesto sem zip_url/zip_sha256"; logPath.clear(); return false; }
     using namespace ofertas::detail;
     Trabalho W;
     W.raiz = raiz; W.temp = PastaTemp(); W.m = m; W.flagModulo = flagModulo;

@@ -27,9 +27,14 @@
 //
 //  ATUALIZACAO (atualizacao.h): antes de a tela abrir, uma thread pergunta ao endereco
 //  de [atualizacao] url_manifesto= (ofertas.ini da raiz) se ha versao nova - no maximo
-//  uma vez a cada 6 h, 3 s de teto, e a tela NAO espera. Se houver, a tela ganha o banner
-//  com "BAIXAR E ATUALIZAR" e a caixa "atualizar automaticamente"; a escolha ESC_ATUALIZAR
-//  baixa, confere e entrega a troca ao atualizar.cmd, e este launcher sai para ser trocado.
+//  uma vez a cada 6 h com contar=0, 3 s de teto, e a tela NAO espera. Havendo, a pilula
+//  "atualizacao disponivel" aparece na tela e, ao clicar em INICIAR, vem a caixa "Nova versao
+//  disponivel" (uma vez por abertura), em um de dois modos escolhidos pelo manifesto:
+//    SITE (so a versao): "Abrir a pagina de download" (https://www.pcdofafa.com.br/dlss) ou "Agora
+//      nao"; depois disso o programa INSTALADO abre normalmente. Nada e baixado nem trocado.
+//    DIRETO (o manifesto traz o zip): "Atualizar agora" baixa, confere o SHA-256 e entrega a
+//      troca ao atualizar.cmd (este launcher sai para ser trocado), alem de "Abrir a pagina do
+//      site" e da caixa "atualizar automaticamente"; se falhar, a mensagem oferece a pagina.
 //
 //  VITRINE (vitrine.h): a tela ganha uma coluna a ESQUERDA com a pagina de ofertas de agora
 //  (https://grupo.pcdofafa.com.br/app-ofertas, rolavel, com o botao do grupo), mostrada pelo
@@ -638,32 +643,43 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         const wchar_t* modulo = e == ofertas::detail::ESC_NVIDIA ? L"nvidia" : e == ofertas::detail::ESC_AMD ? L"amd" : L"sem";
         const wchar_t* flag   = e == ofertas::detail::ESC_NVIDIA ? L"--nvidia" : e == ofertas::detail::ESC_AMD ? L"--amd" : L"--sem-dlss";
         atualizacao::SalvarModulo(raiz, modulo);
-        // v2.0: com --raiz sem escrita nao ha como trocar os arquivos do pacote: nao oferece a atualizacao
-        if (verif.pronto.load() == 1 && raizGravavel) {
-            bool automatica = verif.automatica;
+        // v2.1: a PERGUNTA, uma vez por abertura (este clique) e sempre que houver versao nova. Dois modos,
+        // pelo manifesto (ver atualizacao.h): SITE (so a versao: a caixa abre a pagina de download e o programa
+        // instalado abre em seguida) e DIRETO (o manifesto traz o zip: "Atualizar agora" baixa, confere e troca).
+        // Sem escrita na raiz (--raiz sem escrita) nao ha como trocar arquivos: o modo direto vira modo site.
+        if (verif.pronto.load() == 1) {
+            atualizacao::Manifesto m = verif.manifesto;
+            if (!raizGravavel) { m.zipUrl.clear(); m.zipSha256.clear(); }
+            bool automatica = m.Direto() && verif.automatica;
             int resposta;
             if (automatica && verif.podeAuto) {
-                // caixa marcada: nao pergunta; a janela de progresso e o aviso curto na tela
-                resposta = 1;
+                // direto + caixa marcada: nao pergunta; a janela de progresso e o aviso curto na tela
+                resposta = atualizacao::RESP_ATUALIZAR;
             } else {
-                // a caixa padrao do Windows: "Sim, atualizar" / "Agora nao" + a caixa de verificacao
-                resposta = atualizacao::PerguntarAtualizar(verif.manifesto, automatica, verif.cfg.urlNovidades);
-                atualizacao::SalvarAutomatica(raiz, automatica);
-                if (resposta != 1) atualizacao::GravarEstado(raiz, L"adiada", verif.manifesto.versao);   // so registro: a proxima abertura pergunta de novo
+                // a caixa padrao do Windows (ver PerguntarAtualizar); a caixa "automaticamente" so existe no modo direto
+                resposta = atualizacao::PerguntarAtualizar(m, automatica, verif.cfg.urlNovidades);
+                if (m.Direto()) atualizacao::SalvarAutomatica(raiz, automatica);
+                if (resposta == atualizacao::RESP_NADA) atualizacao::GravarEstado(raiz, L"adiada", m.versao);   // so registro: a proxima abertura pergunta de novo
             }
-            if (resposta == 1) {
+            if (resposta == atualizacao::RESP_SITE) {
+                ofertas::detail::OpenLink(m.pagina);
+                atualizacao::EnviarEvento(verif, atualizacao::kEventoPaginaDownload);
+                atualizacao::Anotar(raiz + L"launcher.log", L"versao nova %ls: pagina de download aberta (%ls) - o programa instalado abre em seguida", m.versao.c_str(), m.pagina.c_str());
+            } else if (resposta == atualizacao::RESP_ATUALIZAR) {
                 atualizacao::EnviarEvento(verif, L"clique_atualizar");
                 // Baixa, confere e entrega ao atualizar.cmd; se deu certo, SAIMOS ja - o .cmd
                 // espera este processo terminar, troca os arquivos e reabre o launcher com a
                 // MESMA escolha (a flag), que abre o programa direto. Se falhou, nada foi
-                // trocado: a mensagem diz o motivo e onde esta o log, e o programa abre normal.
+                // trocado: a mensagem diz o motivo, onde esta o log e oferece a pagina do site; o programa abre normal.
                 std::wstring erro, log;
-                if (atualizacao::BaixarEAplicar(hi, raiz, verif.manifesto, automatica && verif.podeAuto, flag, erro, log))
+                if (atualizacao::BaixarEAplicar(hi, raiz, m, automatica && verif.podeAuto, flag, erro, log))
                     return sair(0);
                 if (!erro.empty()) {
                     atualizacao::EnviarEvento(verif, L"atualizacao_falhou");
-                    MessageBoxW(nullptr, (erro + TS(L"\n\nDetalhes em:\n", L"\n\nDetails in:\n") + log).c_str(),
-                                L"DLSS5 For All", MB_ICONWARNING | MB_OK);
+                    if (atualizacao::ErroOferecerSite(erro, log, m.pagina)) {
+                        atualizacao::EnviarEvento(verif, atualizacao::kEventoPaginaDownload);
+                        atualizacao::Anotar(raiz + L"launcher.log", L"atualizacao direta falhou; pagina de download aberta pela pessoa (%ls)", m.pagina.c_str());
+                    }
                 }
             }
         }

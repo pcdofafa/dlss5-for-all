@@ -438,20 +438,30 @@ consulta nenhuma, deixe url_base= vazio.
 
 COMO SAI UMA VERSÃO NOVA (para quem publica o programa)
 -------------------------------------------------------
-1. Rode  amd\publicar-versao.ps1 -Versao 1.3 -Publicar
-   Ele monta o DLSS5ForAll-1.3.zip, calcula o SHA-256, escreve o versao.json
-   (versao, data, url, sha256, tamanho_bytes, notas, notas_en) e envia os dois.
-2. O versao.json é a ÚNICA fonte da atualização. Se a página de download
-   mostrar um link diferente do que está nele, quem manda é o versao.json:
-   o programa nunca lê a página, só esse arquivo.
-3. Escreva as notas em uma ou duas frases, em pt e en — elas aparecem dentro
-   da caixa que pergunta, e é por elas que a pessoa decide.
-4. Quem já tem o programa recebe o aviso na abertura seguinte (e em até
-   30 minutos, se o launcher estiver aberto na hora em que você publicar).
-5. A caixa só aparece DEPOIS do clique em INICIAR, com a versão, o tamanho do
-   download e as notas. Quem marcar "Atualizar automaticamente nas próximas
-   vezes" passa a receber sem pergunta: o programa baixa, confere o SHA-256,
-   troca os arquivos e reabre sozinho. Se o hash não bater, nada é trocado.
+Na 2.1 o manifesto (versao.json) escolhe, a cada lançamento, UM de dois modos
+(detalhes, JSON de exemplo e o que fazer no servidor: docs\ATUALIZACAO-2.1.md):
+
+  MODO SITE (o mais simples): o manifesto leva só a versão (e, se quiser,
+  "pagina", "notas", "notas_en"). Ao clicar em INICIAR a pessoa vê a caixa
+  "Nova versão disponível" com as notas: "Abrir a página de download" (abre
+  pcdofafa.com.br/dlss no navegador, para baixar e instalar do zero) ou
+  "Agora não". Em qualquer caso o programa instalado abre em seguida. Nada é
+  baixado nem trocado pelo launcher. Não precisa de zip nem de hash.
+
+  MODO DIRETO: o manifesto leva também o zip e o SHA-256. A caixa oferece
+  "Atualizar agora" (baixa, confere o SHA-256, troca os arquivos e reabre
+  sozinho; se o hash não bater, nada é trocado), "Abrir a página do site" e
+  "Agora não", e a caixa "Atualizar automaticamente nas próximas vezes". Se o
+  download ou a troca falhar, a mensagem oferece abrir a página do site.
+  Para o modo direto: rode  amd\publicar-versao.ps1 -Versao 2.2 -SoDireto21
+  -Publicar  (ele monta o zip, calcula o SHA-256 e escreve o versao.json).
+
+A caixa só aparece DEPOIS do clique em INICIAR, uma vez por abertura, e volta
+nas próximas aberturas enquanto houver versão nova. Quem já tem o programa
+recebe o aviso na abertura seguinte (e em até 30 minutos, se o launcher estiver
+aberto na hora em que você publicar). Escreva as notas em uma ou duas frases,
+em pt e en. Os launchers 1.2 em campo só atualizam direto se o manifesto tiver
+também "url" e "sha256" (o -SoDireto21 não os grava, de propósito).
 
 
 =====================================================================

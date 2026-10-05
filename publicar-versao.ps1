@@ -1,6 +1,17 @@
 # =====================================================================================
 #  publicar-versao.ps1  -  gera o que vai para o site para o atualizador do launcher.
 #
+#  v2.1 - SO PARA O MODO DIRETO. O launcher 2.1 tem dois modos, escolhidos pelo manifesto (ver
+#  atualizacao.h): MODO SITE (so `versao` [+ `pagina`, `notas`]: a caixa abre a pagina de download e o
+#  programa instalado segue abrindo) e MODO DIRETO (o manifesto traz o zip: o launcher baixa, confere o
+#  SHA-256 e troca). Para o MODO SITE este script NAO e necessario: nao ha zip nem hash a gerar;
+#  publique o manifesto a mao, ex.:  {"versao":"2.2","notas":"...","notas_en":"..."}  (ver
+#  docs/ATUALIZACAO-2.1.md). Este script gera o manifesto do modo direto:
+#     sem -SoDireto21  (padrao, como era): grava `url` + `sha256` - a 1.2 em campo TAMBEM atualiza direto
+#     com -SoDireto21 : grava `zip_url` + `zip_sha256` - a 1.2 ignora o manifesto (so a 2.1+ atualiza)
+#  Obs.: o /publicar do worker so aceita manifesto sem `url`/`sha256` depois do ajuste descrito em
+#  docs/ATUALIZACAO-2.1.md (validarManifestoVersao).
+#
 #  A partir do pacote portable MONTADO (padrao: ..\DLSS5ForAll-AMD, o que o
 #  montar-portable.ps1 produz), escreve em -Saida (padrao: ..\publicar\):
 #     DLSS5ForAll-<versao>.zip   o pacote SEM o que e da pessoa ou de terceiros nao
@@ -69,6 +80,10 @@ param(
     # O zip continua indo por fora (GitHub Releases / site): o servidor guarda so o manifesto.
     [string]$UrlBase,
     [switch]$Publicar,
+    # v2.1: grava zip_url/zip_sha256 em vez de url/sha256 (a 1.2 em campo nao ve a atualizacao direta)
+    [switch]$SoDireto21,
+    # v2.1: pagina de download (so https de pcdofafa.com.br; vazio = a padrao do launcher)
+    [string]$Pagina = '',
     # -Completo gera, DEPOIS do zip publico e a partir do mesmo conteudo, um segundo zip
     # PRIVADO com os componentes de terceiros que o publico nao pode levar. E o backup/teste
     # do usuario: uma instalacao que funciona sem baixar mais nada. Ver a lista adiante.
@@ -395,7 +410,9 @@ try {
     # "versao · tamanho · data" ao lado do botao, E pelo launcher desde 11/09/2026 - a caixa
     # que pergunta escreve "Download de 48,3 MB · publicada em <data>" antes de a pessoa
     # responder. Se este campo sumir do JSON, a caixa simplesmente nao fala de tamanho.
-    $json = '{"versao":"' + $Versao + '","data":"' + $Data + '","url":"' + (J $UrlZip) + '","sha256":"' + $sha +
+    $campoUrl = if ($SoDireto21) { 'zip_url' } else { 'url' }; $campoSha = if ($SoDireto21) { 'zip_sha256' } else { 'sha256' }
+    $json = '{"versao":"' + $Versao + '","data":"' + $Data + '","' + $campoUrl + '":"' + (J $UrlZip) + '","' + $campoSha + '":"' + $sha +
+            ($(if ($Pagina) { '","pagina":"' + (J $Pagina) } else { '' })) +
             '","tamanho_bytes":' + (Get-Item $zip).Length +
             ',"notas":"' + (J $Notas) + '","notas_en":"' + (J $NotasEn) + '","minima_para_auto":"' + (J $MinimaParaAuto) + '"}'
     [IO.File]::WriteAllText((Join-Path $Saida 'versao.json'), $json + "`n", $utf8)
