@@ -9180,6 +9180,42 @@ static bool FeederTemRedeReduzida() {
     return cache != 0;
 }
 
+// 2.1 (bug 3): ESTE FEEDER SABE RODAR A REDE ANTES DE AMPLIAR? Mesma pergunta ao binario,
+// pelo mesmo motivo: a 2.0 gravava `nr_pre_sr=1` e anunciava "a rede trabalha ANTES de
+// ampliar, ~4x mais barata", mas o feeder distribuido (24/09) nao tem essa chave - nao a le,
+// e avalia a rede no SLOT_OUTPUT, que com o DLSS SR ligado e o tamanho do MONITOR. A chave
+// que o app escreve so vale se o leitor dela existir; sem o literal no binario, nao existe.
+static bool FeederTemNrPreSr() {
+    static int cache = -1;
+    if (cache >= 0) return cache != 0;
+    cache = 0;
+    FILE* f = _wfopen((g_exeDir + L"dlss5-feed.addon64").c_str(), L"rb");
+    if (!f) return false;
+    static const char kMarca[] = "nr_pre_sr";
+    std::string buf;
+    char b[64 * 1024];
+    size_t n;
+    while ((n = fread(b, 1, sizeof(b), f)) > 0) {
+        buf.append(b, n);
+        if (buf.find(kMarca) != std::string::npos) { cache = 1; break; }
+        if (buf.size() > 64) buf.erase(0, buf.size() - 64);
+    }
+    fclose(f);
+    Log("qualidade da IA: o feeder desta pasta %s a chave nr_pre_sr",
+        cache ? "TEM" : "NAO tem (a rede roda no tamanho de saida do feeder, depois de ampliar)");
+    return cache != 0;
+}
+// Quando a cadeia AMPLIA sozinha (ninguem escolheu o upscaling e a captura e menor que o
+// backbuffer), quem amplia? O DLSS SR (2) poe a saida do feeder no tamanho do MONITOR, e
+// o motor proprio avalia a rede ali - sem `nr_pre_sr`, isso e a rede em 4K por engano, o
+// custo ~4x do bug 3. Com DLAA + FSR 1 (1) a saida do feeder fica no tamanho de TRABALHO
+// (= a captura, no Auto) e a rede roda la; quem leva ate o monitor e o EASU+RCAS do feeder.
+// A pelicula continua cobrindo a tela. No RenoDX a rede avalia no backbuffer de qualquer
+// jeito, e no modulo AMD a ordem e outra: ali fica o SR, como antes.
+static int SrAutoAmpliando() {
+    return (!g_moduloAmd && MotorProprio() && !FeederTemNrPreSr()) ? 1 : 2;
+}
+
 // Le um inteiro do dlss5-feed.cfg (chave=valor por linha, sem secoes). Devolve o padrao
 // quando o arquivo ou a chave nao existem - o feeder trata ausencia do mesmo jeito.
 static int LerChaveCfgInt(const std::wstring& caminho, const char* chaveNome, int padrao) {
@@ -23323,7 +23359,10 @@ static void AplicarFonte(UINT nw, UINT nh) {
     // ini - e ela existe em TODA instalacao, escrita de fabrica com `dlaa`. Ou seja, o
     // "automatico" nunca podia agir. Quem pediu o caminho curto pediu a rede ampliando;
     // aqui isso passa a valer mesmo com a chave de fabrica no arquivo.
-    const int srQuer = (menor && (g_srAuto || g_caminhoCurto)) ? 2 : g_srPedido;
+    // 2.1 (bug 3): o automatico pergunta QUEM amplia (SrAutoAmpliando) - sem `nr_pre_sr` no
+    // feeder, o DLSS SR poria a rede no tamanho do monitor. O caminho curto continua no SR.
+    const bool srAutoAqui = menor && g_srAuto && !g_caminhoCurto;
+    const int srQuer = (menor && g_caminhoCurto) ? 2 : srAutoAqui ? SrAutoAmpliando() : g_srPedido;
     // O RETANGULO VEM ANTES DAS SAIDAS CEDO, e este era o defeito: com o caminho curto o
     // `wr` fica fixo em 100 e o `srQuer` em 2, entao as duas comparacoes abaixo davam
     // "nada mudou" e a funcao voltava SEM reescrever short_w/short_h. Medido em 14/09/2026
@@ -23338,6 +23377,8 @@ static void AplicarFonte(UINT nw, UINT nh) {
         "super resolution %d -> %d (%s)", nw, nh, bw, bh, g_workResAtual, wr, g_srPedido, srQuer,
         !menor ? "a captura preenche o backbuffer"
         : srQuer == 2 ? "a captura e MENOR que o backbuffer: quem amplia passa a ser a REDE (work_upscale=2)"
+        : srAutoAqui  ? "a captura e MENOR que o backbuffer; o feeder nao tem nr_pre_sr, entao a rede fica no "
+                        "tamanho da captura e quem amplia e o FSR 1 do feeder (work_upscale=1)"
                       : "a captura e MENOR que o backbuffer, mas o Super Resolution esta escolhido a mao"
                         " como DLAA/FSR1 - quem amplia continua sendo o blit, e a imagem sai de filtro");
     g_srPedido = srQuer;
@@ -30451,7 +30492,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // do FSR - a ordem ja e "antes" por construcao e o Feeder AMD nem tem a chave nr_pre_sr
     // (conferido nas strings do binario dele, 14/09/2026). Gravar aqui seria escrever num
     // lugar que ninguem le, e o aviso do painel falaria de um motor que nao esta na pasta.
-    if (!g_moduloAmd) {
+    // 2.1 (bug 3): E SO SE O FEEDER TIVER A CHAVE. Sem ela o app gravava e anunciava a ordem
+    // "antes" que ninguem executava - ver FeederTemNrPreSr. Ali a verdade vai para o log, e
+    // quem evita a rede no tamanho do monitor e o SrAutoAmpliando (DLAA + FSR 1).
+    if (!g_moduloAmd && !FeederTemNrPreSr()) {
+        g_hud.iaAviso.clear();
+        Log("qualidade da IA: o feeder desta pasta NAO tem nr_pre_sr - a rede roda DEPOIS de ampliar, no tamanho "
+            "de saida do feeder (com DLSS SR = o monitor, custo ~4x; sem SR = o tamanho de trabalho). A chave nao "
+            "e gravada; [ultima] ia_ordem=%ls fica sem efeito ate um feeder que a leia",
+            IniGet(L"ia_ordem").empty() ? L"(padrao)" : IniGet(L"ia_ordem").c_str());
+    } else if (!g_moduloAmd) {
         static const char* kChaveOrdemIa = "nr_pre_sr";   // <- confirmar com o agente do feeder
         const bool antes = (IniGet(L"ia_ordem") != L"depois");   // padrao: a rapida
         GravarChaveCfg(g_exeDir + L"dlss5-feed.cfg", kChaveOrdemIa, antes ? "1" : "0");
@@ -30729,10 +30779,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // resolucao de reconstrucao (dlss5-feed.cpp:3032: `output = sr_active ? backbuffer : w`).
         // So age quando a pessoa NAO escolheu nada: escolha explicita no ini ou no env manda.
         if (saidaMonitor && vIni.empty() && !temEnv && m == 0) {
-            m = 2;
-            Log("super resolution: nenhuma escolha gravada e a reconstrucao e MAIOR que a captura -> "
-                "ligando DLSS SR (work_upscale=2). Com DLAA quem esticaria ate a tela seria um filtro, "
-                "e a imagem sai pixelada; aqui quem amplia passa a ser a REDE");
+            m = SrAutoAmpliando();   // 2.1 (bug 3): sem nr_pre_sr no feeder, o SR poria a rede no tamanho do monitor
+            if (m == 2)
+                Log("super resolution: nenhuma escolha gravada e a reconstrucao e MAIOR que a captura -> "
+                    "ligando DLSS SR (work_upscale=2). Com DLAA quem esticaria ate a tela seria um filtro, "
+                    "e a imagem sai pixelada; aqui quem amplia passa a ser a REDE");
+            else
+                Log("super resolution: nenhuma escolha gravada e a reconstrucao e MAIOR que a captura, mas o feeder "
+                    "desta pasta nao tem nr_pre_sr - com o DLSS SR a rede rodaria no tamanho do MONITOR (~4x o custo). "
+                    "Ficando em DLAA + FSR 1 (work_upscale=1): a rede trabalha no tamanho da captura e o FSR 1 do "
+                    "feeder amplia ate a pelicula. Escolher 'sr' no painel volta ao DLSS SR (e ao custo)");
         }
         g_srPedido = m;
         // ESCOLHA EXPLICITA MANDA SEMPRE. Sem esta marca, o AoMudarFonte (a cadeia seguindo
