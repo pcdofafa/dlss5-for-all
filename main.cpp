@@ -39761,7 +39761,8 @@ L"Do you want to continue?");
                         " teto da tela %.0f)",
                         razao, alvoFps, C.tetoFps > 0 ? "" : " - destravado, o maximo da tela",
                         fps, fpsBase, tetoTela);
-                } else if (travadoSemSkip && fluidezAvisouSemSkip != true && FluidezModoAtual() != FLUIDEZ_INTERPOLADA) {
+                } else if (travadoSemSkip && fluidezAvisouSemSkip != true && FluidezModoAtual() != FLUIDEZ_INTERPOLADA &&
+                           !NrBloqueadoNestaSessao()) {   // 2.1: sem rede nao ha DLSS Frame Skipping a ligar - o aviso mandava ligar o que nao existe
                     /* FG-BASE (20/09/2026): SO NO MODO PROJETADA. Este aviso e do mecanismo antigo
                        (o quadro extrapolado, que depende do DLSS Frame Skipping para existir). Com
                        a INTERPOLADA ligada quem inventa o quadro e o FI, que nao usa Frame Skipping
@@ -39772,7 +39773,10 @@ L"Do you want to continue?");
                         " ele nao ha quadro projetado (a pelicula so acompanha o jogo); ligue"
                         " o Frame Skipping para a fluidez valer", alvoFps);
                 }
-                if (!travadoSemSkip) fluidezAvisouSemSkip = false;
+                // 2.1: NAO REARMA. O reset a cada volta sem trava (a razao oscila com o fps base abaixo de 5, e
+                // travadoSemSkip some e volta) fazia o aviso repetir em laco; "uma vez so" e uma vez por SESSAO
+                // (o comentario da declaracao ja dizia isso). O estado que muda de verdade, ligar o skipping, rearma:
+                if (alternaAtiva) fluidezAvisouSemSkip = false;
             }
             if (fluidezRazao > 1.001 && extrasFeitos)
                 Log("fluidez: %ux/s extrapolados | chegada %.1f | pelicula %.1f | intervalo tipico"
