@@ -1051,9 +1051,9 @@ static int RenderV8(Graphics* g) {
             const REAL h = kLinhaSub8;
             const int idx = (int)g_items.size();
             g_items.push_back(Item{ RectF(L, cy, IW, h), E_FOLGAGPU, 0, true, on,
-                                    TS(L"Folga de GPU (recomendado)\nCom a fonte acima do que a rede processa com folga, o app admite a captura num passo inteiro da tela para a placa não passar de ~75% — "
+                                    TS(L"Folga de GPU\nCom a fonte acima do que a rede processa com folga, o app admite a captura num passo inteiro da tela para a placa não passar de ~75% — "
                                        L"é o que evita os reinícios da placa (nvlddmkm 153). Desligada: o app processa tudo o que couber e só avisa.",
-                                       L"GPU headroom (recommended)\nWhen the source delivers more than the network can process with headroom, the app takes captures in whole-refresh steps to keep the GPU under ~75% — "
+                                       L"GPU headroom\nWhen the source delivers more than the network can process with headroom, the app takes captures in whole-refresh steps to keep the GPU under ~75% — "
                                        L"this is what prevents GPU resets (nvlddmkm 153). Off: the app processes everything it can and only warns.") });
             if (g) { V8Rotulo(g, L, cy, IW - kChave8 - 12.f, h, TS(L"Folga de GPU", L"GPU headroom"), sub); V8Chave(g, R - kChave8, cy + h / 2.f, on, true, g_hot == idx); }
             cy += h; V8Div(g, L, IW, cy);

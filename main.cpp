@@ -13250,7 +13250,7 @@ enum EKind { E_NONE = 0, E_FILTER, E_NEURAL, E_PULO, E_ALTERNA, E_SINTETIZA, E_W
              E_PONTEIRO,       // O3: o ponteiro na pelicula - 0 Esconder, 1 Desenhar, 2 Prender
              E_FGQUAL,           // O2-QUALIDADE: Qualidade / Desempenho (fluxo interno do FI)
              E_FGCAMPO,          // O2-QUALIDADE: campo de movimento Alto / Medio / Baixo
-             E_FOLGAGPU,         // sec. 21: "Folga de GPU (recomendado)" - a guarda de folga (ritmo/degrau) liga/desliga, [ultima] esteira_guarda
+             E_FOLGAGPU,         // sec. 21: "Folga de GPU" (desligada de fabrica) - a guarda de folga (ritmo/degrau) liga/desliga, [ultima] esteira_guarda
              E_EXPOADAPT,        // NS-2309 item 3: "Exposicao adaptativa" - exposicao_adaptativa no dlss5-feed.cfg (padrao 0)
              E_CAPTURAIMG,       // MGR-2309 item 6: "Capturar imagem processada" (PNG do backbuffer da pelicula)
              // Rodada 21 (24/09/2026, item 5 do dono): o submenu "Avancado" da tela inicial do
@@ -14262,7 +14262,7 @@ static int RenderV7(Graphics* g) {
         g_items.push_back(it);
         if (g) {
             FillRound(g, r, 12.f, (g_hot == idx) ? C_ROWH : C_ROW);
-            Txt(g, T(L"Folga de GPU (recomendado)", L"GPU headroom (recommended)"), fItem, C_TXT, RectF(r.X + 18, r.Y + 8, r.Width - 88, 22), 0);
+            Txt(g, T(L"Folga de GPU", L"GPU headroom"), fItem, C_TXT, RectF(r.X + 18, r.Y + 8, r.Width - 88, 22), 0);
             TxtWrap(g, g_hud.folgaEstado.empty() ? (on ? T(L"inativa: fonte cabe", L"idle: source fits") : T(L"desligada: só aviso", L"off: warning only"))
                                                  : g_hud.folgaEstado.c_str(),
                     fItemSub, C_BODY, RectF(r.X + 18, r.Y + 29, r.Width - 88, 18));
@@ -31320,12 +31320,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             const std::wstring gP = IniGet(L"esteira_guarda_pct");
             const bool ritmoG = IniGet(L"esteira_guarda_ritmo") != L"0";   // sec. 20: padrao 1 (0 = so o aviso, como na sec. 18)
             const bool degrauG = IniGet(L"esteira_guarda_degrau") != L"0";   // sec. 21: padrao 1 (0 = ritmo continuo da sec. 20)
-            // sec. 21: a opcao do painel "Folga de GPU" (0 = so aviso). v2.0 (pedido do dono): vem DESMARCADA de fabrica -
-            // so para quem abre sem ini; a escolha fica gravada (0) para a proxima abertura nao cair no padrao antigo. Ini que ja
-            // existia sem a chave segue com o padrao antigo (1); chave gravada vale sempre.
-            std::wstring gChave = IniGet(L"esteira_guarda");
-            if (gChave.empty() && !g_iniExistiaNaAbertura) { gChave = L"0"; IniSet(L"esteira_guarda", L"0"); }
-            const bool guardaG = gChave != L"0";
+            // sec. 21: a opcao do painel "Folga de GPU" (0 = so aviso). Decisao do dono: NAO e config padrao - "se a pessoa
+            // quiser liga". 2.1 (06/10/2026): so liga com `esteira_guarda=1` EXPLICITO (escolha no painel); chave ausente =
+            // DESLIGADA, exista o ini ou nao. Antes o padrao 0 so valia "sem ini na abertura", e o ini ja nasce antes disso
+            // (o launcher grava o idioma; a troca de placa reabre): na pasta limpa a folga abria LIGADA (log de 06/10 07:06).
+            const bool guardaG = IniGet(L"esteira_guarda") == L"1";
             Esteira::Configurar(medir, voo, escalaAuto ? 1 : 0, gP.empty() ? 0 : _wtoi(gP.c_str()), ritmoG ? 1 : 0, degrauG ? 1 : 0, guardaG ? 1 : 0);
             Esteira::LerChavesCtl(IniGet);   // sec. 24: os numeros do controlador de carga ([ultima] guarda_*; padroes da PESQ-CONTROLE-CARGA 3.8)
             {   // RESET-2109 (sec. 21): veto por custo da troca de passes/escala e teto da placa inteira
@@ -31358,11 +31357,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                     g_vetoMs, g_vetoFrac, 100.0 * Esteira::kPlacaLim);
             }
             Log("esteira: folga de GPU %s ([ultima] esteira_guarda; painel) | ritmo em degrau %s ([ultima] esteira_guarda_degrau; passo inteiro N sobre a grade do DWM, refresh/N <= sustentavel com folga)",
-                guardaG ? "LIGADA" : "DESLIGADA (so aviso)", degrauG ? "LIGADO" : "desligado (ritmo continuo)");
+                guardaG ? "LIGADA" : "DESLIGADA (so aviso; padrao - so liga com esteira_guarda=1)",
+                !guardaG ? "inerte (folga desligada)" : degrauG ? "LIGADO" : "desligado (ritmo continuo)");
             Log("esteira: guarda com ritmo %s ([ultima] esteira_guarda_ritmo; guarda ativa = captura admitida a custo/limiar, solta com a fonte < 65%% por 3 s)",
-                ritmoG ? "LIGADA" : "desligada (so aviso)");
-            Log("esteira: guarda de folga da GPU LIGADA (ocupacao > %.0f%% por 2 s = 1 pacote em voo + AVISO; [ultima] esteira_guarda_pct) | nr_escala_auto=%d (%s)",
-                100.0 * Esteira::kGuardaLim, escalaAuto ? 1 : 0, escalaAuto ? "grava o degrau seguinte para a proxima abertura" : "padrao: inerte, decisao do dono");
+                !guardaG ? "inerte (folga desligada: so aviso)" : ritmoG ? "LIGADA" : "desligada (so aviso)");
+            Log("esteira: guarda de folga da GPU %s (ocupacao > %.0f%% por 2 s = 1 pacote em voo + AVISO; [ultima] esteira_guarda_pct) | freio e teto da placa: %s | nr_escala_auto=%d (%s)",
+                guardaG ? "LIGADA" : "SO AVISO (folga desligada)", 100.0 * Esteira::kGuardaLim,
+                guardaG ? "agem" : "so avisam (folga desligada)",
+                escalaAuto ? 1 : 0, escalaAuto ? "grava o degrau seguinte para a proxima abertura" : "padrao: inerte, decisao do dono");
             // BUG 3: o estado que acompanha cada linha `esteira 1s` (o que estava ligado quando os tempos foram medidos).
             Esteira::g_estadoFn = [](char* b, size_t n) {
                 const char* nr = g_hud.neural == NR_ATIVO ? "ativo" : g_hud.neural == NR_INICIANDO ? "iniciando" : g_hud.neural == NR_DESLIGADO ? "desligado"

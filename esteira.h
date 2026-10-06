@@ -209,8 +209,8 @@ inline int PlacaMaxRecente(double ms) { int mx = -1; const double ag = Ms(); for
 inline double Placa() { const int p = g_placaPct.load(); return (kPlacaLim > 0.0 && p >= 0 && Ms() - g_placaMs.load() <= 3000.0) ? p / 100.0 : -1.0; }
 
 // GUARDA NO PAINEL (sec. 21, pedido do dono): `[ultima] esteira_guarda`. 0 = sem ritmo nem degrau: a guarda
-// so mede e avisa (o comportamento da sec. 18). Muda em voo pelo painel (End). v2.0: DESMARCADA de fabrica (sem ini);
-// ini antigo sem a chave continua 1 - quem decide e o main (Configurar). 0 aqui = o que vale antes do Configurar (fotos).
+// so mede e avisa (o comportamento da sec. 18). Muda em voo pelo painel (End). 2.1: DESMARCADA sempre que a chave
+// faltar (com ou sem ini); so `esteira_guarda=1` liga - quem le e o main (Configurar). 0 aqui = o que vale antes do Configurar.
 inline int    g_guardaChave = 0;
 
 // RITMO EM DEGRAU (sec. 21, `[ultima] esteira_guarda_degrau`, padrao 1; 0 = o ritmo continuo da sec. 20). Com a guarda
