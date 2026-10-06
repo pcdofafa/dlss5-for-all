@@ -6031,26 +6031,19 @@ static bool FluidezInterpolada() { return FluidezModoAtual() == FLUIDEZ_INTERPOL
 // 14/09). DLSS5_PONTE_SEMPRE=0 ou [ultima] ponte_precaucao=0 devolvem o caminho antigo -
 // a segunda e escrita pelo proprio app se o transporte nao subir nesta maquina (ver a
 // vigia do g_desistiu), para que uma maquina sem o add-on nunca fique sem imagem duas vezes.
-// 2.1 (06/10/2026): EXCETO NA FONTE MONITOR SOBREPOSTA. Ali a precaucao custava a sessao: a janela
-// visivel ganha NOREDIRECTIONBITMAP e o apresentador entra em flip independente COBRINDO O PROPRIO
-// MONITOR capturado - o DWM para de recompor a area de baixo e o WGC passa a entregar a composicao
-// velha (copias) sempre que NOS apresentamos (realimentacao), ou nada. Medido em 06/10 07:13-07:17
-// (RTX 4080, 3440x1440): a esteira caiu a 0,1-2 quadros/s - o ritmo do present ocioso de 500 ms -
-// com "novos 1 | copias 153"; nos 2 s ANTES do apresentador subir a mesma sessao fazia 55-90/s.
-// Mesma assinatura em bin-final 21:23 (3440x1440). Fonte janela (Witcher 3, 03/10) segue com a
-// precaucao a 60/s. Na monitor, ligar 2x/3x/4x volta a reabrir (rTroca == 0), o caminho de antes.
-// `[ultima] ponte_precaucao=1` (ou DLSS5_PONTE_SEMPRE=1) forca a precaucao tambem na monitor.
-static bool g_precaucaoFonteMonitor = false;   // o main poe antes de criar a janela visivel
+// 2.1 (06/10/2026): VALE TAMBEM NA FONTE MONITOR, como na 2.0. Uma excecao para a monitor (69f3bd7,
+// revertida) partiu de "a esteira cai a ~2 quadros/s" - que e so o present ocioso de 500 ms com a
+// tela PARADA (WGC sem quadro novo), igual nos dois caminhos; a pelicula visivel em iFlip cobrindo o
+// monitor captura normalmente (06/10 07:38:17: overlay=37 e 82 quadros novos/s). Sem o apresentador
+// a cadeia ia para a janela visivel: o banner e o contador do ReShade apareciam na tela e a seta
+// voltava a ser desenhada na captura (parada com a tela parada).
 static bool FluidezPodeLigarDepois() {
     if (FluidezInterpolada()) return false;   // ja ligada: a topologia nasce por ela mesma
     if (g_camada2) return false;              // camada de cima nao tem card de fluidez
     wchar_t e[8]{};
     if (GetEnvironmentVariableW(L"DLSS5_FG", e, 8) > 0 && e[0] == L'0') return false;          // kill-switch do FI
-    const bool envSempre = GetEnvironmentVariableW(L"DLSS5_PONTE_SEMPRE", e, 8) > 0;
-    if (envSempre && e[0] == L'0') return false;
-    const std::wstring chave = IniGet(L"ponte_precaucao");
-    if (chave == L"0") return false;
-    if (g_precaucaoFonteMonitor && !(envSempre && e[0] == L'1') && chave != L"1") return false;
+    if (GetEnvironmentVariableW(L"DLSS5_PONTE_SEMPRE", e, 8) > 0 && e[0] == L'0') return false;
+    if (IniGet(L"ponte_precaucao") == L"0") return false;
     wchar_t envDll[MAX_PATH]{};
     const std::wstring dll = (GetEnvironmentVariableW(L"DLSS5_FG_DLL", envDll, MAX_PATH) > 0 && envDll[0])
                            ? std::wstring(envDll) : (g_dadosDir + L"amd_fidelityfx_dx12.dll");
@@ -30619,14 +30612,6 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                 : "NOREDIRECTIONBITMAP + TRANSPARENT + TOPMOST sem LAYERED (flip independente; o clique NAO atravessa para outro processo)");
     }
     HWND hwnd = nullptr;
-    // 2.1: fonte monitor sobreposta = sem a ponte de precaucao (ver FluidezPodeLigarDepois). Antes do
-    // MonitorEmOutraPlaca abaixo e do PontePlacas::Decidir, que leem isto.
-    g_precaucaoFonteMonitor = (C.kind == SRC_MONITOR && C.overlay);
-    if (g_precaucaoFonteMonitor && !FluidezInterpolada())
-        Log("ponte de precaucao: %s na fonte MONITOR sobreposta (a janela visivel cobre o monitor capturado: com o "
-            "apresentador em flip independente o DWM deixa de recompor a fonte e a captura vira realimentacao). "
-            "Ligar 2x/3x/4x reabre o app nesse momento. [ultima] ponte_precaucao=1 forca a precaucao",
-            FluidezPodeLigarDepois() ? "FORCADA (ponte_precaucao=1 / DLSS5_PONTE_SEMPRE=1)" : "DESLIGADA");
     if (C.overlay) {
         // popup sem borda, do tamanho exato do alvo, colado em cima dele.
         // Sem WS_EX_TOOLWINDOW ela continua sendo uma janela "de verdade" pro sistema:
