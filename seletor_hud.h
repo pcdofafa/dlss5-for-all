@@ -752,6 +752,20 @@ static bool AmpliaPelaPelicula(const Estado& s) {
     }
     return hAlvo > hJogo;
 }
+// 2.1: o monitor da fonte escolhida (a tela ou a tela onde esta a janela) fica em OUTRA placa que nao a `p`? Entao cada
+// quadro atravessa entre as duas (travessias por quadro = 2) e pode ficar lento: o seletor avisa ao lado da placa.
+// Cache por HMONITOR: o DXGI nao e coisa para enumerar a cada Paint. Camera/captura: sem monitor, sem aviso.
+static bool MonitorEmOutraPlacaQue(const Estado& s, const PlacaOpcao& p) {
+    HMONITOR m = nullptr;
+    if (s.fonte == SRC_MONITOR && s.selMon >= 0 && s.selMon < (int)s.mons.size()) m = s.mons[s.selMon].mon;
+    else if (s.fonte == SRC_WINDOW && s.selWin >= 0 && s.selWin < (int)s.wins.size() && s.wins[s.selWin].hwnd)
+        m = MonitorFromWindow(s.wins[s.selWin].hwnd, MONITOR_DEFAULTTONEAREST);
+    if (!m) return false;
+    static HMONITOR cm = nullptr; static LUID cl{}; static bool cok = false;
+    if (m != cm) { cm = m; cok = PonteGpu::PlacaDoMonitor(m, &cl, nullptr); }
+    return cok && !(cl.LowPart == p.luid.LowPart && cl.HighPart == p.luid.HighPart);
+}
+
 // E4: a exibicao do jogo, lida de fora pelo estilo e pelo retangulo (JogoRes::Estilo).
 // Tela cheia exclusiva nao se distingue de sem bordas daqui: as duas marcam "sem bordas".
 static int ExibicaoAtual(HWND h) {
@@ -1743,12 +1757,19 @@ static int Render(Graphics* g) {
             for (int i = 0; i < n; i++) {
                 RectF r(L + i * (bw + gap), cy, bw, bh);
                 const bool sel = (s.selPlaca == i);
-                int idx = Add(r, K_GPU, i, true, tipG);
+                // 2.1: monitor na outra placa = cada quadro atravessa entre as duas. Dica em todo chip afetado; a frase curta
+                // entra na segunda linha do chip escolhido (so texto, o layout nao muda).
+                const bool outraPlaca = MonitorEmOutraPlacaQue(s, g_placas[s.placasIdx[i]]);
+                const std::wstring notaOutra = TS(L"o monitor está na outra placa: cada quadro atravessa entre as duas, pode ficar lento",
+                                                  L"the monitor is on the other card: every frame crosses between the two, it may be slow");
+                int idx = Add(r, K_GPU, i, true, outraPlaca ? tipG + L"\n\n" + notaOutra : tipG);
                 if (g) {
                     FillRound(g, r, 6.f, sel ? C_ACC : (g_hot == idx) ? C_ROWH : C_ROW);
                     const PlacaOpcao& p = g_placas[s.placasIdx[i]];
                     Txt(g, p.nome.c_str(), fBadge, sel ? C_DARK : C_BODY, RectF(r.X + 12, r.Y + 3, r.Width - 24, 18), 0, true);
-                    Txt(g, p.dlss ? std::wstring(L"DLSS 5 ok").c_str() : semDlss(p).c_str(), fItemSub, sel ? C_DARK : C_FAINT,
+                    const std::wstring l2 = (p.dlss ? std::wstring(L"DLSS 5 ok") : semDlss(p)) +
+                                            ((outraPlaca && sel) ? TS(L"  ·  monitor na outra placa: pode ficar lento", L"  ·  monitor on the other card: may be slow") : L"");
+                    Txt(g, l2.c_str(), fItemSub, sel ? C_DARK : C_FAINT,
                         RectF(r.X + 12, r.Y + 20, r.Width - 24, 16), 0, true);
                 }
             }
