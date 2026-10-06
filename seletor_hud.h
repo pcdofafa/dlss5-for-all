@@ -2683,6 +2683,9 @@ static bool ShowSelector(HINSTANCE hi, std::vector<Device>& devs, Choice& out,
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (msg.message == WM_HOTKEY && ((int)msg.wParam == kHkSeletor || (int)msg.wParam == kHkSeletorEnd
                                                   || (painelDoArranque && ((int)msg.wParam == HK_ACAO_BASE + AT_PAINEL || (int)msg.wParam == HK_PAINEL_END_EXTRA))) && st.wnd) {
+            // 2.1 (pedido do dono): seletor MINIMIZADO tambem volta - sem restaurar, o primeiro plano
+            // ia para uma janela minimizada e nada aparecia. Ja visivel/em foco: segue como antes.
+            if (IsIconic(st.wnd)) ShowWindow(st.wnd, SW_RESTORE);
             const bool ok = Hud::ForcarPrimeiroPlano(st.wnd);
             SetWindowPos(st.wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             SetFocus(st.wnd);
