@@ -841,6 +841,11 @@ inline void MarcaGpu(ID3D11DeviceContext* c, int k) {
     if (!Ligado() || !g_q.ativo || g_q.gpuSlot < 0 || !c) return;
     GpuSlot& s = g_gs[g_q.gpuSlot];
     if (s.emVoo && s.ts[k]) c->End(s.ts[k]);
+    // 2.1 (06/10/2026): D e a ULTIMA coisa da volta e vinha DEPOIS do Flush da ponte (ponte_gpu.h) - ficava na fila
+    // do D3D11 ate o proximo envio, que com a fonte parada e o present ocioso 500 ms depois. A linha `esteira 1s`
+    // mostrava `pos 500 ms` (log de 06/10 07:15-07:16, volta de CPU 1,5 ms, placa 11-13%): era o relogio parado,
+    // nao trabalho nem espera. O Flush manda o carimbo na hora (nao espera nada; a ponte ja da um por quadro).
+    if (k == 3 && s.emVoo) c->Flush();
 }
 inline void Ponte(uint64_t n) {
     if (!Ligado() || !n) return;
