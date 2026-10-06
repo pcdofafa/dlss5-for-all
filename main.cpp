@@ -32384,6 +32384,18 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     bool      recriouNoCongelamento = false;  // ja tentamos o conserto barato neste congelamento
     int       segComFrame = 0;            // segundos seguidos COM frame (a fonte voltou mesmo?)
     bool      avisouAutoTapa = false;     // o cartaz longo sai uma vez por sessao
+    // CONFIRMACAO DA SONDA (06:53 de 06/10/2026, teste real da 2.1): a sonda positiva NAO
+    // desliga mais o filtro de cara. Recolher a camada e ele proprio uma mudanca de composicao
+    // (camada, janela do apresentador, ponteiro do sistema, barra de tarefas): num desktop
+    // PARADO isso rendeu 4 frames em 1 s, a sonda leu "tapava" e o filtro ficou fora com o
+    // Frame Gen morto - e 3 s depois a fonte voltou a 0,0 fps com a camada JA fora da frente
+    // (a tela estava parada, a camada nunca tapou nada). Quem tapa de verdade deixa a fonte
+    // andar de forma SUSTENTADA assim que a camada sai; o susto da propria retirada some em
+    // ~2 s. Por isso a sonda positiva abre uma janela de confirmacao com a camada fora.
+    ULONGLONG tapaProvAte = 0;            // != 0: sonda positiva, ainda confirmando
+    int       tapaProvVivo = 0;           // segundos com a fonte >= 5 fps durante a confirmacao
+    bool      tapaDesligou = false;       // o bypass atual foi posto por NOS (confirmado)
+    int       tapaParadoSeg = 0;          // segundos seguidos parada com o bypass nosso
     const ULONGLONG inicioApp = GetTickCount64();
     bool fingiuQueda = false;
     ULONGLONG ultimaQuedaFalsa = GetTickCount64();
@@ -35832,24 +35844,14 @@ L"Do you want to continue?");
             // dentro de um unico frame e a medida dava empate com a tela morta. Com 1 s a
             // tela parada continua em 1 e qualquer fonte viva passa de 2.
             if (chegou >= 2) {
-                // A fonte so voltou a andar com a camada fora da frente: era ela.
-                Log("monitor sobreposto: a camada tapava a propria fonte (%u frames chegaram com ela"
-                    " recolhida) - devolvendo a imagem original", (unsigned)chegou);
+                // Os frames vieram com a camada recolhida - mas isso ainda NAO prova que era ela
+                // (ver CONFIRMACAO DA SONDA na declaracao). A camada fica fora da frente (bypass)
+                // por mais alguns segundos e o veredito sai da fonte SUSTENTADA, no laco de 1 s.
+                Log("monitor sobreposto: %u frames chegaram com a camada recolhida - confirmando por 3 s"
+                    " se a fonte anda de verdade com ela fora (a propria retirada ja gera frames)",
+                    (unsigned)chegou);
                 bypass = true; g_trayBypass = true; g_hud.bypass = true; Hud::Refresh();
-                // Cartaz longo na primeira vez (explica e ensina a saida); curto depois,
-                // porque quem religa o filtro de proposito ja leu o motivo.
-                ShowToast(hi, C.mon, avisouAutoTapa
-                    ? T(L"A IMAGEM CONGELOU DE NOVO - filtro fora\n"
-                        L"a camada tapa a fonte dela. Para filtrar um jogo, escolha Janela no seletor.",
-                        L"THE IMAGE FROZE AGAIN - filter dropped\n"
-                        L"the layer covers its own source. To filter a game, pick Window in the selector.")
-                    // I19 (19/09/2026): regra das mensagens - o que aconteceu e a acao, em linguagem de jogador.
-                    : T(L"O DLSS 5 não consegue cobrir o monitor inteiro\n"
-                        L"Escolha \"Janela\" no seletor e ponha o jogo em tela cheia sem bordas. A imagem original voltou.",
-                        L"DLSS 5 cannot cover the whole monitor\n"
-                        L"Pick \"Window\" in the selector and set the game to borderless fullscreen. The original image is back."),
-                    avisouAutoTapa ? 5000 : 9000);
-                avisouAutoTapa = true;
+                tapaProvAte = agoraSonda + 3000; tapaProvVivo = 0;
             } else {
                 // Ninguem estava tapando nada: a tela esta parada de verdade. Nao incomoda
                 // e espaca a proxima sonda, para nao piscar de 20 em 20 s numa tela quieta.
@@ -38361,6 +38363,62 @@ L"Do you want to continue?");
                         realimLogSeg = 0;
                         Log("realimentacao: teto %d fps em vigor (pelicula e apresentador) | captura %.1f/s, pelicula %.1f/s | apresentador: %llu gerados descartados, %llu reais adiados pelo teto",
                             tetoRealim, fps, pfps, (unsigned long long)PontePlacas::g_apres.TetoDescartados(), (unsigned long long)PontePlacas::g_apres.TetoAdiados());
+                    }
+                }
+            }
+            // CONFIRMACAO DA SONDA + RELIGAR SOZINHO (ver a declaracao de tapaProvAte). O bypass
+            // que a sonda pos NUNCA fica para sempre: (1) durante a confirmacao, fonte >= 5 fps
+            // em 2 de 3 s com a camada fora = era a camada (cartaz e bypass ficam); senao foi o
+            // susto da propria retirada, o filtro volta e a proxima sonda espera mais; (2) com
+            // o bypass confirmado, fonte parada 10 s seguidos = tela quieta, onde a camada na
+            // frente e inofensiva, e o filtro volta sozinho (se a fonte voltar a andar e
+            // congelar de novo, o caminho normal recria, sonda, confirma e desliga outra vez).
+            if (C.kind == SRC_MONITOR && C.overlay && (tapaProvAte || tapaDesligou)) {
+                auto religarFiltro = [&](const char* motivo, bool recuar) {
+                    Log("monitor sobreposto: %s - religando o filtro (a camada nao estava tapando a fonte)", motivo);
+                    bypass = false; g_trayBypass = false; g_hud.bypass = false; Hud::Refresh();
+                    tapaProvAte = 0; tapaProvVivo = 0; tapaDesligou = false; tapaParadoSeg = 0;
+                    fpsAntesDaCamada = 0.0; segSemFrame = 0; segComFrame = 0; recriouNoCongelamento = false;
+                    proximaSonda = now + intervaloSonda;
+                    if (recuar && intervaloSonda < 300000) intervaloSonda *= 2;
+                };
+                if (!bypass) {                       // a pessoa religou (F6, bandeja, painel): sai de cena
+                    tapaProvAte = 0; tapaProvVivo = 0; tapaDesligou = false; tapaParadoSeg = 0;
+                } else if (mpjServindo) {
+                    religarFiltro("uma janela passou a servir a fonte", false);
+                } else if (tapaProvAte) {
+                    if (fps >= 5.0) tapaProvVivo++;
+                    if (now >= tapaProvAte) {
+                        const int vivo = tapaProvVivo;
+                        tapaProvAte = 0; tapaProvVivo = 0;
+                        if (vivo >= 2) {
+                            Log("monitor sobreposto: a camada tapava a propria fonte (a fonte andou >= 5 fps em %d de 3 s"
+                                " com ela recolhida) - devolvendo a imagem original", vivo);
+                            tapaDesligou = true; tapaParadoSeg = 0;
+                            // Cartaz longo na primeira vez (explica e ensina a saida); curto depois,
+                            // porque quem religa o filtro de proposito ja leu o motivo.
+                            ShowToast(hi, C.mon, avisouAutoTapa
+                                ? T(L"A IMAGEM CONGELOU DE NOVO - filtro fora\n"
+                                    L"a camada tapa a fonte dela. Para filtrar um jogo, escolha Janela no seletor.",
+                                    L"THE IMAGE FROZE AGAIN - filter dropped\n"
+                                    L"the layer covers its own source. To filter a game, pick Window in the selector.")
+                                // I19 (19/09/2026): regra das mensagens - o que aconteceu e a acao, em linguagem de jogador.
+                                : T(L"O DLSS 5 não consegue cobrir o monitor inteiro\n"
+                                    L"Escolha \"Janela\" no seletor e ponha o jogo em tela cheia sem bordas. A imagem original voltou.",
+                                    L"DLSS 5 cannot cover the whole monitor\n"
+                                    L"Pick \"Window\" in the selector and set the game to borderless fullscreen. The original image is back."),
+                                avisouAutoTapa ? 5000 : 9000);
+                            avisouAutoTapa = true;
+                        } else {
+                            religarFiltro("a fonte nao andou de forma sustentada depois que a camada saiu (so o susto da retirada)", true);
+                        }
+                    }
+                } else {
+                    tapaParadoSeg = (fps < 0.5) ? tapaParadoSeg + 1 : 0;
+                    if (tapaParadoSeg >= 10) {
+                        religarFiltro("a fonte ficou parada por 10 s", false);
+                        ShowToast(hi, C.mon, T(L"FILTRO LIGADO  -  DLSS 5\na tela está parada; se congelar, o filtro sai de novo",
+                                                L"FILTER ON  -  DLSS 5\nthe screen is still; if it freezes, the filter drops again"), 3000);
                     }
                 }
             }
