@@ -689,7 +689,7 @@ static int RenderV8(Graphics* g) {
             const bool neuralOk = (g_hud.neural == NR_ATIVO), subindo = (g_hud.neural == NR_INICIANDO);
             const bool temAddon = (g_hud.neural != NR_SEM_ADDON && g_hud.neural != NR_SEM_RTX);
             const bool camadaOn = g_hud.overlay ? !g_hud.bypass : true;
-            const bool ligado   = camadaOn && (neuralOk || subindo || !temAddon);
+            const bool ligado   = camadaOn && (neuralOk || subindo);   // v2.1: sem rede (SEM_RTX/SEM_ADDON) o botao fica APAGADO, nunca com cara de ligado
             const ULONGLONG ag = GetTickCount64();
             const int seg = (g_hud.ativarEm > ag) ? (int)((g_hud.ativarEm - ag + 999) / 1000) : 0;
             const bool en = g_hud.overlay && temAddon && !g_hud.neuralPendente;

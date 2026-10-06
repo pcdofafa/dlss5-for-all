@@ -14864,7 +14864,7 @@ static int RenderV7(Graphics* g) {
         // card anunciava HABILITADO com o neural desligado no ReShade.ini - a pessoa
         // apertava, lia "habilitado" e a imagem nao mudava nada.
         const bool camadaOn = g_hud.overlay ? !g_hud.bypass : true;
-        const bool ligado   = camadaOn && (neuralOk || subindo || !temAddon);
+        const bool ligado   = camadaOn && (neuralOk || subindo);   // v2.1: sem rede (SEM_RTX/SEM_ADDON) o botao fica APAGADO, nunca com cara de ligado
         // Enquanto um toque espera confirmacao o card RECUSA cliques: o toque e um PULSO
         // que o RenoDX le no proximo frame dele, e dois pulsos armados antes da resposta
         // se cancelam - a pessoa voltaria ao estado inicial achando que "as vezes nao liga".
@@ -36035,7 +36035,7 @@ L"Do you want to continue?");
             // 8-9 s e sao justamente os que a pessoa precisa ler; o aquecimento e o caso
             // comum e pode esperar. Depois que o meu esta na tela, ele se renova sozinho -
             // e por isso a condicao aceita "o cartaz visivel e o meu".
-            if (aquecendo && agora >= proximoCartazAquec && (!ToastVisivel() || agora < meuCartazAquecAte)) {
+            if (aquecendo && !NrBloqueadoNestaSessao() && g_hud.neural != NR_SEM_RTX && agora >= proximoCartazAquec && (!ToastVisivel() || agora < meuCartazAquecAte)) {
                 proximoCartazAquec = agora + 2000;
                 meuCartazAquecAte  = agora + 2400;
                 ShowToast(hi, C.mon,
