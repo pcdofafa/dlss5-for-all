@@ -11301,7 +11301,13 @@ static NeuralEstado LerEstadoNeural(std::wstring* detalhe) {
 //   2. "frame N delivered" no dlss5-feed.log (o feed entregou, com ou sem neural);
 //   3. "evaluation succeeded" no ReShade.log (a avaliacao NGX rodou).
 // Sem leitura nova de disco: as duas fontes ja estao no cache do TailArquivo.
+// 2.1: PASSAGEM DIRETA do feeder (Sintetiza::PassagemDireta): sem rede nesta sessao e sem ampliacao pedida, a cadeia
+// Kernel/Feed fica fora do ReShade e a imagem vai crua para os filtros e a pelicula. Mora aqui porque o aquecimento
+// (CadeiaEntregando) precisa saber: sem o Feed rodando o log do feeder nunca diz "delivered", e a pelicula ficaria
+// 30 s escondida esperando uma cadeia que de proposito nao existe.
+static bool g_passagemDireta = false;
 static bool CadeiaEntregando() {
+    if (g_passagemDireta) return true;
     if (LerEstadoNeural(nullptr) == NR_ATIVO) return true;
     const std::string feed = TailArquivo(g_exeDir + L"dlss5-feed.log", 32 * 1024);
     if (feed.find(" delivered (") != std::string::npos) return true;
@@ -27411,8 +27417,11 @@ namespace Sintetiza {
         // sempre; os efeitos do painel voltam pelo caminho que ja sabe o que a pessoa
         // escolheu -- religar SMAA e nitidez para quem os desligou seria mudar o ajuste
         // dela pelas costas, uma vez por quadro.
-        rsbridge::SetTechniqueEnabled(kCadeia[0][0], true, kCadeia[0][1]);
-        rsbridge::SetTechniqueEnabled(kCadeia[1][0], true, kCadeia[1][1]);
+        // 2.1: em PASSAGEM DIRETA o Kernel e o Feed continuam fora (nao ha o que o skipping religar)
+        if (!g_passagemDireta) {
+            rsbridge::SetTechniqueEnabled(kCadeia[0][0], true, kCadeia[0][1]);
+            rsbridge::SetTechniqueEnabled(kCadeia[1][0], true, kCadeia[1][1]);
+        }
         if (MvHw::g_active)
             rsbridge::SetTechniqueEnabled(kCadeia[2][0], true, kCadeia[2][1]);
         Filtros::Suspender(false);
@@ -27430,8 +27439,28 @@ namespace Sintetiza {
         bool ok = true;
         for (int i = 0; i < 3; i++) {
             if (!repouso && i == 2 && !MvHw::g_active) continue;
+            if (!repouso && i < 2 && g_passagemDireta) continue;   // 2.1: a passagem direta segue valendo na volta do F6
             ok = rsbridge::SetTechniqueEnabled(kCadeia[i][0], !repouso, kCadeia[i][1]) && ok;
         }
+        return ok;
+    }
+
+    // 2.1: PASSAGEM DIRETA. Sem rede nesta sessao (NrBloqueadoNestaSessao) e com ninguem pedindo ampliacao
+    // (work_upscale=0), o feeder so tem a rede a fazer e nao a faz: o que sobrava era o portador FSR em NativeAA 1:1
+    // (ou o DLAA) em tela cheia a CADA quadro - numa Radeon integrada 80-100 ms por quadro, esteira a 0,3-10 fps,
+    // com todos os filtros desligados (o mesmo "desliguei tudo e o fps continua baixo"). Aqui o Kernel e o Feed saem
+    // do ReShade pela ponte (a mesma que o F6 e o skipping usam), a imagem segue crua para os filtros e a pelicula;
+    // o MV_Hardware NAO sai: e ele que alimenta o Frame Gen sintetizado. Os filtros do painel nao sao tocados.
+    // `forcar` reaplica sem comparar (reforco contra recarga de efeitos). Retorna se a ponte aceitou.
+    inline bool PassagemDireta(bool ligar, bool forcar = false) {
+        if (!forcar && ligar == g_passagemDireta) return true;
+        bool ok = true;
+        for (int i = 0; i < 2; i++) {
+            // religar com o skipping segurando a cadeia fora: quem a devolve e o Suprimir(false)
+            if (!ligar && g_suprimida) continue;
+            ok = rsbridge::SetTechniqueEnabled(kCadeia[i][0], !ligar, kCadeia[i][1]) && ok;
+        }
+        if (ok) g_passagemDireta = ligar;
         return ok;
     }
 
@@ -32443,6 +32472,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     bool emRepouso = false;
     bool emRepousoPelicula = false;   // 2.1: o repouso da pelicula de tela cheia (Sintetiza::CadeiaEmRepouso)
     ULONGLONG repousoPeliculaReforco = 0;
+    ULONGLONG passagemTentouEm = 0, passagemReforcoEm = 0;   // 2.1: passagem direta do feeder (g_passagemDireta)
+    bool passagemAvisouFalha = false;
     bool lostSource = false;
     // ---- o alvo mudou de tamanho: quando reabrir sozinho (ver ReabrirApp e a PARTE A do
     // RELATORIO-ROBUSTEZ-JANELA). O instante da ULTIMA mudanca, nao da primeira: arrastar a
@@ -36308,6 +36339,37 @@ L"Do you want to continue?");
             } else if (emRepousoPelicula && agoraRp - repousoPeliculaReforco >= 1000) {
                 repousoPeliculaReforco = agoraRp;
                 Sintetiza::CadeiaEmRepouso(true);
+            }
+            // 2.1: PASSAGEM DIRETA DO FEEDER. Sem rede nesta sessao (NrBloqueadoNestaSessao: Radeon no pacote NVIDIA, GTX,
+            // sonda que falhou, --sem-dlss) e sem ninguem pedindo ampliacao (work_upscale efetivo 0), o feeder so tem um
+            // passe de tela cheia por quadro a fazer (FSR NativeAA 1:1 / DLAA) e nenhuma imagem a ganhar com ele. Entao a
+            // cadeia Kernel/Feed sai pelo mesmo caminho do repouso e a imagem segue crua para os filtros e a pelicula.
+            // Fica de fora: modulo AMD (o portador FSR e o que o mod usa), camada de cima, Nativo/integrado, host do
+            // arranque, F6 em repouso (esse ja tirou a cadeia), e qualquer pedido de SR/FSR 1 (g_srEfetivo != 0).
+            // A rede voltar (reabertura em outra placa) ou o SR ser pedido derruba a condicao e a cadeia volta.
+            if (!emRepouso && !emRepousoPelicula) {   // em repouso a cadeia fica toda fora; ao sair, CadeiaEmRepouso(false) respeita a passagem
+                const bool quer = !g_moduloAmd && !g_camada2 && !g_integrado && !g_ponteFeeder && integrarEstado == 0 &&
+                                  NrBloqueadoNestaSessao() && g_srEfetivo == 0;
+                const ULONGLONG agoraPd = GetTickCount64();
+                if (quer != g_passagemDireta) {
+                    if (agoraPd - passagemTentouEm >= 1000) {   // a ponte pode ainda nao ter subido: tenta de novo a cada 1 s
+                        passagemTentouEm = agoraPd;
+                        if (Sintetiza::PassagemDireta(quer)) {
+                            passagemReforcoEm = agoraPd;
+                            Log(quer ? "passagem direta: LIGADA - sem rede nesta sessao e sem ampliacao pedida (work_upscale=0): "
+                                       "o feeder nao roda passe FSR/DLAA, a imagem vai crua para os filtros e a pelicula "
+                                       "(Kernel e Feed fora do ReShade; Frame Gen e filtros seguem)"
+                                     : "passagem direta: DESLIGADA - a cadeia do feeder volta (rede disponivel ou ampliacao pedida)");
+                            Hud::Refresh();
+                        } else if (!passagemAvisouFalha) {
+                            passagemAvisouFalha = true;
+                            Log("passagem direta: a ponte do ReShade ainda nao aceitou o pedido - tentando de novo a cada 1 s");
+                        }
+                    }
+                } else if (g_passagemDireta && agoraPd - passagemReforcoEm >= 1000) {
+                    passagemReforcoEm = agoraPd;   // um recarregamento de efeitos le o preset de novo e religaria o feed
+                    Sintetiza::PassagemDireta(true, true);
+                }
             }
         }
 
