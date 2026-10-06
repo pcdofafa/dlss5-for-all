@@ -1793,6 +1793,7 @@ struct PlacaOpcao {
     LUID luid{};
     bool software = false;   // Microsoft Basic Render Driver e afins: nunca entram na lista
     bool dlss = false;       // serve para o DLSS 5 (ver PlacaComTensorCore)
+    UINT vramMB = 0;         // memoria de video DEDICADA (DXGI); integrada costuma dizer 512 MB ou menos. 0 = nao lida
 };
 static std::vector<PlacaOpcao> g_placas;
 static int          g_placaIdx = -1;      // -1 = ainda nao detectado: o Renderer usa o padrao (adaptador 0)
@@ -10700,6 +10701,7 @@ static void DetectarGpu() {
             PlacaOpcao p;
             p.nome = d.Description; p.vendor = d.VendorId; p.device = d.DeviceId; p.luid = d.AdapterLuid;
             p.software = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+            p.vramMB = (UINT)(d.DedicatedVideoMemory / (1024ull * 1024ull));
             p.dlss = !p.software && (fingePlaca || PlacaServeDlss5(d.VendorId, p.nome));
             g_placas.push_back(p);
             Log("gpu: adaptador %u: %s vendor=0x%04X %s%s", i, U8(p.nome).c_str(),
@@ -23517,6 +23519,7 @@ static UINT      g_fonteAlvoW = 0, g_fonteAlvoH = 0;   // o tamanho que estamos 
 static ULONGLONG g_fonteDesde = 0;                     // desde quando ele esta igual
 static const ULONGLONG kFonteEstavelMs = 250;          // ~15 quadros a 60: passa qualquer arrasto
 static void AplicarFonte(UINT nw, UINT nh);
+static bool PlacaSemFolgaParaResolucaoCheia();   // definida depois de PontePlacas
 // QUANDO FOI A ULTIMA RECONFIGURACAO DA CADEIA EM VOO (GetTickCount64(), 0 = nenhuma ainda).
 // Existe para o aviso de "ritmo caiu" (mais abaixo, perto de E_JOGORES) nao ADIVINHAR: uma
 // reconfiguracao reconstroi cfg/feature/apresentacao, e o log ja tem um detector proprio
@@ -23567,6 +23570,25 @@ static void AplicarFonte(UINT nw, UINT nh) {
     // descreve o que acontece.
     if (g_caminhoCurto) wr = 100;
     const bool menor = (nw < bw) || (nh < bh);
+    // 2.1: "A CAPTURA PREENCHE O BACKBUFFER" EMPURRAVA O AUTO PARA 100% EM QUALQUER PLACA. A regra existe porque, com a
+    // captura do tamanho da saida, nao ha o que reduzir DE QUALIDADE: quem tem folga ganha a imagem inteira. Em placa
+    // sem folga isso e o contrario do que a pessoa precisa - no teste de 06/10/2026 (Radeon integrada de 485 MB, sem
+    // rede, monitor 3440x1440 em outra placa) o Auto saiu de 67% (tabela do arranque) para 100% e o passe do feeder
+    // foi a 3440x1440 cheios, 80-100 ms por quadro. Sem rede nao ha qualidade a ganhar subindo; em placa fraca ou com
+    // travessia entre placas, subir custa. Entao, em Auto, o valor da tabela do arranque fica. A pelicula continua
+    // cobrindo a MESMA area: muda so a resolucao INTERNA do passe. Escolha da pessoa (nao-Auto) e caminho curto
+    // seguem como estavam, e quando a captura e MENOR que o backbuffer a regra de sempre (wr = captura/saida) vale.
+    if (!menor && g_workResAuto && !g_caminhoCurto && g_workResAtual > 0 && g_workResAtual < 100 && wr > g_workResAtual &&
+        PlacaSemFolgaParaResolucaoCheia()) {
+        static int segurouLogado = 0;
+        if (segurouLogado != g_workResAtual) {
+            segurouLogado = g_workResAtual;
+            Log("cadeia segue a captura: fonte %ux%u preenche o backbuffer %ux%u, mas o Auto fica em work_resolution=%d%% "
+                "(sem rede nesta sessao, placa fraca ou monitor em outra placa: subir para 100%% so custa)",
+                nw, nh, bw, bh, g_workResAtual);
+        }
+        wr = g_workResAtual;
+    }
     // O CAMINHO CURTO SEM SUPER RESOLUTION NAO ENTREGA NADA, e o log do usuario de
     // 14/09/2026 04:33 mostrou exatamente isso: `short_w=1286 short_h=808` engatou, mas
     // `work_upscale=0` e `feature ready: 1286x808 DLAA` - a rede fazia DLAA no tamanho da
@@ -27882,6 +27904,16 @@ static bool ReabrirApp(HINSTANCE hi, const Choice& C, const std::wstring& args, 
         return false;
     }
     return true;
+}
+
+// 2.1: a placa que roda o filtro NAO tem folga para o 100% que "a captura preenche o backbuffer" pediria? Verdade quando
+// (a) nao ha rede nesta sessao (nao ha qualidade a ganhar subindo a resolucao de trabalho), (b) a placa escolhida e
+// claramente fraca (memoria dedicada abaixo de 2 GB: integrada), ou (c) o monitor esta na OUTRA placa e cada quadro
+// atravessa a ponte (travessias por quadro = 2). Usada por AplicarFonte para NAO empurrar o Auto de volta a 100%.
+static bool PlacaSemFolgaParaResolucaoCheia() {
+    if (NrBloqueadoNestaSessao()) return true;
+    if (g_placaIdx >= 0 && g_placaIdx < (int)g_placas.size() && g_placas[g_placaIdx].vramMB > 0 && g_placas[g_placaIdx].vramMB < 2048) return true;
+    return PontePlacas::g_ativa && !PontePlacas::g_mesmaPlaca;
 }
 
 // ------------------------------- A TROCA DE PACOTE: A PLACA DECIDE, NAO A PASTA (14/09/2026)
