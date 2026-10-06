@@ -26718,6 +26718,7 @@ namespace PontePlacas {
             wchar_t env[8]{};
             const bool cru = (Env1(L"DLSS5_PONTE_CRU", env, 8) && env[0] == L'1');
             g_ponteiroEntre.store(IniGet(L"ponteiro_entre_quadros") != L"0");   // sec. 27: a seta entre dois quadros reais
+            g_telaRepetir.store(IniGet(L"tela_repetir") != L"0");               // 2.1: fonte parada = tela no ritmo do monitor
             const bool ok = g_apres.Iniciar(g_janelaVisivel, ad, g_leitor.Largura(), g_leitor.Altura(), cru, Log, &erro);
             ad->Release();
             if (!ok) { g_desistiu = true; Log("duas placas: apresentador nao subiu (%s) - SEM IMAGEM na janela visivel", U8(erro).c_str()); return; }
@@ -38100,6 +38101,15 @@ L"Do you want to continue?");
             double fps = (f - lastFrames) * 1000.0 / (double)(now - lastTitle);
             double pfps = (presented - lastPresented) * 1000.0 / (double)(now - lastTitle);
             lastFrames = f; lastPresented = presented;
+            // 2.1 (06/10/2026): QUADROS NOVOS por segundo (o dedup ja tirou as copias identicas). `fps` conta TODA chegada
+            // do WGC, e com a fonte monitor sob a pelicula cada Present nosso vira uma chegada (a realimentacao, sec. 8) -
+            // agora mais ainda, com a tela parada repetida a cada refresh pelo apresentador (g_telaRepetir). Para as
+            // perguntas "a fonte andou?" e "a cadeia esta processando o nosso proprio Present?" o que vale e o quadro que
+            // muda: copia descartada antes da rede nao custa a cadeia nem prova fonte viva. Sem dedup, novos = chegadas.
+            static uint64_t novosAnt1s = 0;
+            const double fpsNovos = (Quadros5::g_novos >= novosAnt1s)
+                ? (double)(Quadros5::g_novos - novosAnt1s) * 1000.0 / (double)(now - lastTitle) : fps;
+            novosAnt1s = Quadros5::g_novos;
 
             // A escada de desempenho mede a pelicula com o MESMO numero que o painel mostra.
             // Fica aqui em cima, antes dos blocos de diagnostico que podem dar continue: um
@@ -38345,7 +38355,7 @@ L"Do you want to continue?");
                     double teto = std::max(tMeta, tRef);
                     if (teto <= 0.0) teto = (double)RefreshDoMonitor() / 2.0;
                     if (teto < 45.0) teto = 45.0;
-                    const bool assinatura = fps > 1.3 * teto;
+                    const bool assinatura = fpsNovos > 1.3 * teto;   // 2.1: novos, nao chegadas (ver fpsNovos)
                     static int realimLogSeg = 0;
                     if (tetoRealim == 0) {
                         realimSeg = assinatura ? realimSeg + 1 : 0;
@@ -38395,7 +38405,7 @@ L"Do you want to continue?");
                 } else if (mpjServindo) {
                     religarFiltro("uma janela passou a servir a fonte", false);
                 } else if (tapaProvAte) {
-                    if (fps >= 5.0) tapaProvVivo++;
+                    if (fpsNovos >= 5.0) tapaProvVivo++;
                     if (now >= tapaProvAte) {
                         const int vivo = tapaProvVivo;
                         tapaProvAte = 0; tapaProvVivo = 0;
@@ -38422,7 +38432,7 @@ L"Do you want to continue?");
                         }
                     }
                 } else {
-                    tapaParadoSeg = (fps < 0.5) ? tapaParadoSeg + 1 : 0;
+                    tapaParadoSeg = (fpsNovos < 0.5) ? tapaParadoSeg + 1 : 0;
                     if (tapaParadoSeg >= 10) {
                         religarFiltro("a fonte ficou parada por 10 s", false);
                         ShowToast(hi, C.mon, T(L"FILTRO LIGADO  -  DLSS 5\na tela está parada; se congelar, o filtro sai de novo",
@@ -38446,12 +38456,12 @@ L"Do you want to continue?");
                     fpsAntesDaCamada = (fps > fpsAntesDaCamada) ? fps : fpsAntesDaCamada * 0.7;
                     segSemFrame = 0;
                 } else if (!sondaAte && now >= proximaSonda) {
-                    segSemFrame = (fps < 0.5) ? segSemFrame + 1 : 0;
+                    segSemFrame = (fpsNovos < 0.5) ? segSemFrame + 1 : 0;   // 2.1: copias (realimentacao) nao sao frame novo
                     // "A fonte voltou" sao TRES segundos seguidos chegando frame, nao um.
                     // A propria recriacao entrega um frame ao subir: com o teste de um
                     // segundo so, cada retomada zerava este estado e o app recriava a
                     // captura em circulo, sem nunca chegar a sonda (visto no log).
-                    if (fps >= 0.5) { if (++segComFrame >= 3) { recriouNoCongelamento = false; segComFrame = 0; } }
+                    if (fpsNovos >= 0.5) { if (++segComFrame >= 3) { recriouNoCongelamento = false; segComFrame = 0; } }
                     else segComFrame = 0;
                     if (segSemFrame >= 5 && (mexeu || fpsAntesDaCamada >= 0.5)) {
                         if (!recriouNoCongelamento) {

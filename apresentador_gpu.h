@@ -38,6 +38,10 @@
 // congelada atras de uma pelicula parada.
 inline std::atomic<unsigned long long> g_vigiaApresDesde{ 0 }, g_vigiaLacoDesde{ 0 };
 inline std::atomic<bool> g_ponteiroEntre{ true };   // sec. 27: [ultima] ponteiro_entre_quadros (a seta entre dois quadros reais)
+// 2.1 (06/10/2026, decisao do dono): com a fonte parada a pelicula segue no ritmo do monitor - o apresentador repete o
+// ultimo quadro pronto a cada refresh (sem captura, rede ou filtro novos), como a 2.0 parecia fazer. [ultima] tela_repetir=0
+// volta ao de antes (so a seta re-apresentada; a tela fica no present ocioso de 500 ms da cadeia).
+inline std::atomic<bool> g_telaRepetir{ true };
 struct VigiaMarca {
     std::atomic<unsigned long long>& a;
     explicit VigiaMarca(std::atomic<unsigned long long>& x) : a(x) { a.store(GetTickCount64(), std::memory_order_relaxed); }
@@ -700,6 +704,7 @@ public:
         m_ponteiro.Soltar();   // RESET-CURSOR: o desenho do ponteiro na apresentacao vive neste device
         Soltar(m_ultimo); Soltar(m_comp); m_ultimoOk = false;
         m_fpsTextoAtual[0] = 0; m_fpsTW = m_fpsTH = m_fpsAW = m_fpsAH = 0; m_fpsCnt = 0; m_fpsCntT0 = 0.0; m_fpsUltConf = 0.0; m_fpsTelaFps = 0.0;
+        m_fpsFonteCnt = 0; m_fpsFonteFps = 0.0; m_fpsUltCarimbo = 0.0; m_ultNovoMs = 0.0;
         Soltar(m_sc2); Soltar(m_sc);
         if (m_ctx) { m_ctx->ClearState(); m_ctx->Flush(); }
         Soltar(m_ctx); Soltar(m_dev);
@@ -725,7 +730,7 @@ private:
             if (f2) { /* ver F2Volta */ }
             else if (m_fg.load() && PendProximo()) { m_rWake += EsperarAte(PendProximo()->alvo, true, m_fila > 0); m_rWakeN++; }
             else if (m_novoPendente) m_novoPendente = false;
-            else if (PonteiroSoVivo() || PonteiroEntrePossivel()) {
+            else if (PonteiroSoVivo() || PonteiroEntrePossivel() || RepetirVivo()) {
                 // sec. 27: a seta entre quadros - acorda a cada meio refresh pelo timer de ALTA resolucao (o timeout em ms
                 // de um WaitForSingleObject acordaria em ate ~15,6 ms), ou antes, com quadro novo
                 if (!m_timer) CriarDespertador();
@@ -836,6 +841,13 @@ private:
             }
             QueryPerformanceCounter(&tW1);
             if (!lugar) { p->Liberar(n); SetEvent(m_evtConsumiu); continue; }
+            {   // 2.1: quadro NOVO da fonte (carimbo diferente do anterior) x re-present ocioso da cadeia (mesmo carimbo,
+                // a cada 500 ms com a fonte parada). Sem carimbo (modo injetado) conta como novo. E o primeiro numero do
+                // contador ("fonte / tela") e o relogio que diz se a tela esta parada (RepetirVivo).
+                const double car = CarimboDe(n);
+                if (car <= 0.0 || car != m_fpsUltCarimbo) { m_fpsFonteCnt++; m_ultNovoMs = Ms(); }
+                m_fpsUltCarimbo = car;
+            }
             Mostrar(t);
             QueryPerformanceCounter(&tM1);
             p->Liberar(n);
@@ -887,11 +899,11 @@ private:
                     if (sobrepoe) m_lentosSobre++;
                 }
                 if (++m_medN >= 60 && m_log) {
-                    m_log("apresentador MEDIDA: %d quadros | espera %.1f ms | receber+copiar %.1f ms | PRESENT %.1f ms | pulos(sem quadro novo) %llu | sem lugar em %u ms (placa atrasada): %llu | LENTOS(>10ms) %llu, dos quais DURANTE o Present oculto: %llu [media por quadro]",
+                    m_log("apresentador MEDIDA: %d quadros | espera %.1f ms | receber+copiar %.1f ms | PRESENT %.1f ms | pulos(sem quadro novo) %llu | repetidos (fonte parada) %llu | sem lugar em %u ms (placa atrasada): %llu | LENTOS(>10ms) %llu, dos quais DURANTE o Present oculto: %llu [media por quadro]",
                           m_medN, m_accEspera / m_medN, m_accMostrar / m_medN, m_accPresent / m_medN, (unsigned long long)m_pulos,
-                          (unsigned)kPresentMaxMs, (unsigned long long)m_presPulados,
+                          (unsigned long long)m_telaRepetidos, (unsigned)kPresentMaxMs, (unsigned long long)m_presPulados,
                           (unsigned long long)m_lentos, (unsigned long long)m_lentosSobre);
-                    m_accEspera = m_accMostrar = m_accPresent = 0; m_medN = 0; m_pulos = 0; m_presPulados = 0; m_lentos = 0; m_lentosSobre = 0;
+                    m_accEspera = m_accMostrar = m_accPresent = 0; m_medN = 0; m_pulos = 0; m_telaRepetidos = 0; m_presPulados = 0; m_lentos = 0; m_lentosSobre = 0;
                 }
             }
             if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
@@ -3070,28 +3082,47 @@ private:
         const double P = m_telaPeriodoMs;
         return desde >= 0.9 * P && desde + 1.5 * P <= m_ivRealMs;
     }
+    /* 2.1 (06/10/2026, decisao do dono): TELA PARADA = REPETIR O ULTIMO QUADRO A CADA REFRESH. Sem quadro novo da fonte
+       ha >= 50 ms (o mesmo limiar da seta com a tela parada), re-apresenta-se o ultimo quadro LIMPO (m_ultimo), com a seta
+       de agora e o contador, no maximo um por refresh. Nada de captura, rede ou filtro: duas copias de textura na placa do
+       monitor (~0,1 ms de GPU em 3440x1440) e um Present. Nao passa pela esteira, pela cadencia nem pelo interpolador (com
+       FG ligado o laco e outro e isto nao roda): para eles nao e quadro. O re-present ocioso de 500 ms da CADEIA continua
+       (ela vive na janela oculta; ele so a mantem acordada - rodar a rede por refresh custaria ~11 ms de GPU cada). */
+    bool RepetirVivo() const {
+        if (!g_telaRepetir.load(std::memory_order_relaxed) || !m_ultimoOk || !m_comp || m_fg.load()) return false;
+        return m_ultNovoMs <= 0.0 || Ms() - m_ultNovoMs >= 50.0;
+    }
     void ReapresentarSoPonteiro() {
-        if (!PonteiroSoVivo() || m_pausar.load() || !m_sc) return;
+        const bool repetir = RepetirVivo();
+        if (!(repetir || PonteiroSoVivo()) || m_pausar.load() || !m_sc) return;
         const double ag = Ms();
         if (ag - m_ultPresMs < 0.9 * (m_telaPeriodoMs > 0.0 ? m_telaPeriodoMs : 4.0)) return;   // no maximo um por refresh
         POINT pos{};
-        if (!GetCursorPos(&pos)) return;
-        if (pos.x == m_ponteiro.posDesenhada.x && pos.y == m_ponteiro.posDesenhada.y) return;       // parado: nada a mostrar
+        const bool temPos = GetCursorPos(&pos) != 0;
+        if (!repetir && !temPos) return;
+        const bool mexeu = temPos && (pos.x != m_ponteiro.posDesenhada.x || pos.y != m_ponteiro.posDesenhada.y);
+        if (!repetir && !mexeu) return;       // parado: nada a mostrar
         RECT rc{}; POINT org{ 0, 0 };
         if (!GetClientRect(m_janela, &rc)) return;
         ClientToScreen(m_janela, &org);
-        const bool dentro = pos.x >= org.x && pos.y >= org.y && pos.x < org.x + rc.right && pos.y < org.y + rc.bottom;
+        const bool dentro = temPos && pos.x >= org.x && pos.y >= org.y && pos.x < org.x + rc.right && pos.y < org.y + rc.bottom;
         // saiu da pelicula: uma ultima re-apresentacao limpa a seta que ficou desenhada na borda
-        if (!dentro && !m_ponteiro.posDentro) return;
+        if (!repetir && !dentro && !m_ponteiro.posDentro) return;
         if (m_latWait && WaitForSingleObjectEx(m_latWait, 0, FALSE) != WAIT_OBJECT_0) return;   // sem lugar agora: tenta na proxima volta
         ID3D11Texture2D* bb = nullptr;
         if (FAILED(m_sc->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&bb)) || !bb) return;
         D3D11_TEXTURE2D_DESC bd{}; bb->GetDesc(&bd);
+        if (repetir && !m_repetiuLog && m_log) {
+            m_repetiuLog = true;
+            m_log("apresentador: fonte parada - repetindo o ultimo quadro pronto a cada refresh (sem captura/rede/filtro; "
+                  "2 copias de textura + Present). [ultima] tela_repetir=0 volta ao present ocioso de 500 ms");
+        }
+        FpsContarPresent();   // e um Present da pelicula: entra no "tela" do contador
         m_ctx->CopyResource(m_comp, m_ultimo);
-        m_ponteiro.Desenhar(m_dev, m_ctx, m_comp, bd, m_janela);
+        if (dentro || m_ponteiro.posDentro) m_ponteiro.Desenhar(m_dev, m_ctx, m_comp, bd, m_janela);
         m_ctx->CopyResource(bb, m_comp);   // uma copia inteira (ver Mostrar)
         m_ponteiro.posDentro = dentro;
-        if (!dentro) m_ponteiro.posDesenhada = pos;   // a seta saiu: nao re-apresentar de novo por isso
+        if (!dentro && temPos) m_ponteiro.posDesenhada = pos;   // a seta saiu: nao re-apresentar de novo por isso
         if (m_fpsLigado.load(std::memory_order_relaxed)) FpsDesenhar(bb, bd);
         bb->Release();
         const int sm = m_sync.load(std::memory_order_relaxed);
@@ -3099,8 +3130,9 @@ private:
         const UINT fl = (sm == SYNC_SEM && m_tearingOk) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
         HRESULT hrP;
         { VigiaMarca vm(g_vigiaApresDesde); hrP = m_sc->Present(semVblank ? 0u : 1u, fl); }
-        ConferirPresent(hrP, "ponteiro");   // NS-2309 item 5(c)
-        m_ponteiro.nSoPonteiro++;
+        ConferirPresent(hrP, repetir ? "repeticao" : "ponteiro");   // NS-2309 item 5(c)
+        if (mexeu) m_ponteiro.nSoPonteiro++;   // a medida do ponteiro conta so as re-apresentacoes em que ele andou
+        else m_telaRepetidos++;
         m_ponteiro.DepoisDoPresent();
         m_ultPresMs = Ms();
         if (m_iflip.Observar(m_sc) && m_log) { m_log("%s", m_iflip.Linha().c_str()); CadIflipJanela(); }
@@ -3118,7 +3150,9 @@ private:
         // desenhada em m_comp e o backbuffer recebe UMA copia inteira - medido: escrever so o recorte da seta no
         // backbuffer (CopySubresourceRegion) deixava a pelicula COMPOSTA depois que o mouse mexia (0 de 43 em iFlip,
         // contra 12 de 43 do desenho na captura); a copia inteira e o que o caminho antigo sempre fez.
-        const bool pont = PonteiroNaApresentacao() && GarantirCopias(bd);
+        // 2.1: a repeticao com a fonte parada (RepetirVivo) tambem precisa da copia limpa, com ou sem a seta aqui.
+        const bool pont = (PonteiroNaApresentacao() || (g_telaRepetir.load(std::memory_order_relaxed) && !m_fg.load()))
+                          && GarantirCopias(bd);
         ID3D11Texture2D* destino = pont ? m_ultimo : bb;
         if (copiaDireta) {
             m_ctx->CopyResource(destino, t);
@@ -3184,21 +3218,26 @@ private:
     void FpsContarPresent() {
         const double agora = Ms();
         m_fpsCnt++;
-        if (m_fpsCntT0 <= 0.0) { m_fpsCntT0 = agora; m_fpsCnt = 0; return; }
+        if (m_fpsCntT0 <= 0.0) { m_fpsCntT0 = agora; m_fpsCnt = 0; m_fpsFonteCnt = 0; return; }
         const double dt = agora - m_fpsCntT0;
-        if (dt >= 1000.0) { m_fpsTelaFps = m_fpsCnt * 1000.0 / dt; m_fpsCnt = 0; m_fpsCntT0 = agora; }
+        if (dt >= 1000.0) {
+            m_fpsTelaFps  = m_fpsCnt * 1000.0 / dt;
+            m_fpsFonteFps = m_fpsFonteCnt * 1000.0 / dt;
+            m_fpsCnt = 0; m_fpsFonteCnt = 0; m_fpsCntT0 = agora;
+        }
     }
-    /* O texto: os numeros do card do FG. "jogo" so quando o interpolador esta de fato inventando
-       quadros (senao chegada = tela e o segundo numero e ruido); pausado, parado ou sem FG: "tela N". */
+    /* O texto: DOIS NUMEROS, "fonte / tela" (2.1, 06/10/2026, pedido do dono - o padrao do Lossless Scaling).
+       fonte = quadros NOVOS da fonte por segundo; tela = Presents desta janela por segundo (reais, gerados pelo FG,
+       re-apresentacoes da seta e a repeticao da tela parada). O relato que trouxe isto: com o desktop parado o contador
+       dizia "2 fps" (o present ocioso de 500 ms) e quem acabou de ligar concluia que o programa e lento. Agora le
+       "0 / 240 fps": a fonte nao mandou nada e a tela segue no ritmo do monitor. Com o FG, a fonte e a chegada medida
+       (zero com a fonte parada); sem ele, os quadros de carimbo novo contados no laco (o ocioso da cadeia nao conta). */
     void FpsTexto(wchar_t* b, size_t n) const {
-        const double chegada = m_chegadaFps.load();
-        const bool comJogo = m_fg.load() != nullptr && !m_pausada && !m_fonteParada && chegada > 0.0;
-        if (m_fpsTelaFps <= 0.0) { b[0] = 0; return; }   // ainda sem a primeira janela de 1 s: nada a dizer (nao "tela 0")
-        /* O1 (20/09/2026): so os dois numeros - "60 \u2192 120 fps". Quem le sabe o que e a seta; as
-           palavras "jogo" e "tela" eram texto a mais numa coisa que fica por cima do jogo o
-           tempo todo (a regra do pouco texto). O que a seta diz esta na dica do card. */
-        if (comJogo) _snwprintf(b, n, L"%.0f \u2192 %.0f fps", chegada, m_fpsTelaFps);
-        else         _snwprintf(b, n, L"%.0f fps", m_fpsTelaFps);
+        if (m_fpsTelaFps <= 0.0) { b[0] = 0; return; }   // ainda sem a primeira janela de 1 s: nada a dizer (nao "0 / 0")
+        double fonte = m_fpsFonteFps;
+        if (m_fg.load() != nullptr) { const double chegada = m_chegadaFps.load(); fonte = (m_fonteParada || chegada < 0.0) ? 0.0 : chegada; }
+        if (fonte > m_fpsTelaFps) fonte = m_fpsTelaFps;   // janela de 1 s desencontrada: a fonte nunca passa da tela
+        _snwprintf(b, n, L"%.0f / %.0f fps", fonte, m_fpsTelaFps);
         b[n - 1] = 0;
     }
     /* Texto -> textura BGRA premultiplicada, por GDI. Duas passadas numa DIB: o texto deslocado nas
@@ -3384,6 +3423,11 @@ private:
     wchar_t  m_fpsTextoAtual[64] = {};
     double   m_fpsUltConf = 0.0, m_fpsCntT0 = 0.0, m_fpsTelaFps = 0.0;   // presents/s desta thread (janela de 1 s)
     uint64_t m_fpsCnt = 0;
+    uint64_t m_fpsFonteCnt = 0;                        // 2.1: quadros novos da fonte na janela de 1 s (o "fonte" do contador)
+    double   m_fpsFonteFps = 0.0, m_fpsUltCarimbo = 0.0;
+    double   m_ultNovoMs = 0.0;                        // 2.1: ultimo quadro NOVO da fonte (Ms) - RepetirVivo
+    uint64_t m_telaRepetidos = 0;                         // 2.1: repeticoes da tela parada (linha MEDIDA)
+    bool     m_repetiuLog = false;
     std::thread           m_th;
     std::atomic<bool>     m_sair{ false };
     std::atomic<bool>     m_vsync{ false };
