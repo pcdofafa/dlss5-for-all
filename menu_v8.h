@@ -1618,7 +1618,7 @@ static int RenderV8(Graphics* g) {
                                                       L"\nRestores this slot. Filters apply instantly; everything else after the app restarts itself (~3 s).")
                                                  : TS(L"Preset vazio\nSalve alguma coisa nele primeiro.", L"Empty preset\nSave to it first."));
         if (g) { Pen p(K8_BORDA, 1.f); g->DrawLine(&p, xCard, yRod + kRodPreset8, xCard + (REAL)CW8, yRod + kRodPreset8); }
-        // ---- Voltar ao padrao (contorno) e Sair (vermelho)
+        // ---- Voltar a tela anterior (contorno) e Sair (vermelho)
         const REAL yb = yRod + kRodPreset8 + (kRodBotoes8 - 34.f) / 2.f, hb = 34.f;
         const std::wstring rotSair = g_hud.confirmandoSaida ? T(L"Clique de novo para sair", L"Click again to quit") : T(L"Sair", L"Quit");
         const REAL bwSair = V8BotaoW(rotSair) + 16.f;
@@ -1626,12 +1626,12 @@ static int RenderV8(Graphics* g) {
                     TS(L"Sair do DLSS5 For All\nDevolve tudo como estava. Pede um segundo clique.", L"Quit DLSS5 For All\nRestores everything as it was. Click twice to confirm.")
                     + (TemAtalho(AT_SAIR) ? L"\n" + TextoAtalho(AT_SAIR) + TS(L" duas vezes também sai.", L" twice also quits.") : std::wstring()));
         V8BotaoItem(g, RectF(L, yb, R - bwSair - 10.f - L, hb),
-                    g_hud.confirmandoPadrao ? TS(L"Voltar tudo ao padrão? Clique de novo", L"Reset everything? Click again") : TS(L"Voltar ao padrão", L"Reset to defaults"),
-                    B8_CONTORNO, E_PADRAOAPP, 0, true,
-                    TS(L"Voltar ao padrão\nTudo o que um preset guarda volta ao padrão de fábrica (rede, passes, escalas, filtros, fluidez, limite de fps) e nenhum preset fica ativo. "
-                       L"Os 3 presets continuam guardados. O app se reabre para valer. Pede um segundo clique.",
-                       L"Reset to defaults\nEverything a preset stores goes back to factory defaults (network, passes, scales, filters, Frame Generation, FPS limit) and no preset stays active. "
-                       L"Your 3 presets are kept. The app restarts to apply. Click twice to confirm."));
+                    TS(L"Voltar à tela anterior", L"Back to previous screen"),
+                    B8_CONTORNO, E_SELETOR, 0, true,   // v2.1: era "Voltar ao padrao" (E_PADRAOAPP); agora o MESMO caminho do "Trocar fonte ou placa" (CMD_SELETOR)
+                    TS(L"Voltar à tela anterior\nVolta para a tela de escolha da fonte, com a fonte, o modo e a placa de agora já marcados. "
+                       L"Troque o que quiser e clique em INICIAR de novo.",
+                       L"Back to previous screen\nGoes back to the source selection screen, with the current source, mode and GPU already selected. "
+                       L"Change whatever you want and click START again."));
     }
     // ---- o aviso rapido (toast), por cima do conteudo, logo acima do rodape
     if (g && !g_aviso8.empty() && GetTickCount64() < g_aviso8Ate) V8Toast(g, xCard, (REAL)CW8, yRod - 14.f, g_aviso8);
