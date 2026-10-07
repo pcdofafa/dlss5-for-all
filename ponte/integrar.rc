@@ -1,0 +1,41 @@
+// =====================================================================================
+//  ponte\integrar.rc - informacoes de versao do bin\dlss5-integrar.exe (o auxiliar do modo
+//  Nativo, ver ponte\integrar.cpp). Compilado por windres no build-mingw.sh.
+//  UTF-8 (CompanyName tem acento): o build passa --codepage=65001 e o pragma vale para quem
+//  compilar a mao. AO SUBIR A VERSAO, mexa aqui junto do app.rc e do launcher.rc - o
+//  publicar-versao.ps1 recusa o pacote se este exe declarar outra versao.
+// =====================================================================================
+#pragma code_page(65001)
+#include <windows.h>
+
+#define VER_TUPLA   2,1,0,0
+#define VER_TEXTO   "2.1.0.0"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_TUPLA
+PRODUCTVERSION  VER_TUPLA
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "041604b0"
+        BEGIN
+            VALUE "CompanyName",      "PC do Fafa"
+            VALUE "FileDescription",  "DLSS5 For All - integração do modo Nativo (carrega dlss5-ponte64.dll no jogo escolhido)"
+            VALUE "FileVersion",      VER_TEXTO
+            VALUE "InternalName",     "dlss5-integrar"
+            VALUE "LegalCopyright",   "Codigo proprio sob licenca MIT - ver LICENSE e CREDITOS.md"
+            VALUE "OriginalFilename", "dlss5-integrar.exe"
+            VALUE "ProductName",      "DLSS5 For All"
+            VALUE "ProductVersion",   VER_TEXTO
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0416, 1200
+    END
+END

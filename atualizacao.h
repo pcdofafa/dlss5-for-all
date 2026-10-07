@@ -1480,7 +1480,7 @@ inline std::string TextoDoCmd() {
         "set /a TENTATIVAS=0\r\n"
         ":esperar\r\n"
         "set \"OCUPADO=\"\r\n"
-        "for %%F in (\"%DLSS5_RAIZ%DLSS5ForAll.exe\" \"%DLSS5_RAIZ%bin\\DLSS5ForAll.exe\" \"%DLSS5_RAIZ%bin-amd\\DLSS5ForAll.exe\") do (\r\n"
+        "for %%F in (\"%DLSS5_RAIZ%DLSS5ForAll.exe\" \"%DLSS5_RAIZ%bin\\DLSS5ForAll.exe\" \"%DLSS5_RAIZ%bin\\dlss5-integrar.exe\" \"%DLSS5_RAIZ%bin-amd\\DLSS5ForAll.exe\") do (\r\n"
         "    if exist \"%%~F\" ( (type nul >> \"%%~F\") 2>nul || set \"OCUPADO=1\" )\r\n"
         ")\r\n"
         "if defined OCUPADO (\r\n"

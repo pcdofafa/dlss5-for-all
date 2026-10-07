@@ -68,6 +68,17 @@ DEVFLAG=""
   -lmfplat -lmf -lmfreadwrite -lmfuuid \
   -lole32 -loleaut32 -lcomctl32 -ldwmapi -lruntimeobject -lgdiplus -lgdi32 -lbcrypt \
   -static -static-libgcc -static-libstdc++
+# O AUXILIAR DO MODO NATIVO (07/10/2026): bin\dlss5-integrar.exe carrega a dlss5-ponte64.dll no jogo
+# (ponte/integrar.cpp). Mora fora do app de proposito: o DLSS5ForAll.exe nao importa mais as funcoes de
+# escrever em outro processo. Vai para o pacote junto do app (montar-portable.ps1, lista do bin\).
+INTEGRAR_RES=""
+WINDRES_I=$(command -v windres || command -v x86_64-w64-mingw32-windres || true)
+if [ -n "$WINDRES_I" ]; then
+  "$WINDRES_I" --codepage=65001 ponte/integrar.rc -O coff -o ponte/integrar.res.o || { echo "falhou ao compilar ponte/integrar.rc"; exit 1; }
+  INTEGRAR_RES=ponte/integrar.res.o
+fi
+"$CXX" -std=c++17 -O2 -municode -mwindows -Wall -Wextra ponte/integrar.cpp $INTEGRAR_RES -o dlss5-integrar.exe \
+  -lshell32 -static -static-libgcc -static-libstdc++ || { echo "falhou ao compilar o dlss5-integrar.exe"; exit 1; }
 # O ADD-ON JUNTO. Publicar exe novo com .addon64 velho e silencioso e caro: o resolve()
 # do reshade_bridge.h recusa protocolo diferente sem dizer nada, e a LUT e a nitidez
 # simplesmente param de responder no painel. SKIP_ADDON=1 pula, para iterar so no exe.

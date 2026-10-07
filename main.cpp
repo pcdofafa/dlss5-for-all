@@ -128,7 +128,7 @@ static Hdr::Treatment g_hdrTr;
 // mesma via. Nada muda sem um pid numerico solto na linha de comando (ver g_ponteFeeder).
 #include "ponte_feeder_host.h"  // A1: PonteHost::{Preparar, Iniciar, ObterQuadro, EntregarSaida, Parar}
 #include "fonte_ponte.h"        // A2: FontePonte::{Ligar, Puxar, ColherSaida, Devolver, Desligar}
-#include "ponte/injetor.h"      // B2: Injetor::{Bits64, Injetar} - injeta a dll no jogo (modo integrado em tempo de execucao)
+#include "ponte/injetor.h"      // B2: Injetor::{Bits64, Injetar} - Injetar roda o auxiliar bin\dlss5-integrar.exe (modo integrado)
 #include "ponte_gpu.h"       // duas placas: leva a imagem de uma placa a outra sem CPU e sem o compositor
 #include "politica_cabe.h" // AGENTE D (PLANO-FLUIDEZ item 4): "quando nao cabe" - limita o jogo (limitador vivo) ou avisa no painel
 #include "flip_prova.h"   // N6-FLIP: o DXGI diz se o quadro foi DIRETO para a tela (OVERLAY) ou COMPOSTO
@@ -32770,9 +32770,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         EscreverModoPonte(pidJogo, modo);   // repassa o modo a dll (le no attach)
         std::wstring dll = g_exeDir + L"bin\\dlss5-ponte64.dll";
         if (!ArquivoExiste(dll)) dll = g_exeDir + L"dlss5-ponte64.dll";
+        // 07/10/2026: quem carrega a dll no jogo e o auxiliar bin\dlss5-integrar.exe (ponte\integrar.cpp), ao lado
+        // da dll; o app so o executa aqui, no modo Nativo, e repassa o resultado dele para o log e o cartaz de sempre.
+        std::wstring auxiliar = dll.substr(0, dll.find_last_of(L"\\/") + 1) + Injetor::kAuxiliar;
+        if (!ArquivoExiste(auxiliar)) auxiliar = g_exeDir + Injetor::kAuxiliar;
         std::string erroInj;
         const ULONGLONG t0 = GetTickCount64();
-        if (!Injetor::Injetar(pidJogo, dll.c_str(), &erroInj)) {
+        if (!Injetor::Injetar(auxiliar, pidJogo, dll.c_str(), &erroInj)) {
             Log("integrar: falhou (injecao: %s)", erroInj.c_str());
             PonteHost::Parar(); RemoverModoPonte(pidJogo);
             falhou(4, Msg::D5_NAT_002, ("injecao: " + erroInj).c_str(), L"NATIVO indisponível — seguindo em Universal", L"NATIVE unavailable — staying on Universal");
