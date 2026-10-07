@@ -28664,19 +28664,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                     LocalFree(av);
                     return GuardaCursorMain(pid, ini);
                 }
-                // sec. 22 (reinicio automatico depois do reset da placa): a SONDA (copia do exe fora da pasta do app, sem o
-                // ReShade) e o LANCADOR (espera o app que caiu sair, sonda, reabre). Os dois antes do mutex e de qualquer device.
-                if (!wcscmp(av[i], L"--sonda-d3d12")) {
-                    const std::wstring luid = av[i + 1], arq = av[i + 2];
-                    LocalFree(av);
-                    return ReinicioAuto::SondaMain(luid == L"-" ? L"" : luid.c_str(), arq.c_str());
-                }
-                // NS-2309 item 4: a sonda da REDE (device + NGX + 1 passe), no mesmo exe copiado para %TEMP%
-                if (!wcscmp(av[i], L"--sonda-ngx")) {
-                    const std::wstring pasta = av[i + 1], arq = av[i + 2];
-                    LocalFree(av);
-                    return ReinicioAuto::SondaNgxMain(pasta.c_str(), arq.c_str());
-                }
+                // sec. 22 (reinicio automatico depois do reset da placa): o LANCADOR (espera o app que caiu sair, sonda,
+                // reabre), antes do mutex e de qualquer device. 07/10/2026: as SONDAS (--sonda-d3d12 / --sonda-ngx) nao
+                // rodam mais neste exe - quem as roda e o launcher da raiz (sonda.h; RodarSonda* em reinicio_auto.h).
                 if (!wcscmp(av[i], L"--relancar")) {
                     const DWORD pid = (DWORD)wcstoul(av[i + 1], nullptr, 10);
                     const std::wstring ini = av[i + 2];
@@ -29888,7 +29878,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
 
     // ---------------------------------------------------------------- NS-2309 item 4: SONDA DA REDE ANTES DE ABRIR
     // Ideia observada no NeuralScreen (pre-voo num processo descartavel; PolyForm), codigo proprio. Ultimo ponto antes de
-    // qualquer device D3D deste processo: um processo DESCARTAVEL (a copia dlss5-sonda.exe em %TEMP%, sem o ReShade)
+    // qualquer device D3D deste processo: um processo DESCARTAVEL (o launcher da raiz com --sonda-ngx, sem o ReShade)
     // cria device D3D12, inicializa o NGX, monta a rede e roda 1 passe (ReinicioAuto::SondaNgxMain), com um teto de tempo.
     // Se o driver/rede estiverem quebrados, quem cai e a sonda - em vez de o app cair no meio do jogo.
     // Chaves de [ultima]: sonda_antes (padrao 1; 0 = nao sonda) e sonda_antes_ms (teto, padrao 60000; faixa 1000-120000).
@@ -29900,7 +29890,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // filtros nao dependem dela. O codigo e o texto ORIGINAL da sonda vao para [ultima] sonda_antes_ult e para o log. A copia
     // nova de uma reabertura herda isso por --nr-indisponivel (ArgsDeReabertura): nao sonda de novo e nao tenta montar a rede.
     //
-    // O TETO: 3000 ms era curto para a PRIMEIRA montagem. Dentro dele cabem a copia de 7,9 MB para o %TEMP% (varrida pelo antivirus), o
+    // O TETO: 3000 ms era curto para a PRIMEIRA montagem. Dentro dele cabiam (ate a 2.1) a copia de 7,9 MB para o %TEMP% (varrida pelo antivirus), o
     // processo, o device, o _nvngx.dll, a carga do nvngx_dlssnr.dll (165 MB) e o CreateFeature - e a propria montagem da rede dentro
     // do app foi medida em ~1,5 s no log do dono, numa maquina rapida (esteira.h). Em placa media, CPU lenta ou disco com antivirus
     // 3 s estoura. O teto novo e so o limite de um processo que SAI ASSIM QUE TERMINA (nao e uma espera fixa); 10 s so e gasto
@@ -29942,7 +29932,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det, esperaSonda);
         const ULONGLONG ms = GetTickCount64() - t0;
         if (s_sondaAviso > 1) Cartaz::Retirar(s_sondaAviso);
-        // a ETAPA onde parou (os codigos de SondaNgxMain em reinicio_auto.h), para o log e para quem le o ini sem o codigo-fonte
+        // a ETAPA onde parou (os codigos de SondaNgxMain em sonda.h), para o log e para quem le o ini sem o codigo-fonte
         const char* etapa = cod == 0 ? "ok" : cod == 14 ? "estouro do teto (exige demais da placa)" : cod == 20 ? "nenhuma placa NVIDIA" : cod == 21 ? "device D3D12" :
             cod == 22 ? "fila/lista/fence/texturas" : cod == 23 ? "_nvngx.dll do driver" : cod == 24 ? "Init do NGX do driver" :
             cod == 25 ? "carga do nvngx_dlssnr.dll" : cod == 26 ? "Init_Ext da rede" : cod == 27 ? "AllocateParameters" :

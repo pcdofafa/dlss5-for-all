@@ -65,6 +65,7 @@
 #include "../atualizacao.h"
 #include "../vitrine.h"
 #include "../lancamento.h"   // v2.0: o bilhete que o app confere (o app so abre por esta tela)
+#include "../sonda.h"        // 07/10/2026: as sondas da placa (--sonda-ngx / --sonda-d3d12) rodam DESTE exe
 
 static std::wstring PastaDoExe() {
     wchar_t p[32768];
@@ -277,6 +278,27 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
 }
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
+    // 07/10/2026: AS SONDAS DA PLACA. O app (bin\DLSS5ForAll.exe) nos abre com
+    //   --sonda-ngx "<pasta bin>" "<arquivo de resultado>"   ou   --sonda-d3d12 <luid|-> "<arquivo de resultado>"
+    // para testar a placa/a rede num processo descartavel SEM o ReShade (que mora no bin\, ao lado dele).
+    // Aqui, na raiz, nao ha dxgi.dll do ReShade. A sonda roda e o processo sai com o codigo dela: sem tela,
+    // sem rede, sem log do launcher e sem bilhete (ver sonda.h). Ate a 2.1 o app copiava a si mesmo
+    // para o %TEMP% e rodava a copia.
+    {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        if (argv && argc == 4 && wcscmp(argv[1], L"--sonda-ngx") == 0) {
+            const std::wstring pasta = argv[2], arq = argv[3];
+            LocalFree(argv);
+            return ReinicioAuto::SondaNgxMain(pasta.c_str(), arq.c_str());
+        }
+        if (argv && argc == 4 && wcscmp(argv[1], L"--sonda-d3d12") == 0) {
+            const std::wstring luid = argv[2], arq = argv[3];
+            LocalFree(argv);
+            return ReinicioAuto::SondaMain(luid == L"-" ? L"" : luid.c_str(), arq.c_str());
+        }
+        if (argv) LocalFree(argv);
+    }
     // COM de apartamento unico: e o que o WebView2 (vitrine.h) exige - e a tela ja tem o laco
     // de mensagens que ele precisa. Inofensivo para todo o resto.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);

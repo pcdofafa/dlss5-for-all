@@ -12,10 +12,10 @@
 //  ReabrirApp, porque precisa de ArgsDeReabertura e do apresentador):
 //
 //   1. A SONDA (`--sonda-d3d12 <luid> <arquivo>`): D3D12CreateDevice + fila + fence com um
-//      Signal trivial, num processo novo. Roda de uma COPIA do exe fora da pasta do app
-//      (%TEMP%\DLSS5ForAll-sonda\dlss5-sonda.exe): na pasta do app o dxgi.dll e o ReShade,
+//      Signal trivial, num processo novo. O corpo mora em sonda.h e, desde 07/10/2026, quem a
+//      RODA e o launcher da raiz (..\DLSS5ForAll.exe): na pasta do app o dxgi.dll e o ReShade,
 //      e um device criado ali carregaria o ReShade e os add-ons (o feed montaria rede em cima
-//      da sonda). Fora dela, o dxgi.dll e o do Windows.
+//      da sonda). Na raiz, o dxgi.dll e o do Windows. (Ate a 2.1: uma COPIA deste exe no %TEMP%.)
 //   2. O LANCADOR (`--relancar <pid> <ini>`): processo leve, sem device nenhum. Espera o
 //      processo que caiu morrer, espera mais 2,5 s, roda a sonda (ate 3 vezes, de 2 em 2 s);
 //      passou, abre o app com o estado salvo no ini; nao passou, explica e oferece o
@@ -35,7 +35,8 @@
 //    video_reiniciado_em  segundos desde 1601 do ultimo "Reiniciar video do Windows" (so registro)
 // =====================================================================================
 #pragma once
-#include "ponte/cliente/ngx/ngx_contrato.h"   // NS-2309 item 4: a sonda da rede usa o mesmo contrato NGX do app
+// 07/10/2026: o CORPO das sondas (SondaMain / SondaNgxMain) mora em sonda.h e so o LAUNCHER o compila;
+// este arquivo so lanca o launcher com --sonda-*, espera e le o resultado (RodarSonda / RodarSondaNgx).
 
 namespace ReinicioAuto {
 
@@ -59,17 +60,67 @@ static std::wstring PastaDe(const std::wstring& caminho) {
     const size_t b = caminho.find_last_of(L"\\/");
     return b == std::wstring::npos ? std::wstring() : caminho.substr(0, b + 1);
 }
-// v2.1: a copia da sonda em %TEMP% so e refeita quando o exe mudou (tamanho ou data de gravacao -
-// o CopyFile preserva a data). Cada recopia de 7,9 MB faz o antivirus reexaminar o arquivo, e esse
-// tempo saia do prazo da sonda. Devolve false so quando nao ha copia utilizavel.
-static bool CopiarSondaSeMudou(const std::wstring& exe, const std::wstring& copia) {
-    WIN32_FILE_ATTRIBUTE_DATA a{}, b{};
-    if (GetFileAttributesExW(exe.c_str(), GetFileExInfoStandard, &a) &&
-        GetFileAttributesExW(copia.c_str(), GetFileExInfoStandard, &b) &&
-        a.nFileSizeHigh == b.nFileSizeHigh && a.nFileSizeLow == b.nFileSizeLow &&
-        CompareFileTime(&a.ftLastWriteTime, &b.ftLastWriteTime) == 0)
-        return true;
-    return CopyFileW(exe.c_str(), copia.c_str(), FALSE) || GetFileAttributesW(copia.c_str()) != INVALID_FILE_ATTRIBUTES;
+// 07/10/2026: QUEM RODA AS SONDAS E O LAUNCHER DA RAIZ (sonda.h). Ate a 2.1 este exe se copiava
+// para %TEMP%\DLSS5ForAll-sonda\ (CopiarSondaSeMudou) e rodava a copia oculta; isso saiu.
+//
+// Os dois caminhos sao o MESMO arquivo? (volume + indice: um link rigido da camada conta como igual)
+static bool MesmoArquivoSonda(const std::wstring& a, const std::wstring& b) {
+    auto abrir = [](const std::wstring& p) {
+        return CreateFileW(p.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, 0, nullptr);
+    };
+    HANDLE ha = abrir(a);
+    if (ha == INVALID_HANDLE_VALUE) return false;
+    HANDLE hb = abrir(b);
+    if (hb == INVALID_HANDLE_VALUE) { CloseHandle(ha); return false; }
+    BY_HANDLE_FILE_INFORMATION ia{}, ib{};
+    const bool igual = GetFileInformationByHandle(ha, &ia) && GetFileInformationByHandle(hb, &ib) &&
+                       ia.dwVolumeSerialNumber == ib.dwVolumeSerialNumber &&
+                       ia.nFileIndexHigh == ib.nFileIndexHigh && ia.nFileIndexLow == ib.nFileIndexLow;
+    CloseHandle(ha); CloseHandle(hb);
+    return igual;
+}
+// O launcher que roda as sondas: o DLSS5ForAll.exe da pasta de cima (bin\ -> raiz). Na camada
+// (<bin>\camada<k>\, cujo "de cima" e o proprio app por link rigido) sobe mais um nivel. Nunca este
+// mesmo exe. No build de desenvolvimento (app na bancada src\) vale o portable-launcher\ ao lado.
+// Vazio = nao achei (a sonda devolve 16, "nao rodou", e o app abre assim mesmo).
+static std::wstring LauncherDaSonda() {
+    const std::wstring eu = MeuExe();
+    std::wstring d = PastaDe(eu);
+    for (int nivel = 0; nivel < 2 && !d.empty(); nivel++) {
+        std::wstring sem = d;
+        while (!sem.empty() && (sem.back() == L'\\' || sem.back() == L'/')) sem.pop_back();
+        d = PastaDe(sem);
+        if (d.empty()) break;
+        const std::wstring c = d + L"DLSS5ForAll.exe";
+        if (GetFileAttributesW(c.c_str()) != INVALID_FILE_ATTRIBUTES && !MesmoArquivoSonda(c, eu)) return c;
+    }
+#ifdef DLSS5_DEV
+    const std::wstring dev = PastaDe(eu) + L"portable-launcher\\DLSS5ForAll.exe";
+    if (GetFileAttributesW(dev.c_str()) != INVALID_FILE_ATTRIBUTES) return dev;
+#endif
+    return L"";
+}
+// A PASTA DE DADOS da sonda (o arquivo de resultado e os arquivos do NGX dela): a subpasta "sonda" da
+// pasta deste exe (bin\sonda) se a pasta do exe aceitar escrita, senao a de %LOCALAPPDATA%\DLSS5ForAll - a mesma regra
+// do log do app. Nunca o %TEMP%. Termina em barra; vazio so se nenhuma das duas aceitar escrita.
+static std::wstring PastaDadosSonda() {
+    std::vector<std::wstring> cands = { PastaDe(MeuExe()) };
+    wchar_t base[MAX_PATH]{};
+    const DWORD nb = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+    if (nb && nb < MAX_PATH) cands.push_back(std::wstring(base) + L"\\DLSS5ForAll\\");
+    for (const std::wstring& c : cands) {
+        if (c.empty()) continue;
+        CreateDirectoryW(c.c_str(), nullptr);
+        const std::wstring t = c + L"dlss5-sonda-escrita.tmp";
+        HANDLE h = CreateFileW(t.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        CloseHandle(h);
+        const std::wstring s = c + L"sonda\\";
+        CreateDirectoryW(s.c_str(), nullptr);
+        if (GetFileAttributesW(s.c_str()) != INVALID_FILE_ATTRIBUTES) return s;
+    }
+    return L"";
 }
 
 // ---------------------------------------------------------------- 0. LANCAR LIMPO (MGR-2309 item 7)
@@ -146,88 +197,29 @@ static BOOL CriarProcessoLimpo(const std::wstring& exe, const std::wstring& cmd,
     return ok;
 }
 
-// ---------------------------------------------------------------- 1. a sonda
-// Codigos de saida: 0 ok | 10 sem placa | 11 D3D12CreateDevice falhou | 12 fila/fence falhou |
-// 13 o Signal nao completou em 3 s | 14 a sonda nao voltou (o lancador matou) | 15 nao consegui
-// lancar a sonda | 16 nao consegui copiar o exe da sonda.
-static const wchar_t* g_sondaArq = nullptr;
-static int SondaDizer(int cod, const char* fmt, ...) {
-    if (g_sondaArq && *g_sondaArq) {
-        if (FILE* f = _wfopen(g_sondaArq, L"w")) {
-            va_list ap; va_start(ap, fmt); vfprintf(f, fmt, ap); va_end(ap);
-            fclose(f);
-        }
-    }
-    return cod;
+// O launcher e a pasta de dados da sonda; false (com `det` e o codigo 16, "nao rodou") se faltar um dos dois.
+static bool PrepararSonda(const wchar_t* nomeRes, std::wstring* launcher, std::wstring* res, std::string* det) {
+    *launcher = LauncherDaSonda();
+    if (launcher->empty()) { if (det) *det = "sem o launcher (..\\DLSS5ForAll.exe) para rodar a sonda"; return false; }
+    const std::wstring dados = PastaDadosSonda();
+    if (dados.empty()) { if (det) *det = "sem pasta de dados com escrita para o resultado da sonda"; return false; }
+    *res = dados + nomeRes;
+    DeleteFileW(res->c_str());
+    return true;
 }
-#define dizer SondaDizer
-static int SondaMain(const wchar_t* luidTxt, const wchar_t* arqRes) {
-    g_sondaArq = arqRes;
-    LUID alvo{}; bool temAlvo = false;
-    if (luidTxt && *luidTxt) {
-        const wchar_t* dp = wcschr(luidTxt, L':');
-        if (dp) { alvo.HighPart = (LONG)wcstoul(luidTxt, nullptr, 16); alvo.LowPart = (DWORD)wcstoul(dp + 1, nullptr, 16); temAlvo = true; }
-    }
-    IDXGIFactory1* fab = nullptr;
-    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&fab)) || !fab) return dizer(10, "CreateDXGIFactory1 falhou");
-    IDXGIAdapter1* ad = nullptr;
-    wchar_t nome[128] = L"?";
-    for (UINT i = 0; ; i++) {
-        IDXGIAdapter1* a = nullptr;
-        if (fab->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-        DXGI_ADAPTER_DESC1 d{}; a->GetDesc1(&d);
-        const bool sw = (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
-        const bool casa = temAlvo ? (d.AdapterLuid.HighPart == alvo.HighPart && d.AdapterLuid.LowPart == alvo.LowPart) : !sw;
-        if (casa && !ad) { ad = a; wcsncpy(nome, d.Description, 127); nome[127] = 0; } else a->Release();
-    }
-    fab->Release();
-    if (!ad) return dizer(10, "nenhuma placa %s", temAlvo ? "com o LUID pedido" : "de hardware");
-    ID3D12Device* dev = nullptr;
-    const HRESULT hr = D3D12CreateDevice(ad, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), (void**)&dev);
-    ad->Release();
-    if (FAILED(hr) || !dev) return dizer(11, "D3D12CreateDevice falhou 0x%08X (%ls)", (unsigned)hr, nome);
-    D3D12_COMMAND_QUEUE_DESC qd{}; qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    ID3D12CommandQueue* q = nullptr; ID3D12Fence* fe = nullptr;
-    int cod = 0; char det[200] = "ok";
-    if (FAILED(dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), (void**)&q)) || !q ||
-        FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&fe)) || !fe) {
-        cod = 12; snprintf(det, sizeof det, "fila ou fence falhou (removido 0x%08X)", (unsigned)dev->GetDeviceRemovedReason());
-    } else {
-        HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        q->Signal(fe, 1);
-        if (fe->GetCompletedValue() < 1 && ev) {
-            fe->SetEventOnCompletion(1, ev);
-            if (WaitForSingleObject(ev, 3000) != WAIT_OBJECT_0) { cod = 13; snprintf(det, sizeof det, "o Signal nao completou em 3 s (removido 0x%08X)", (unsigned)dev->GetDeviceRemovedReason()); }
-        }
-        if (ev) CloseHandle(ev);
-    }
-    if (fe) fe->Release();
-    if (q) q->Release();
-    dev->Release();
-    return dizer(cod, "%s (%ls)", det, nome);
-}
-#undef dizer
 
-// Roda a sonda num processo novo, da copia fora da pasta do app. Devolve o codigo; `det` recebe
-// a linha que a sonda escreveu.
+// Roda a sonda num processo novo, pelo launcher da raiz (fora da pasta do app). Devolve o codigo;
+// `det` recebe a linha que a sonda escreveu.
 static int RodarSonda(const std::wstring& luid, std::string* det) {
     if (det) det->clear();
     const std::wstring exe = MeuExe();
-    wchar_t tmp[MAX_PATH]{};
-    if (exe.empty() || !GetTempPathW(MAX_PATH, tmp)) { if (det) *det = "sem caminho do exe/temp"; return 16; }
-    const std::wstring dir = std::wstring(tmp) + L"DLSS5ForAll-sonda\\";
-    CreateDirectoryW(dir.c_str(), nullptr);
-    const std::wstring copia = dir + L"dlss5-sonda.exe";
-    const std::wstring res = dir + L"resultado.txt";
-    DeleteFileW(res.c_str());
-    if (!CopiarSondaSeMudou(exe, copia)) {
-        if (det) { char b[80]; snprintf(b, sizeof b, "nao consegui copiar o exe da sonda (erro %lu)", (unsigned long)GetLastError()); *det = b; }
-        return 16;
-    }
-    std::wstring cmd = L"\"" + copia + L"\" --sonda-d3d12 " + (luid.empty() ? std::wstring(L"-") : luid) + L" \"" + res + L"\"";
+    std::wstring launcher, res;
+    if (exe.empty() || !PrepararSonda(L"sonda-resultado.txt", &launcher, &res, det)) { if (det && det->empty()) *det = "sem caminho do exe"; return 16; }
+    std::wstring cmd = L"\"" + launcher + L"\" --sonda-d3d12 " + (luid.empty() ? std::wstring(L"-") : luid) + L" \"" + res + L"\"";
     PROCESS_INFORMATION pi{};
-    // MGR-2309 item 7: cwd = pasta da copia, sem o nosso diretorio de DLLs, PATH sem a pasta do app, sem DLSS5_*
-    if (!CriarProcessoLimpo(copia, cmd, CREATE_NO_WINDOW, true, &pi, PastaDe(exe))) {
+    // MGR-2309 item 7: cwd = pasta do launcher (a raiz), sem o nosso diretorio de DLLs, PATH sem a pasta do app,
+    // sem DLSS5_*. Sem CREATE_NO_WINDOW: o launcher e -mwindows (nao abre console) e a sonda nao cria janela.
+    if (!CriarProcessoLimpo(launcher, cmd, 0, true, &pi, PastaDe(exe))) {
         if (det) { char b[80]; snprintf(b, sizeof b, "CreateProcess da sonda falhou (erro %lu)", (unsigned long)GetLastError()); *det = b; }
         return 15;
     }
@@ -242,211 +234,21 @@ static int RodarSonda(const std::wstring& luid, std::string* det) {
     return (int)cod;
 }
 
-// ---------------------------------------------------------------- 1b. a SONDA DA REDE antes de abrir (NS-2309 item 4)
-// `--sonda-ngx <pasta do app> <arquivo>`: o mesmo exe copiado para %TEMP% (sem o ReShade), num processo DESCARTAVEL:
-// device D3D12 na placa NVIDIA -> Init do NGX do driver -> Init_Ext do nvngx_dlssnr.dll da pasta do app -> UMA feature
-// da rede (Reserved18) a 640x360 -> UM evaluate com quadro preto e vetores zero -> tudo solto. Se o driver ou a rede
-// estiverem quebrados (TDR, crash, device removido, create recusado), quem cai e ESTE processo, nao o app no meio do
-// jogo. Ideia observada no NeuralScreen (pre-voo/gate de compatibilidade, fronteira MIT/PolyForm) - codigo proprio,
-// escrito a partir do NOSSO feed (NrEnsure / NrAttachSnippet / NrInstallCallerSpoof), nada copiado de la.
-// Codigos: 0 ok | 20 sem placa NVIDIA | 21 D3D12CreateDevice | 22 fila/lista/fence/texturas | 23 sem _nvngx.dll do driver
-// | 24 Init do core | 25 sem nvngx_dlssnr.dll / export | 26 Init_Ext | 27 AllocateParameters | 28 CreateFeature |
-// 29 Evaluate | 30 a GPU nao terminou (fence) / device removido | 14 nao voltou no prazo (o lancador matou) | 15/16 lancar/copiar.
-namespace SondaNgx {
-typedef Ngx::Result (*FnCoreInit)(unsigned long long, const wchar_t*, ID3D12Device*, const void*, unsigned);
-typedef Ngx::Result (*FnAlloc)(Ngx::Parameter**);
-typedef Ngx::Result (*FnDestroy)(Ngx::Parameter*);
-typedef Ngx::Result (*FnShutdown)(ID3D12Device*);
-typedef Ngx::Result (*FnInitExt)(unsigned long long, const wchar_t*, ID3D12Device*, unsigned, const Ngx::Parameter*);
-typedef DWORD (WINAPI *FnGmfnw)(HMODULE, LPWSTR, DWORD);
-static HMODULE g_core = nullptr;
-static FnGmfnw g_gmfnwReal = nullptr;
-// A rede so aceita quem a chama de dentro de um modulo cujo caminho contem "nvngx.dll" (ver NrInstallCallerSpoof no
-// feed): so a pergunta "qual o nome do modulo X?" com X = este exe e respondida com o caminho do _nvngx.dll do driver.
-static DWORD WINAPI GmfnwThunk(HMODULE h, LPWSTR b, DWORD n) {
-    if (h == GetModuleHandleW(nullptr) && g_core) { const DWORD w = g_gmfnwReal(g_core, b, n); if (w && w < n) return w; }
-    return g_gmfnwReal ? g_gmfnwReal(h, b, n) : GetModuleFileNameW(h, b, n);
-}
-static bool TrocarIat(HMODULE mod) {
-    BYTE* base = (BYTE*)mod;
-    const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)base;
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
-    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
-    const IMAGE_DATA_DIRECTORY dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (!dir.VirtualAddress) return false;
-    for (const IMAGE_IMPORT_DESCRIPTOR* imp = (const IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); imp->Name; ++imp) {
-        if (!imp->OriginalFirstThunk) continue;
-        const IMAGE_THUNK_DATA* oft = (const IMAGE_THUNK_DATA*)(base + imp->OriginalFirstThunk);
-        IMAGE_THUNK_DATA* ft = (IMAGE_THUNK_DATA*)(base + imp->FirstThunk);
-        for (; oft->u1.AddressOfData; ++oft, ++ft) {
-            if (oft->u1.Ordinal & IMAGE_ORDINAL_FLAG64) continue;
-            const IMAGE_IMPORT_BY_NAME* ibn = (const IMAGE_IMPORT_BY_NAME*)(base + oft->u1.AddressOfData);
-            if (strcmp((const char*)ibn->Name, "GetModuleFileNameW") != 0) continue;
-            void** slot = (void**)&ft->u1.Function;
-            DWORD prot = 0;
-            if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &prot)) return false;
-            g_gmfnwReal = (FnGmfnw)*slot; *slot = (void*)&GmfnwThunk;
-            VirtualProtect(slot, sizeof(void*), prot, &prot);
-            return true;
-        }
-    }
-    return false;
-}
-static Ngx::Result RazaoCb(Ngx::Parameter* p) { if (!p) return 0xBAD00005u; Ngx::PorF(p, "DLSSNR.ScalingRatio", 1.0f); return Ngx::kOk; }
-static ID3D12Resource* Tex(ID3D12Device* dev, UINT w, UINT h, DXGI_FORMAT f, bool uav) {
-    D3D12_HEAP_PROPERTIES hp{}; hp.Type = D3D12_HEAP_TYPE_DEFAULT;
-    D3D12_RESOURCE_DESC rd{}; rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D; rd.Width = w; rd.Height = h;
-    rd.DepthOrArraySize = 1; rd.MipLevels = 1; rd.Format = f; rd.SampleDesc.Count = 1;
-    rd.Flags = uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
-    ID3D12Resource* t = nullptr;
-    // COMMON: o que o feed entrega a rede tambem nao vem com barreira nossa para ela (a rede faz as dela)
-    if (FAILED(dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COMMON, nullptr, __uuidof(ID3D12Resource), (void**)&t))) return nullptr;
-    return t;
-}
-} // namespace SondaNgx
-
-#define dizer SondaDizer
-static int SondaNgxMain(const wchar_t* pastaApp, const wchar_t* arqRes) {
-    using namespace SondaNgx;
-    g_sondaArq = arqRes;
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);   // crash = codigo de saida, sem caixa do WER
-    IDXGIFactory1* fab = nullptr;
-    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&fab)) || !fab) return dizer(20, "CreateDXGIFactory1 falhou");
-    IDXGIAdapter1* ad = nullptr; wchar_t nome[128] = L"?";
-    for (UINT i = 0; ; i++) {
-        IDXGIAdapter1* a = nullptr;
-        if (fab->EnumAdapters1(i, &a) == DXGI_ERROR_NOT_FOUND) break;
-        DXGI_ADAPTER_DESC1 d{}; a->GetDesc1(&d);
-        if (!ad && d.VendorId == 0x10DE && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) { ad = a; wcsncpy(nome, d.Description, 127); nome[127] = 0; }
-        else a->Release();
-    }
-    fab->Release();
-    if (!ad) return dizer(20, "nenhuma placa NVIDIA (a rede so roda nelas)");
-    ID3D12Device* dev = nullptr;
-    HRESULT hr = D3D12CreateDevice(ad, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), (void**)&dev);
-    ad->Release();
-    if (FAILED(hr) || !dev) return dizer(21, "D3D12CreateDevice falhou 0x%08X (%ls)", (unsigned)hr, nome);
-    D3D12_COMMAND_QUEUE_DESC qd{}; qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    ID3D12CommandQueue* q = nullptr; ID3D12CommandAllocator* al = nullptr; ID3D12GraphicsCommandList* li = nullptr; ID3D12Fence* fe = nullptr;
-    const UINT W = 640, H = 360;
-    ID3D12Resource *cor = nullptr, *sai = nullptr, *mv = nullptr, *prof = nullptr;
-    if (FAILED(dev->CreateCommandQueue(&qd, __uuidof(ID3D12CommandQueue), (void**)&q)) || !q ||
-        FAILED(dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator), (void**)&al)) || !al ||
-        FAILED(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, al, nullptr, __uuidof(ID3D12GraphicsCommandList), (void**)&li)) || !li ||
-        FAILED(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&fe)) || !fe ||
-        !(cor = Tex(dev, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, false)) || !(sai = Tex(dev, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, true)) ||
-        !(mv = Tex(dev, W, H, DXGI_FORMAT_R16G16_FLOAT, false)) || !(prof = Tex(dev, W, H, DXGI_FORMAT_R32_FLOAT, false)))
-        return dizer(22, "fila/lista/fence/texturas falharam (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
-    HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    UINT64 fv = 0;
-    // v2.1: LENTO NAO E QUEBRADO. A 2.0 esperava 2 s pela fence e chamava de falha (30) tanto a placa
-    // so lenta quanto o device removido. Agora a espera dura enquanto o device estiver vivo: quem
-    // decide "demorou demais" e o TETO do pai (sonda_antes_ms, 60 s de fabrica), que mata este
-    // processo e conta como estouro (14). Daqui so sai falso com o device removido de verdade
-    // (ou na salvaguarda de 10 min, para um pai que morreu sem matar a sonda).
-    auto Enviar = [&]() -> bool {   // fecha, executa e espera; so a fence decide
-        li->Close(); ID3D12CommandList* ls[] = { li }; q->ExecuteCommandLists(1, ls);
-        q->Signal(fe, ++fv);
-        const ULONGLONG iniEnvio = GetTickCount64();
-        while (fe->GetCompletedValue() < fv && SUCCEEDED(dev->GetDeviceRemovedReason()) &&
-               GetTickCount64() - iniEnvio < 600000) {
-            if (ev) { ResetEvent(ev); fe->SetEventOnCompletion(fv, ev); WaitForSingleObject(ev, 500); }
-            else Sleep(10);
-        }
-        const bool ok = fe->GetCompletedValue() >= fv && SUCCEEDED(dev->GetDeviceRemovedReason());
-        if (ok) { al->Reset(); li->Reset(al, nullptr); }
-        return ok;
-    };
-    // o NGX do driver (_nvngx.dll pelo registro, como a lib do SDK e o ngx_forward do feed)
-    for (const wchar_t* v : { L"FullPath", L"NGXPath" }) {
-        wchar_t d[MAX_PATH]{}; DWORD sz = sizeof(d);
-        if (RegGetValueW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\NVIDIA Corporation\\Global\\NGXCore", v, RRF_RT_REG_SZ, nullptr, d, &sz) != ERROR_SUCCESS || !d[0]) continue;
-        std::wstring p = d; if (p.back() != L'\\') p += L'\\'; p += L"_nvngx.dll";
-        if ((g_core = LoadLibraryW(p.c_str())) != nullptr) break;
-    }
-    if (!g_core) return dizer(23, "o _nvngx.dll do driver nao carregou (%ls)", nome);
-    const FnCoreInit coreInit = (FnCoreInit)(void*)GetProcAddress(g_core, "NVSDK_NGX_D3D12_Init");
-    const FnAlloc alloc = (FnAlloc)(void*)GetProcAddress(g_core, "NVSDK_NGX_D3D12_AllocateParameters");
-    const FnDestroy destroy = (FnDestroy)(void*)GetProcAddress(g_core, "NVSDK_NGX_D3D12_DestroyParameters");
-    const FnShutdown coreShut = (FnShutdown)(void*)GetProcAddress(g_core, "NVSDK_NGX_D3D12_Shutdown1");
-    if (!coreInit || !alloc || !destroy) return dizer(23, "o _nvngx.dll nao exporta Init/AllocateParameters (%ls)", nome);
-    wchar_t tmp[MAX_PATH]{}; GetTempPathW(MAX_PATH, tmp);
-    std::wstring dados = std::wstring(tmp) + L"DLSS5ForAll-sonda";
-    Ngx::Result r = coreInit(0x1000000ULL, dados.c_str(), dev, nullptr, 0x15u);
-    if (Ngx::Falhou(r)) return dizer(24, "Init do NGX do driver 0x%08X (%s) (%ls)", r, Ngx::NomeResultado(r), nome);
-    // a rede da pasta do app
-    std::wstring pasta = pastaApp ? pastaApp : L"";
-    while (!pasta.empty() && (pasta.back() == L'\\' || pasta.back() == L'/')) pasta.pop_back();
-    const std::wstring dll = pasta + L"\\nvngx_dlssnr.dll";
-    HMODULE rede = LoadLibraryW(dll.c_str());
-    if (!rede) return dizer(25, "nvngx_dlssnr.dll nao carregou da pasta do app (erro %lu)", (unsigned long)GetLastError());
-    const FnInitExt initExt = (FnInitExt)(void*)GetProcAddress(rede, "NVSDK_NGX_D3D12_Init_Ext");
-    const Ngx::FnD3D12CreateFeature criar = (Ngx::FnD3D12CreateFeature)(void*)GetProcAddress(rede, "NVSDK_NGX_D3D12_CreateFeature");
-    const Ngx::FnD3D12EvaluateFeature avaliar = (Ngx::FnD3D12EvaluateFeature)(void*)GetProcAddress(rede, "NVSDK_NGX_D3D12_EvaluateFeature");
-    const Ngx::FnD3D12ReleaseFeature soltar = (Ngx::FnD3D12ReleaseFeature)(void*)GetProcAddress(rede, "NVSDK_NGX_D3D12_ReleaseFeature");
-    const FnShutdown redeShut = (FnShutdown)(void*)GetProcAddress(rede, "NVSDK_NGX_D3D12_Shutdown1");
-    if (!initExt || !criar || !avaliar || !soltar) return dizer(25, "nvngx_dlssnr.dll sem um export do ciclo de vida");
-    TrocarIat(rede);
-    r = initExt(0x0876232CULL, pasta.c_str(), dev, 0x15u, nullptr);
-    if (Ngx::Falhou(r)) return dizer(26, "Init_Ext da rede 0x%08X (%s) (%ls)", r, Ngx::NomeResultado(r), nome);
-    Ngx::Parameter* p = nullptr;
-    r = alloc(&p);
-    if (Ngx::Falhou(r) || !p) return dizer(27, "AllocateParameters 0x%08X (%s)", r, Ngx::NomeResultado(r));
-    Ngx::PorUI(p, "CreationNodeMask", 1u); Ngx::PorUI(p, "VisibilityNodeMask", 1u);
-    Ngx::PorUI(p, Ngx::kWidth, W); Ngx::PorUI(p, Ngx::kHeight, H); Ngx::PorUI(p, Ngx::kOutWidth, W); Ngx::PorUI(p, Ngx::kOutHeight, H);
-    Ngx::PorUI(p, "DLSSNR.Width", W); Ngx::PorUI(p, "DLSSNR.Height", H);
-    Ngx::PorUI(p, "DLSSNR.Hint.Render.Preset", 1u);
-    Ngx::PorI(p, Ngx::kPerfQuality, Ngx::PQ_DLAA);
-    Ngx::PorVoid(p, "DLSSNRComputeScalingRatioCallback", (void*)&RazaoCb);
-    Ngx::PorF(p, "DLSSNR.ScalingRatio", 1.0f);
-    Ngx::Handle* feat = nullptr;
-    r = criar(li, 18u /* Reserved18 */, p, &feat);
-    if (Ngx::Falhou(r) || !feat) { li->Close(); return dizer(28, "CreateFeature da rede 0x%08X (%s) a %ux%u (%ls)", r, Ngx::NomeResultado(r), W, H, nome); }
-    if (!Enviar()) return dizer(30, "o device caiu durante a criacao (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
-    // um passe: quadro preto, vetores zero, profundidade zero (os mesmos nomes que o feed escreve)
-    Ngx::PorI(p, "DLSSNR.Enabled", 1); Ngx::PorI(p, "DLSSNR.UICorrection", 0);
-    Ngx::PorUI(p, "DLSSNR.Style", 0u); Ngx::PorF(p, "DLSSNR.Intensity", 1.0f);
-    Ngx::PorF(p, "DLSSNR.LocalToneStrength", 1.0f); Ngx::PorF(p, "DLSSNR.LocalStructureStrength", 1.0f); Ngx::PorF(p, "DLSSNR.SkinStructureStrength", 1.0f);
-    Ngx::PorI(p, "DLSSNR.UseAutoMask", 0);
-    Ngx::PorF(p, "DLSSNR.MVecScaleX", 1.0f); Ngx::PorF(p, "DLSSNR.MVecScaleY", 1.0f); Ngx::PorI(p, "DLSSNR.DepthInverted", 0);
-    Ngx::PorD3D12(p, "DLSSNR.MVec", mv); Ngx::PorD3D12(p, "DLSSNR.Depth", prof);
-    Ngx::PorD3D12(p, "DLSSNR.Color", cor); Ngx::PorD3D12(p, "DLSSNR.Output", sai);
-    Ngx::PorI(p, "DLSSNR.Reset", 1);
-    r = avaliar(li, feat, p, nullptr);
-    if (Ngx::Falhou(r)) { li->Close(); return dizer(29, "Evaluate da rede 0x%08X (%s) (%ls)", r, Ngx::NomeResultado(r), nome); }
-    if (!Enviar()) return dizer(30, "o device caiu durante o passe (removido 0x%08X, %ls)", (unsigned)dev->GetDeviceRemovedReason(), nome);
-    // soltar pelo MESMO modulo que criou (a rede), como o feed faz (NrReleaseGuarded)
-    soltar(feat); destroy(p);
-    if (redeShut) redeShut(dev);
-    if (coreShut) coreShut(dev);
-    return dizer(0, "ok: device + NGX + 1 passe da rede a %ux%u (%ls)", W, H, nome);
-    // O resto (texturas, fila, device) sai com o processo: ele e descartavel de proposito.
-}
-#undef dizer
-
-// Roda a sonda da rede e ESPERA no maximo `tetoMs` (60 s de fabrica). Mesma copia/pasta da sonda D3D12.
+// Roda a sonda da rede e ESPERA no maximo `tetoMs` (60 s de fabrica). Mesmo launcher/pasta da sonda D3D12.
 // v2.1: `aCada` (opcional) e chamado a cada ~100 ms da espera com o tempo decorrido - e por onde o app
 // mostra o aviso "Preparando a rede do DLSS 5..." e mantem as mensagens andando; com ele a espera e um
 // MsgWaitForMultipleObjects, para a fila de mensagens desta thread nao parar por um minuto.
 static int RodarSondaNgx(const std::wstring& pastaApp, DWORD tetoMs, std::string* det, void (*aCada)(DWORD msDecorridos) = nullptr) {
     if (det) det->clear();
     const std::wstring exe = MeuExe();
-    wchar_t tmp[MAX_PATH]{};
-    if (exe.empty() || !GetTempPathW(MAX_PATH, tmp)) { if (det) *det = "sem caminho do exe/temp"; return 16; }
-    const std::wstring dir = std::wstring(tmp) + L"DLSS5ForAll-sonda\\";
-    CreateDirectoryW(dir.c_str(), nullptr);
-    const std::wstring copia = dir + L"dlss5-sonda.exe";
-    const std::wstring res = dir + L"resultado-ngx.txt";
-    DeleteFileW(res.c_str());
-    if (!CopiarSondaSeMudou(exe, copia)) {
-        if (det) { char b[80]; snprintf(b, sizeof b, "nao consegui copiar o exe da sonda (erro %lu)", (unsigned long)GetLastError()); *det = b; }
-        return 16;
-    }
+    std::wstring launcher, res;
+    if (exe.empty() || !PrepararSonda(L"sonda-resultado-ngx.txt", &launcher, &res, det)) { if (det && det->empty()) *det = "sem caminho do exe"; return 16; }
     std::wstring pa = pastaApp; while (!pa.empty() && pa.back() == L'\\') pa.pop_back();
-    std::wstring cmd = L"\"" + copia + L"\" --sonda-ngx \"" + pa + L"\" \"" + res + L"\"";
+    std::wstring cmd = L"\"" + launcher + L"\" --sonda-ngx \"" + pa + L"\" \"" + res + L"\"";
     PROCESS_INFORMATION pi{};
-    // MGR-2309 item 7: cwd = pasta da copia, sem o nosso diretorio de DLLs, PATH sem a pasta do app, sem DLSS5_*
-    if (!CriarProcessoLimpo(copia, cmd, CREATE_NO_WINDOW, true, &pi, PastaDe(exe))) {
+    // MGR-2309 item 7: cwd = pasta do launcher (a raiz), sem o nosso diretorio de DLLs, PATH sem a pasta do app,
+    // sem DLSS5_*. Sem CREATE_NO_WINDOW: o launcher e -mwindows (nao abre console) e a sonda nao cria janela.
+    if (!CriarProcessoLimpo(launcher, cmd, 0, true, &pi, PastaDe(exe))) {
         if (det) { char b[80]; snprintf(b, sizeof b, "CreateProcess da sonda falhou (erro %lu)", (unsigned long)GetLastError()); *det = b; }
         return 15;
     }

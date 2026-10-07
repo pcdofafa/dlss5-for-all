@@ -4,6 +4,7 @@
 # O launcher inclui a tela do grupo (../splash_ofertas.h, ../qr.h, ../idioma.h) e enumera as
 # placas pelo DXGI - dai o -I.. e as bibliotecas a mais em relacao ao launcher antigo.
 # winhttp e bcrypt sao da verificacao/atualizacao de versao (../atualizacao.h).
+# d3d12 (07/10/2026) e das sondas da placa (../sonda.h): o app roda --sonda-ngx/--sonda-d3d12 por este exe.
 # ole32/uuid sao da vitrine (../vitrine.h, WebView2). O SDK fica em webview2\: include\WebView2.h,
 # a WebView2Loader.dll x64 e a LICENSE-WebView2.txt (vieram do pacote mingw-w64-ucrt-x86_64-
 # webview2-loader 1.0.3912.50 do msys2; preparar-webview2-sdk.ps1 monta a mesma pasta a partir
@@ -24,7 +25,7 @@ fi
 # Propriedades do arquivo. O proprio .rc tambem tem #pragma code_page(65001).
 windres --codepage=65001 launcher.rc -O coff -o launcher.res.o
 g++ -std=c++17 -O2 -municode -mwindows -Wall -Wextra -DDLSS5_LAUNCHER -I.. -Iwebview2/include launcher.cpp launcher.res.o -o DLSS5ForAll.exe \
-    -ldxgi -ldxguid -lgdi32 -lshell32 -luser32 -lkernel32 -lwinhttp -lbcrypt -lole32 -luuid \
+    -ldxgi -ld3d12 -ldxguid -lgdi32 -lshell32 -luser32 -lkernel32 -lwinhttp -lbcrypt -lole32 -luuid \
     -static -static-libgcc -static-libstdc++
 cp -f webview2/WebView2Loader.dll ./WebView2Loader.dll
 echo "ok -> portable-launcher/DLSS5ForAll.exe (+ WebView2Loader.dll)"
