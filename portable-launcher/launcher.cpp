@@ -361,6 +361,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // O marcador que o atualizar.cmd deixa ao terminar ("ok"/"falhou") vira o evento
     // atualizacao_ok/atualizacao_falhou - e lido (e apagado) antes de qualquer coisa.
     const std::wstring resultadoAnterior = atualizacao::LerResultadoAnterior(raiz);
+    // 07/10/2026: a caixa de "a atualizacao nao foi concluida" e daqui (MessageBoxW); o atualizar.cmd nao chama mais o PowerShell
+    if (resultadoAnterior == L"falhou") atualizacao::AvisarAtualizacaoFalhou();
     // As buscas na web (versao nova, publi, resumo do autor): threads proprias, a tela nao
     // espera. Sem url_base no ofertas.ini nao ha rede nenhuma (ver atualizacao.h).
     atualizacao::Verificacao verif;

@@ -81,7 +81,7 @@
 //  nao pergunta: vai direto para a janela de progresso, que e o aviso curto na tela.
 //
 //  APLICAR (BaixarEAplicar, SO modo direto): baixa o zip para %TEMP%\DLSS5ForAll-atualizacao\ conferindo o
-//  SHA-256 (BCrypt) enquanto grava; extrai com o tar.exe do Windows (ou Expand-Archive);
+//  SHA-256 (BCrypt) enquanto grava; extrai com o tar.exe do Windows (sem PowerShell);
 //  confere o versao.txt; mescla o ofertas.ini novo no da pessoa (so acrescenta chaves que
 //  faltam); copia o launcher e os DLSS5ForAll.exe atuais para <raiz>\backup-versao-anterior\;
 //  escreve e dispara o atualizar.cmd, que espera este launcher e os exes do pacote sairem
@@ -774,6 +774,16 @@ inline ULONGLONG AgoraUnix() {
 }
 inline void CarimbarVerificacao(const std::wstring& raiz) { GravarEstado(raiz, L"ultima_verificacao", std::to_wstring(AgoraUnix())); }
 inline ULONGLONG UltimaVerificacao(const std::wstring& raiz) { return _wcstoui64(LerEstado(raiz, L"ultima_verificacao", L"0").c_str(), nullptr, 10); }
+// A CAIXA DA ATUALIZACAO QUE FALHOU (07/10/2026). O atualizar.cmd, ao falhar, deixa o marcador "falhou" e reabre o
+// launcher; e o launcher que avisa a pessoa, com MessageBoxW. Ate a 2.1 o proprio .cmd chamava o PowerShell
+// (System.Windows.Forms.MessageBox) so para mostrar esta caixa.
+inline void AvisarAtualizacaoFalhou() {
+    const std::wstring log = PastaTemp() + L"\\atualizacao.log";
+    MessageBoxW(nullptr,
+                (TS(L"A atualização não foi concluída. Os arquivos do programa foram devolvidos como estavam. Veja o registro em:",
+                    L"The update did not complete. The program files were restored as they were. See the log at:") + L"\n\n" + log).c_str(),
+                L"DLSS5 For All", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+}
 // o marcador que o atualizar.cmd deixa na raiz ("ok" ou "falhou"); ler apaga
 inline std::wstring LerResultadoAnterior(const std::wstring& raiz) {
     const std::wstring arq = raiz + L"atualizacao-resultado.txt";
@@ -1443,19 +1453,14 @@ inline int RodarEEsperar(const std::wstring& linha, DWORD tetoMs, std::atomic<bo
     return (int)codigo;
 }
 inline std::wstring PastaSystem32() { wchar_t s[MAX_PATH]{}; GetSystemDirectoryW(s, MAX_PATH); return std::wstring(s) + L"\\"; }
-inline std::wstring AspasPs(std::wstring s) { std::wstring o; for (wchar_t c : s) { o += c; if (c == L'\'') o += c; } return o; }
+// A extracao e so pelo tar.exe do Windows (System32, Windows 10 1803 ou mais novo - o programa ja exige
+// Windows 10/11 com D3D12). 07/10/2026: o reserva pelo PowerShell (Expand-Archive) saiu; sem tar.exe, ou
+// com ele falhando, a atualizacao direta falha sem trocar nada e a mensagem oferece a pagina do site.
 inline bool Extrair(const std::wstring& zip, const std::wstring& pasta, std::atomic<bool>* cancelar, const std::wstring& log) {
     const std::wstring tar = PastaSystem32() + L"tar.exe";
-    if (Existe(tar)) {
-        const int rc = RodarEEsperar(L"\"" + tar + L"\" -xf \"" + zip + L"\" -C \"" + pasta + L"\"", 15 * 60 * 1000, cancelar);
-        Anotar(log, L"extracao: tar.exe -> %d", rc);
-        if (rc == 0) return true;
-        ApagarPasta(pasta); CriarPastas(pasta);
-    }
-    const std::wstring ps = PastaSystem32() + L"WindowsPowerShell\\v1.0\\powershell.exe";
-    const int rc = RodarEEsperar(L"\"" + ps + L"\" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" +
-                                 AspasPs(zip) + L"' -DestinationPath '" + AspasPs(pasta) + L"' -Force\"", 15 * 60 * 1000, cancelar);
-    Anotar(log, L"extracao: Expand-Archive -> %d", rc);
+    if (!Existe(tar)) { Anotar(log, L"extracao: tar.exe nao existe em %ls", tar.c_str()); return false; }
+    const int rc = RodarEEsperar(L"\"" + tar + L"\" -xf \"" + zip + L"\" -C \"" + pasta + L"\"", 15 * 60 * 1000, cancelar);
+    Anotar(log, L"extracao: tar.exe -> %d", rc);
     return rc == 0;
 }
 
@@ -1472,7 +1477,7 @@ inline std::string TextoDoCmd() {
         "title DLSS5 For All - atualizando para %DLSS5_VERSAO_NOVA%\r\n"
         "rem Gerado pelo launcher (amd\\atualizacao.h). Variaveis: DLSS5_RAIZ (pasta do pacote, com \\ no fim),\r\n"
         "rem DLSS5_PREPARO (arquivos novos), DLSS5_ZIP, DLSS5_LOG, DLSS5_BACKUP, DLSS5_VERSAO_NOVA, DLSS5_VERSAO_ANTERIOR,\r\n"
-        "rem DLSS5_FLAG_MODULO (--nvidia/--amd/--sem-dlss), DLSS5_MSG_ERRO, DLSS5_XF (arquivos da pessoa), DLSS5_XD (pastas).\r\n"
+        "rem DLSS5_FLAG_MODULO (--nvidia/--amd/--sem-dlss), DLSS5_XF (arquivos da pessoa), DLSS5_XD (pastas).\r\n"
         "echo.\r\n"
         "echo   DLSS5 For All - aplicando a versao %DLSS5_VERSAO_NOVA%\r\n"
         "echo   %DLSS5_TXT_ESPERANDO%\r\n"
@@ -1517,7 +1522,7 @@ inline std::string TextoDoCmd() {
         "if exist \"%DLSS5_BACKUP%\\bin-amd\\DLSS5ForAll.exe\" copy /y \"%DLSS5_BACKUP%\\bin-amd\\DLSS5ForAll.exe\" \"%DLSS5_RAIZ%bin-amd\\DLSS5ForAll.exe\" >> \"%DLSS5_LOG%\"\r\n"
         ":erro\r\n"
         "echo falhou %DLSS5_VERSAO_NOVA%> \"%DLSS5_RAIZ%atualizacao-resultado.txt\"\r\n"
-        "powershell -NoProfile -NonInteractive -Command \"Add-Type -AssemblyName System.Windows.Forms; [void][System.Windows.Forms.MessageBox]::Show($env:DLSS5_MSG_ERRO + [Environment]::NewLine + [Environment]::NewLine + $env:DLSS5_LOG, 'DLSS5 For All', 'OK', 'Error')\"\r\n"
+        "rem a caixa de erro e do proprio launcher (MessageBoxW), ao ler o marcador \"falhou\".\r\n"
         "start \"\" /D \"%DLSS5_RAIZ%.\" \"%DLSS5_RAIZ%DLSS5ForAll.exe\" %DLSS5_FLAG_MODULO%\r\n"
         "exit /b 1\r\n";
 }
@@ -1708,7 +1713,7 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
     Estado(P, 2, TS(L"Extraindo o pacote…", L"Extracting the package…"));
     ApagarPasta(W.preparo);
     if (!CriarPastas(W.preparo)) return falha(TS(L"Não consegui criar a pasta de preparo em ", L"Could not create the staging folder at ") + W.preparo);
-    if (!Extrair(W.zip, W.preparo, nullptr, W.log)) { ApagarPasta(W.preparo); return falha(TS(L"Não consegui extrair o pacote (tar.exe e Expand-Archive falharam).", L"Could not extract the package (tar.exe and Expand-Archive failed).")); }
+    if (!Extrair(W.zip, W.preparo, nullptr, W.log)) { ApagarPasta(W.preparo); return falha(TS(L"Não consegui extrair o pacote (tar.exe do Windows falhou ou não existe).", L"Could not extract the package (the Windows tar.exe failed or is missing).")); }
     std::wstring origem = W.preparo;
     if (!Existe(origem + L"\\versao.txt")) {
         WIN32_FIND_DATAW fd; std::wstring unica; int n = 0;
@@ -1756,8 +1761,6 @@ inline DWORD WINAPI ThreadTrabalho(LPVOID p) {
     SetEnvironmentVariableW(L"DLSS5_TXT_ESPERANDO", T(L"Aguardando o programa fechar...", L"Waiting for the program to close..."));
     SetEnvironmentVariableW(L"DLSS5_TXT_COPIANDO", T(L"Copiando os arquivos novos (os seus ficam)...", L"Copying the new files (yours are kept)..."));
     SetEnvironmentVariableW(L"DLSS5_TXT_PRONTO", T(L"Pronto. Reabrindo o programa...", L"Done. Reopening the program..."));
-    SetEnvironmentVariableW(L"DLSS5_MSG_ERRO", T(L"A atualização não foi concluída. Os arquivos do programa foram devolvidos como estavam. Veja o registro em:",
-                                                 L"The update did not complete. The program files were restored as they were. See the log at:"));
     Anotar(W.log, L"atualizar.cmd escrito em %ls; entregando ao cmd", cmd.c_str());
     P.ok = true;
     PostMessageW(P.h, WM_PROG_FIM, 0, 0);
