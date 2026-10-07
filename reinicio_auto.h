@@ -101,26 +101,18 @@ static std::wstring LauncherDaSonda() {
 #endif
     return L"";
 }
-// A PASTA DE DADOS da sonda (o arquivo de resultado e os arquivos do NGX dela): a subpasta "sonda" da
-// pasta deste exe (bin\sonda) se a pasta do exe aceitar escrita, senao a de %LOCALAPPDATA%\DLSS5ForAll - a mesma regra
-// do log do app. Nunca o %TEMP%. Termina em barra; vazio so se nenhuma das duas aceitar escrita.
+// A PASTA DE DADOS da sonda (o arquivo de resultado e os arquivos do NGX dela): a subpasta "sonda" da pasta
+// de dados do app - g_dadosDir (bin\, ou %LOCALAPPDATA%\DLSS5ForAll quando o bin\ nao aceita escrita; ver
+// EscolherPastaDeDados) ou, no processo leve --relancar, a pasta do ini que ele recebeu. Nunca o %TEMP%.
+// Termina em barra; vazio so se a pasta nao puder ser criada.
+static std::wstring g_lIni;   // o ini do --relancar (ver RelancarMain)
 static std::wstring PastaDadosSonda() {
-    std::vector<std::wstring> cands = { PastaDe(MeuExe()) };
-    wchar_t base[MAX_PATH]{};
-    const DWORD nb = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
-    if (nb && nb < MAX_PATH) cands.push_back(std::wstring(base) + L"\\DLSS5ForAll\\");
-    for (const std::wstring& c : cands) {
-        if (c.empty()) continue;
-        CreateDirectoryW(c.c_str(), nullptr);
-        const std::wstring t = c + L"dlss5-sonda-escrita.tmp";
-        HANDLE h = CreateFileW(t.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
-        if (h == INVALID_HANDLE_VALUE) continue;
-        CloseHandle(h);
-        const std::wstring s = c + L"sonda\\";
-        CreateDirectoryW(s.c_str(), nullptr);
-        if (GetFileAttributesW(s.c_str()) != INVALID_FILE_ATTRIBUTES) return s;
-    }
-    return L"";
+    std::wstring base = !g_dadosDir.empty() ? g_dadosDir : !g_lIni.empty() ? PastaDe(g_lIni) : PastaDe(MeuExe());
+    if (base.empty()) return L"";
+    if (base.back() != L'\\' && base.back() != L'/') base += L'\\';
+    const std::wstring s = base + L"sonda\\";
+    CreateDirectoryW(s.c_str(), nullptr);
+    return GetFileAttributesW(s.c_str()) != INVALID_FILE_ATTRIBUTES ? s : std::wstring();
 }
 
 // ---------------------------------------------------------------- 0. LANCAR LIMPO (MGR-2309 item 7)
@@ -364,7 +356,7 @@ static bool TesteRemoverDevice(const std::wstring& luidTxt, std::string* det) {
 }
 
 // ---------------------------------------------------------------- 2. o lancador
-static std::wstring g_lIni;
+// (g_lIni, o ini deste processo, esta declarado la em cima, junto de PastaDadosSonda)
 static void LLog(const char* fmt, ...) {
     const std::wstring lp = PastaDe(g_lIni) + L"reinicio-auto.log";
     FILE* f = _wfopen(lp.c_str(), L"a");
