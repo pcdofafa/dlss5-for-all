@@ -19,15 +19,9 @@
 // segundo icone no .rc.
 1  ICON  "marca\\DLSS5ForAll.ico"
 
-// v2.0: A COPIA DE SEGURANCA DA PORTA (ver ConferirLancamento no main.cpp). O app aberto direto,
-// sem o launcher na raiz do pacote, recria a partir daqui o ..\DLSS5ForAll.exe, o
-// ..\WebView2Loader.dll e o ..\versao.txt e abre por ele. O build-mingw.sh compila o launcher
-// ANTES deste .rc, entao o embutido e sempre o do mesmo build. Os ids sao RCDATA (outro tipo):
-// nao disputam com o icone 1 a regra do "menor id".
-101 RCDATA "portable-launcher\\DLSS5ForAll.exe"
-102 RCDATA "portable-launcher\\WebView2Loader.dll"
-// o versao.txt da raiz (o build-mingw.sh o gera de versao.h, igual ao montar-portable.ps1)
-103 RCDATA "portable-launcher\\versao.txt"
+// 07/10/2026: os RCDATA 101-103 (o launcher, a WebView2Loader.dll e o versao.txt embutidos, a
+// "copia de seguranca da porta") SAIRAM. O app nao carrega mais outro executavel dentro dele nem
+// recria o launcher: sem ele na raiz, uma caixa explica (ver ConferirLancamento no main.cpp).
 
 
 #include <windows.h>

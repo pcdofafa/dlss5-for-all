@@ -74,8 +74,8 @@ static std::wstring PastaDoExe() {
     return (k == std::wstring::npos) ? L"" : s.substr(0, k + 1);
 }
 
-// v2.0 (--raiz): onde moram o estado, o log e o cache deste launcher. Normalmente a raiz do pacote;
-// rodando do LOCALAPPDATA com uma raiz sem escrita (ver wWinMain), a pasta deste exe.
+// Onde moram o estado, o log e o cache deste launcher: a raiz do pacote (a pasta deste exe).
+// 07/10/2026: o --raiz (a copia deste launcher que o app extraia no LOCALAPPDATA) saiu junto da copia.
 static std::wstring g_pastaDados;
 
 static bool Existe(const std::wstring& caminho) {
@@ -280,36 +280,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // COM de apartamento unico: e o que o WebView2 (vitrine.h) exige - e a tela ja tem o laco
     // de mensagens que ele precisa. Inofensivo para todo o resto.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    // v2.0: --raiz "<pasta>" - este exe e a COPIA do launcher que o app guarda dentro dele, extraida
-    // no LOCALAPPDATA porque a pasta do pacote nao aceita escrita (Arquivos de Programas sem admin,
-    // pasta so leitura). O pacote de verdade (bin\, ofertas.ini, versao.txt) e o de --raiz; o estado,
-    // o log e o cache ficam la se ela aceitar escrita, senao aqui. Sem --raiz: tudo como sempre.
-    std::wstring raizApp = PastaDoExe();
-    bool comRaiz = false;
-    {
-        int argc = 0;
-        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-        for (int i = 1; argv && i + 1 < argc; i++)
-            if (std::wstring(argv[i]) == L"--raiz") {
-                std::wstring r = argv[i + 1];
-                while (!r.empty() && (r.back() == L'\\' || r.back() == L'/')) r.pop_back();
-                if (!r.empty() && Existe(r + L"\\bin")) { raizApp = r + L"\\"; comRaiz = true; }
-                break;
-            }
-        if (argv) LocalFree(argv);
-    }
-    bool raizGravavel = true;
-    if (comRaiz) {
-        const std::wstring teste = raizApp + L"dlss5-teste-escrita.tmp";
-        HANDLE h = CreateFileW(teste.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
-        raizGravavel = (h != INVALID_HANDLE_VALUE);
-        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
-    }
-    const std::wstring raiz   = raizGravavel ? raizApp : PastaDoExe();   // estado/log/cache/ofertas.ini lidos daqui
+    // 07/10/2026: o --raiz saiu (era a copia deste launcher que o app extraia no LOCALAPPDATA quando
+    // a pasta do pacote nao aceitava escrita; o app nao recria mais o launcher). A raiz e esta pasta.
+    const std::wstring raizApp = PastaDoExe();
+    const std::wstring raiz    = raizApp;   // estado/log/cache/ofertas.ini lidos daqui
     g_pastaDados = raiz;
-    // a raiz sem escrita: o ofertas.ini dela (a configuracao do pacote) vem para a pasta de dados a cada abertura
-    if (comRaiz && !raizGravavel && Existe(raizApp + L"ofertas.ini"))
-        CopyFileW((raizApp + L"ofertas.ini").c_str(), (raiz + L"ofertas.ini").c_str(), FALSE);
     const std::wstring binNv  = raizApp + L"bin\\";
     // v2.1 PASTA UNICA: o modo AMD e o MESMO bin\DLSS5ForAll.exe com --amd; o mod mora em
     // bin\mod-amd\ e o app o carrega so nesse modo. bin-amd\ so existe em quem atualizou da
@@ -320,9 +295,6 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     const bool modNovo   = modInstaladoEm(binNv + L"mod-amd\\");
     const bool modAntigo = !modNovo && modInstaladoEm(binAmd);
     const bool modAmdInstalado = modNovo || modAntigo;
-    if (comRaiz)
-        atualizacao::Anotar(raiz + L"launcher.log", L"--raiz %ls (%ls): estado/log/cache em %ls",
-                            raizApp.c_str(), raizGravavel ? L"aceita escrita" : L"SEM escrita", raiz.c_str());
 
     // O IDIOMA. E o que a pessoa escolheu - no app ou nesta tela -, e ele fica no
     // dlss5forall.ini do modulo, na mesma chave que o app le ([idioma] lingua=). Sem escolha
@@ -349,13 +321,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             if (a == L"--amd")      { direto = 2; continue; }
             if (a == L"--sem-dlss") { direto = 3; continue; }
             if (a.rfind(L"--atualizado=", 0) == 0) { versaoAnterior = a.substr(13); continue; }
-            if (a == L"--raiz") { ++i; continue; }   // v2.0: deste launcher, nao segue para o app
             if (!resto.empty()) resto += L" ";
             const bool aspas = a.find(L' ') != std::wstring::npos;
             resto += aspas ? (L"\"" + a + L"\"") : a;
         }
         if (argv) LocalFree(argv);
-        args = (direto || !versaoAnterior.empty() || comRaiz) ? resto : ArgumentosSemPrograma();
+        args = (direto || !versaoAnterior.empty()) ? resto : ArgumentosSemPrograma();
     }
     // O modulo AMD recebe --amd: v2.1 PASTA UNICA, e a flag que liga o modo AMD no bin\ (o mod em
     // bin\mod-amd so diz que esta instalado). Com --amd direto (atalho/script) o app abre no modo
@@ -645,10 +616,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // v2.1: a PERGUNTA, uma vez por abertura (este clique) e sempre que houver versao nova. Dois modos,
         // pelo manifesto (ver atualizacao.h): SITE (so a versao: a caixa abre a pagina de download e o programa
         // instalado abre em seguida) e DIRETO (o manifesto traz o zip: "Atualizar agora" baixa, confere e troca).
-        // Sem escrita na raiz (--raiz sem escrita) nao ha como trocar arquivos: o modo direto vira modo site.
         if (verif.pronto.load() == 1) {
             atualizacao::Manifesto m = verif.manifesto;
-            if (!raizGravavel) { m.zipUrl.clear(); m.zipSha256.clear(); }
             bool automatica = m.Direto() && verif.automatica;
             int resposta;
             if (automatica && verif.podeAuto) {

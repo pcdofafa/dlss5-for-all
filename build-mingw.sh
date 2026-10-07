@@ -26,17 +26,12 @@ OUT=${1:-DLSS5ForAll.exe}
 # icone e melhor que nenhum exe. Mas avisa alto, porque publicar sem icone e o tipo de
 # coisa que so se descobre depois do zip pronto.
 RES_OBJ=""
-# v2.0: O LAUNCHER VEM ANTES. O app.rc embute portable-launcher\DLSS5ForAll.exe, a
-# WebView2Loader.dll e o versao.txt (a copia de seguranca da porta, ver ConferirLancamento):
-# compilar o launcher aqui garante que o embutido e o do mesmo build. SKIP_LAUNCHER=1 reaproveita
-# o launcher ja compilado (o hash do embutido continua batendo com o da raiz do pacote).
+# O LAUNCHER JUNTO (a tela da raiz do pacote; desde 07/10/2026 e ele tambem quem roda as sondas
+# --sonda-ngx/--sonda-d3d12, ver sonda.h). A ordem launcher->app deixou de importar: o app.rc nao
+# embute mais o launcher. SKIP_LAUNCHER=1 pula, para iterar so no app.
 if [ -z "${SKIP_LAUNCHER:-}" ]; then
   bash portable-launcher/build-launcher.sh || { echo "falhou ao compilar o launcher"; exit 1; }
 fi
-[ -f portable-launcher/DLSS5ForAll.exe ] && [ -f portable-launcher/WebView2Loader.dll ] || { echo "falta o launcher ou a WebView2Loader.dll em portable-launcher/"; exit 1; }
-VERSAO_TXT=$(sed -n 's/^#define DLSS5_VERSAO L"\([0-9.]*\)".*/\1/p' versao.h)
-[ -n "$VERSAO_TXT" ] || { echo "versao.h sem #define DLSS5_VERSAO"; exit 1; }
-printf '%s\r\n' "$VERSAO_TXT" > portable-launcher/versao.txt
 if [ -f app.rc ]; then
   if [ ! -f marca/DLSS5ForAll.ico ]; then
     echo "AVISO: marca/DLSS5ForAll.ico nao existe - o exe vai sair SEM icone."

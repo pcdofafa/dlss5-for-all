@@ -27,7 +27,7 @@
 #include <commctrl.h>
 #include <shellapi.h>
 #include <tlhelp32.h>         // so para descobrir o PID da outra instancia (ver InstanciaUnica)
-#include <bcrypt.h>           // v2.0: SHA-256 do launcher embutido (ConferirLancamento / GravarRecurso)
+#include <bcrypt.h>           // lancamento.h (o token do bilhete); o launcher embutido saiu em 07/10/2026
 #include <shlobj.h>           // MGR-2309 item 6: SHGetFolderPathW (Imagens) para a captura da imagem processada
 #include <softpub.h>          // MGR-2309 item 5: WinVerifyTrust (so log) das DLLs da rede e do NGX
 #include <d3d11.h>
@@ -28443,68 +28443,12 @@ static bool MesmoArquivo(const std::wstring& a, const std::wstring& b) {
     CloseHandle(ha); CloseHandle(hb);
     return igual;
 }
-// A COPIA DE SEGURANCA DA PORTA: o launcher (101), a WebView2Loader.dll (102) e o versao.txt
-// (103) viajam DENTRO deste exe (app.rc). Aberto direto e sem launcher na raiz, o app o recria
-// la (nunca por cima de um que exista); sem permissao de escrita na raiz, num lugar nosso do
-// LOCALAPPDATA, rodando com --raiz apontando para a instalacao de verdade.
-enum { kRecLauncher = 101, kRecWebView2 = 102, kRecVersao = 103 };
-static bool RecursoEmbutido(int id, const BYTE** p, DWORD* n) {
-    HRSRC r = FindResourceW(nullptr, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10) /* RT_RCDATA */);
-    HGLOBAL g = r ? LoadResource(nullptr, r) : nullptr;
-    *p = g ? (const BYTE*)LockResource(g) : nullptr;
-    *n = r ? SizeofResource(nullptr, r) : 0;
-    return *p && *n;
-}
-// SHA-256 pelo CNG do Windows (bcrypt); vazio = falhou
-static std::string Sha256(const BYTE* p, size_t n) {
-    std::string out;
-    BCRYPT_ALG_HANDLE alg = nullptr;
-    BCRYPT_HASH_HANDLE h = nullptr;
-    if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0))) return out;
-    UCHAR dig[32];
-    if (BCRYPT_SUCCESS(BCryptCreateHash(alg, &h, nullptr, 0, nullptr, 0, 0))) {
-        bool ok = true;
-        for (size_t f = 0; ok && f < n; f += 1u << 20) {
-            const ULONG pedaco = (ULONG)((n - f) < (1u << 20) ? (n - f) : (1u << 20));
-            ok = BCRYPT_SUCCESS(BCryptHashData(h, (PUCHAR)(p + f), pedaco, 0));
-        }
-        if (ok && BCRYPT_SUCCESS(BCryptFinishHash(h, dig, 32, 0))) out.assign((const char*)dig, 32);
-        BCryptDestroyHash(h);
-    }
-    BCryptCloseAlgorithmProvider(alg, 0);
-    return out;
-}
-static std::string Sha256Arquivo(const std::wstring& caminho) {
-    HANDLE f = CreateFileW(caminho.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return "";
-    LARGE_INTEGER t{};
-    std::vector<BYTE> b;
-    if (GetFileSizeEx(f, &t) && t.QuadPart > 0 && t.QuadPart < (256ll << 20)) {
-        b.resize((size_t)t.QuadPart);
-        DWORD lidos = 0;
-        if (!ReadFile(f, b.data(), (DWORD)b.size(), &lidos, nullptr) || lidos != b.size()) b.clear();
-    }
-    CloseHandle(f);
-    return b.empty() ? std::string() : Sha256(b.data(), b.size());
-}
-// Grava o recurso `id` em `destino` por um temporario na MESMA pasta + MoveFileExW, e confere o
-// SHA-256 do que ficou no disco contra o do recurso antes de dar o nome final. `substituir`
-// falso = nunca troca um arquivo que ja exista (o caso da raiz: o launcher de la e da pessoa).
-static bool GravarRecurso(int id, const std::wstring& destino, bool substituir) {
-    const BYTE* p = nullptr; DWORD n = 0;
-    if (!RecursoEmbutido(id, &p, &n)) return false;
-    const std::wstring tmp = destino + L".novo-" + std::to_wstring((unsigned long)GetCurrentProcessId());
-    HANDLE f = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return false;
-    DWORD escritos = 0;
-    bool ok = WriteFile(f, p, n, &escritos, nullptr) && escritos == n && FlushFileBuffers(f);
-    CloseHandle(f);
-    const std::string esperado = Sha256(p, n);
-    ok = ok && !esperado.empty() && Sha256Arquivo(tmp) == esperado;
-    ok = ok && MoveFileExW(tmp.c_str(), destino.c_str(), MOVEFILE_WRITE_THROUGH | (substituir ? MOVEFILE_REPLACE_EXISTING : 0));
-    if (!ok) DeleteFileW(tmp.c_str());
-    return ok;
-}
+// 07/10/2026: A COPIA DE SEGURANCA DA PORTA SAIU. Ate a 2.1 o launcher, a WebView2Loader.dll e o
+// versao.txt viajavam DENTRO deste exe (RCDATA 101-103 no app.rc) e o app aberto direto os recriava
+// na raiz (ou no %LOCALAPPDATA%\DLSS5ForAll\launcher\, rodando com --raiz). O programa principal
+// nao escreve mais executavel nenhum: sem o launcher na raiz, a caixa diz para abrir pela pasta
+// principal ou baixar de novo. A trava continua igual - o bilhete do launcher da raiz (a) e a
+// identidade do ARQUIVO do pai (MesmoArquivo); por isso nao ha hash esperado nenhum aqui.
 // v2.1: DIAGNOSTICO DE ABERTURA. Uma linha com o que o dono precisa para ler qualquer relato: versao do programa, build do
 // Windows (RtlGetVersion: o GetVersionEx mente sem manifesto), elevacao e sessao. A placa e o driver saem na linha "gpu:".
 static std::string TextoSistemaDiag() {
@@ -28636,16 +28580,9 @@ static bool ConferirLancamento() {
         if (mapa) CloseHandle(mapa);
         if (ev) CloseHandle(ev);
         // o pai que morreu (launcher encerrado a forca durante a espera) ainda vale pelo bilhete
-        // escrito pelo PID dele; vivo, tem de ser o launcher da raiz ou um exe IDENTICO (SHA-256)
-        // ao launcher embutido - a copia do LOCALAPPDATA com --raiz. Nunca um pai so pelo nome.
+        // escrito pelo PID dele; vivo, tem de ser o launcher da raiz (o MESMO arquivo, nao so o
+        // nome). 07/10/2026: a copia do LOCALAPPDATA com --raiz deixou de existir.
         if (valido && (paiExe.empty() || MesmoArquivo(paiExe, launcher))) return liberar("bilhete do launcher da raiz");
-        if (valido) {
-            const BYTE* p = nullptr; DWORD n = 0;
-            if (RecursoEmbutido(kRecLauncher, &p, &n)) {
-                const std::string h = Sha256(p, n);
-                if (!h.empty() && Sha256Arquivo(paiExe) == h) return liberar("bilhete do launcher embutido (copia fora da raiz, --raiz)");
-            }
-        }
     }
     // (b) o pai e o proprio app
     if (!paiExe.empty()) {
@@ -28684,46 +28621,19 @@ static bool ConferirLancamento() {
         CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
         return true;
     };
-    if (!jaRedirecionado && !MesmoArquivo(launcher, S)) {
-        // 1. SEM LAUNCHER NA RAIZ: recria a partir do embutido (o temporario + MoveFileExW sem
-        //    substituir: se outro processo criou um no meio-tempo, vale o dele). A DLL da vitrine
-        //    e o versao.txt so se faltarem - nada que ja esteja la e trocado.
-        if (!existe(launcher)) {
-            GravarRecurso(kRecLauncher, launcher, false);
-            if (existe(launcher)) {
-                if (!existe(R + L"WebView2Loader.dll")) GravarRecurso(kRecWebView2, R + L"WebView2Loader.dll", false);
-                if (!existe(R + L"versao.txt"))         GravarRecurso(kRecVersao, R + L"versao.txt", false);
-            }
-        }
-        if (existe(launcher) && abrirLauncher(launcher, L"", R)) return false;
-        // 2. A RAIZ NAO ACEITA ESCRITA (Arquivos de Programas sem admin, pasta so leitura): a copia
-        //    do launcher num lugar nosso, conferida pelo hash e regravada se diferente, rodando com
-        //    --raiz na instalacao de verdade (bin\, ofertas.ini, versao.txt dela). Sem elevacao.
-        if (!existe(launcher)) {
-            wchar_t base[MAX_PATH]{};
-            const DWORD nb = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
-            if (nb && nb < MAX_PATH) {
-                const std::wstring dirApp = std::wstring(base) + L"\\DLSS5ForAll\\";
-                const std::wstring dirL = dirApp + L"launcher\\";
-                CreateDirectoryW(dirApp.c_str(), nullptr);
-                CreateDirectoryW(dirL.c_str(), nullptr);
-                auto conferido = [&](int id, const std::wstring& alvo) {
-                    const BYTE* p = nullptr; DWORD n = 0;
-                    if (!RecursoEmbutido(id, &p, &n)) return false;
-                    if (existe(alvo) && Sha256Arquivo(alvo) == Sha256(p, n)) return true;
-                    return GravarRecurso(id, alvo, true);
-                };
-                const std::wstring exeL = dirL + L"DLSS5ForAll.exe";
-                if (conferido(kRecLauncher, exeL)) {
-                    conferido(kRecWebView2, dirL + L"WebView2Loader.dll");   // sem ela a tela abre sem a vitrine
-                    std::wstring r = R;   // sem a barra final: "C:\x\" comeria a aspa no CommandLineToArgvW
-                    while (!r.empty() && (r.back() == L'\\' || r.back() == L'/')) r.pop_back();
-                    if (abrirLauncher(exeL, L" --raiz \"" + r + L"\"", dirL)) return false;
-                }
-            }
-        }
+    // 1. O LAUNCHER ESTA NA RAIZ: abre ele com os mesmos argumentos e sai (a pessoa ve a tela de sempre).
+    if (!jaRedirecionado && !MesmoArquivo(launcher, S) && existe(launcher) && abrirLauncher(launcher, L"", R)) return false;
+    // 2. 07/10/2026: SEM LAUNCHER NA RAIZ o app NAO o recria mais (nem na raiz, nem no LOCALAPPDATA): so explica.
+    if (!existe(launcher)) {
+        LogPreAbertura(D, "lancamento: sem o launcher em %s - caixa \"abra pela pasta principal / baixe de novo\"; nada foi recriado",
+                       U8(launcher).c_str());
+        MessageBoxW(nullptr,
+                    TS(L"Abra o programa pelo DLSS5ForAll.exe da pasta principal.\n\nSe ele sumiu, baixe o programa de novo em pcdofafa.com.br/dlss.",
+                       L"Open the program with DLSS5ForAll.exe in the main folder.\n\nIf it is missing, download the program again at pcdofafa.com.br/dlss.").c_str(),
+                    L"DLSS5 For All", MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+        return false;
     }
-    // 3. so se ate o LOCALAPPDATA falhou (ou o launcher nos devolveu sem bilhete: DLSS5_REDIRECIONADO)
+    // 3. o launcher existe mas nos devolveu sem bilhete (DLSS5_REDIRECIONADO) ou nao abriu
     // v2.1: a caixa diz o codigo do Windows e onde esta o log - "abra pela pasta principal" sozinho nao ajudava quem JA abriu por ela.
     {
         std::wstring t = TS(L"Abra o DLSS5ForAll pela pasta principal do programa.",
