@@ -312,6 +312,7 @@ same in both.
   on the GPU before it is presented, and the game itself shows the result (our layer disappears). Lower performance
   cost and lower latency. Available for 64-bit games on DirectX 11 and 12, without anti-cheat. Nothing is written to
   the game's folder and the game does not restart; when the mode is turned off the DLL unloads itself.
+  The DLL is loaded into the game by the helper `bin\dlss5-integrar.exe`, which the app runs only in this mode (since 2.1.1).
 - **Auto** (default) — uses Native when available; otherwise, Universal. Capture comes up first (the image appears),
   and about 2 s after the first frame the app tries Native underneath. If it works, the layer disappears; if not,
   capture simply continues and the reason goes to the log (`modo: Nativo indisponivel nesta fonte (...)`).

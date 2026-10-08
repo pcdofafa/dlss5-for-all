@@ -311,6 +311,7 @@ funcionam igual nos dois.
   processado na GPU antes da apresentação na tela e o próprio jogo mostra o resultado (a nossa camada some). Menor
   custo de desempenho e menor latência. Disponível para jogos de 64 bits em DirectX 11 e 12, sem anti-cheat. Nada é
   gravado na pasta do jogo e o jogo não reinicia; ao desligar o modo, a DLL se descarrega sozinha.
+  Quem carrega a DLL no jogo é o ajudante `bin\dlss5-integrar.exe`, que o app só executa neste modo (desde a 2.1.1).
 - **Automático** (padrão) — utiliza o modo Nativo quando disponível; caso contrário, o Universal. A captura sobe
   primeiro (a imagem aparece) e uns 2 s depois do primeiro quadro o app tenta o Nativo por baixo. Se entrar, a
   camada some; se não, a captura simplesmente continua e o motivo vai para o log
