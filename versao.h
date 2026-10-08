@@ -11,4 +11,4 @@
 //  Ao subir a versao, suba tambem o VERSIONINFO do launcher.rc e do app.rc (1.1.0.0).
 // =====================================================================================
 #pragma once
-#define DLSS5_VERSAO L"2.1"
+#define DLSS5_VERSAO L"2.1.1"
