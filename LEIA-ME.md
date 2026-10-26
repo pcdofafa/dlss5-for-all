@@ -595,6 +595,7 @@ poe o monitor real como principal) e confere a linha `LAT ritmo do WGC` no `dlss
 | A overlay fica atrás do jogo | jogo topmost brigando | o app reafirma o topo a cada 1 s; se persistir, roda o jogo em janela normal |
 | Imagem nítida parada mas borra ao mexer | motion vectors não chegando | Overlay → seção *Motion vectors* do Feeder. Kernel **acima** do Feed e `DLSS5_MV_PROVIDER=3`. |
 | A imagem sai igual à original, "não faz nada" | falta um de `renodx-dlss.addon64`, `nvngx_dlssnr.dll` ou `nvngx_dlss.dll` | O seletor avisa numa faixa **dizendo qual** e leva às releases do RHI. Sem o `nvngx_dlss.dll` a sessão NGX nem abre e o feeder cai na passagem segura — o sintoma é exatamente "igual ao original", sem erro. |
+| "O Neural Rendering não roda nesta placa" numa RTX | a rede não montou no teste que o programa faz ao abrir | Desde a 2.2.4 o pacote traz uma segunda build do `nvngx_dlssnr.dll` em `bin\nr-alternativa\`. Se o teste falha com a build da pasta, o programa testa a reserva e, se ela passa, troca as duas de lugar sozinho e liga a rede. Se as duas falharem, o aviso mostra o **código** do erro: mande ele junto quando for reportar. |
 | Painel DLSS 5 em STANDBY | add-on perdeu o primeiro create | O Feeder recria sozinho depois de ~180 frames. Espera. |
 | "0.0 fps (alvo parado)" | a janela capturada não redesenhou nada | normal em janela estática; num jogo o número sobe |
 | Fatal: "dispositivo em uso" / nenhum modo (câmera) | outro app segurando a captura | Fecha OBS/Discord/navegador/app Câmera, clica em *Atualizar lista*. |

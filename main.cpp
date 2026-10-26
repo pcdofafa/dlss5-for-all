@@ -1842,6 +1842,7 @@ static std::wstring PastaModAmd() { return g_pastaModAmd.empty() ? g_exeDir + L"
 static bool g_semDlssArg = false;          // --sem-dlss: a pessoa entrou pelo botao "Sem DLSS 5"
 static bool g_nrIndispSonda = false;       // a sonda da rede falhou nesta abertura
 static std::wstring g_nrIndispMotivo;      // o porque (codigo da sonda + texto original), para o painel e o log
+static int  g_nrIndispCod = 0;           // 2.2.4: o codigo da sonda que falhou, mostrado no aviso (para quem reportar)
 static bool g_nrIndispPesado = false;      // v2.1: ...e foi o TETO que estourou (a rede exige demais desta placa), nao falha dura
 static bool NrBloqueadoNestaSessao();      // definida depois de GpuInfo
 static std::string TextoSistemaDiag();     // v2.1: linha de diagnostico (versao, Windows, elevacao); definida junto de ConferirLancamento
@@ -5210,6 +5211,24 @@ static std::wstring DlssnrBuildCerta(int sm) {
 // Roda UMA VEZ POR ARQUIVO: so refaz quando o nvngx_dlssnr.dll ao lado do exe muda de tamanho
 // ou de data. A faixa do seletor consulta isto a cada vez que a tela recupera o foco, e
 // varrer 165 MB a cada foco seria pagar caro por uma resposta que nao mudou.
+// 2.2.4: troca o nvngx_dlssnr.dll da pasta pelo da reserva (nr-alternativa\) e guarda o que saiu LA, no
+// lugar dele. Tres renomeacoes no mesmo volume, nenhuma copia de 165 MB. Se a segunda falhar, a primeira
+// e desfeita e a pasta fica como estava. Chamada antes de qualquer device deste processo: nada tem a DLL aberta.
+static bool TrocarDlssnrPelaReserva(const std::wstring& reserva) {
+    const std::wstring dll = g_exeDir + L"nvngx_dlssnr.dll", res = reserva + L"nvngx_dlssnr.dll", tmp = reserva + L"nvngx_dlssnr.trocando";
+    DeleteFileW(tmp.c_str());
+    if (!MoveFileExW(dll.c_str(), tmp.c_str(), MOVEFILE_REPLACE_EXISTING)) return false;
+    if (!MoveFileExW(res.c_str(), dll.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        const DWORD e = GetLastError();
+        MoveFileExW(tmp.c_str(), dll.c_str(), MOVEFILE_REPLACE_EXISTING);
+        SetLastError(e);
+        return false;
+    }
+    if (!MoveFileExW(tmp.c_str(), res.c_str(), MOVEFILE_REPLACE_EXISTING))
+        Log("rede: a build que saiu ficou como nr-alternativa\\nvngx_dlssnr.trocando (erro %lu) - a da pasta ja esta certa", (unsigned long)GetLastError());
+    return true;
+}
+
 static void ConferirDlssnr() {
     static std::wstring ultimoCarimbo;
     const std::wstring dll = g_exeDir + L"nvngx_dlssnr.dll";
@@ -10242,6 +10261,7 @@ static bool Camada2Ignorar(const std::wstring& nome) {
     // as pastas das OUTRAS camadas (quando moram dentro da pasta do exe) nao entram no espelho:
     // senao a camada3\ ganharia uma camada2\ inteira dentro, e por ai vai
     if (n.rfind(L"camada", 0) == 0 || n.rfind(L"bin-camada", 0) == 0) return true;
+    if (n == L"nr-alternativa") return true;   // 2.2.4: a reserva da rede so serve a sonda do app principal
     return n == L"reshade-cache";   // e criada vazia: cada instancia compila o seu
 }
 static void Camada2Espelhar(const std::wstring& de, const std::wstring& para, int nivel) {
@@ -29961,9 +29981,37 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         };
         const ULONGLONG t0 = GetTickCount64();
         std::string det;
-        const int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det, esperaSonda);
-        const ULONGLONG ms = GetTickCount64() - t0;
+        int cod = ReinicioAuto::RodarSondaNgx(g_exeDir, tetoSondaMs, &det, esperaSonda);
         if (s_sondaAviso > 1) Cartaz::Retirar(s_sondaAviso);
+        // 2.2.4: A BUILD RESERVA DA REDE. Um inscrito com RTX 4060 abriu a 2.2.3 e o Neural Rendering ficou
+        // "nao roda nesta placa" (a sonda caiu), enquanto a mesma build passa na RTX 4080 daqui. O pacote leva
+        // agora uma segunda build do nvngx_dlssnr.dll em nr-alternativa\ (a 310.8.SF-v2, a que o README do pacote
+        // PCSX2 indica para RTX 40 da 4060 a 4090). Sonda que falhou por qualquer motivo de placa/rede (fora 20 =
+        // sem NVIDIA e 15/16 = nem rodou) testa a reserva; se ELA passa, as duas trocam de lugar e a sessao segue
+        // com a rede. Troca, e nao copia: a build que saiu fica na reserva, e se um dia a situacao se inverter
+        // (driver novo), a sonda destroca do mesmo jeito. Sem a pasta (pacote antigo), nada muda.
+        if (cod != 0 && cod != 15 && cod != 16 && cod != 20) {
+            const std::wstring reserva = g_exeDir + L"nr-alternativa\\";
+            if (GetFileAttributesW((reserva + L"nvngx_dlssnr.dll").c_str()) != INVALID_FILE_ATTRIBUTES) {
+                Log("sonda da rede: falhou com o nvngx_dlssnr.dll da pasta (codigo %d: %s) - testando a build reserva (nr-alternativa)", cod, det.c_str());
+                s_sondaAviso = 0;
+                std::string detRes;
+                const ULONGLONG t1 = GetTickCount64();
+                const int codRes = ReinicioAuto::RodarSondaNgx(reserva, tetoSondaMs, &detRes, esperaSonda);
+                if (s_sondaAviso > 1) Cartaz::Retirar(s_sondaAviso);
+                Log("sonda da rede: build reserva -> codigo %d (%s), %llu ms", codRes, detRes.c_str(), (unsigned long long)(GetTickCount64() - t1));
+                if (codRes == 0) {
+                    if (TrocarDlssnrPelaReserva(reserva)) {
+                        Log("sonda da rede: build reserva PASSOU - as duas builds trocaram de lugar; a rede segue nesta sessao");
+                        det = "ok com a build reserva, trocada na pasta (a anterior falhou com codigo " + std::to_string(cod) + "): " + detRes;
+                        cod = 0;
+                    } else {
+                        Log("sonda da rede: a build reserva passou, mas a troca do arquivo falhou (erro %lu) - a rede fica de fora nesta sessao", (unsigned long)GetLastError());
+                    }
+                }
+            }
+        }
+        const ULONGLONG ms = GetTickCount64() - t0;
         // a ETAPA onde parou (os codigos de SondaNgxMain em sonda.h), para o log e para quem le o ini sem o codigo-fonte
         const char* etapa = cod == 0 ? "ok" : cod == 14 ? "estouro do teto (exige demais da placa)" : cod == 20 ? "nenhuma placa NVIDIA" : cod == 21 ? "device D3D12" :
             cod == 22 ? "fila/lista/fence/texturas" : cod == 23 ? "_nvngx.dll do driver" : cod == 24 ? "Init do NGX do driver" :
@@ -29985,6 +30033,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             // mensagem propria; o resto (device removido, crash, NGX recusou) e falha dura.
             g_nrIndispSonda = true;
             g_nrIndispPesado = (cod == 14);
+            g_nrIndispCod = cod;
             const std::string txt = "sonda codigo " + std::to_string(cod) + " (" + etapa + "): " + det + " [" + std::to_string((unsigned long long)ms) +
                                     " ms de " + std::to_string((unsigned long)tetoSondaMs) + " ms]";
             g_nrIndispMotivo = std::wstring(txt.begin(), txt.end());
@@ -39843,6 +39892,8 @@ L"Do you want to continue?");
                              L"para tentar de novo, feche o jogo e os programas que usam a placa e abra outra vez",
                              L"DLSS 5 is not available on this card right now\nFrame Gen and filters keep working — "
                              L"to try again, close the game and the programs using the card and open again");
+                if (g_nrIndispSonda && g_nrIndispCod > 0)
+                    t += TS(L" (código ", L" (code ") + std::to_wstring(g_nrIndispCod) + L")";
                 Log("aviso: neural nao esta ativo (%s)", U8(g_hud.neuralDetalhe).c_str());
                 ShowToast(hi, C.mon, t, 7000);
             }
