@@ -128,7 +128,7 @@ static Hdr::Treatment g_hdrTr;
 // mesma via. Nada muda sem um pid numerico solto na linha de comando (ver g_ponteFeeder).
 #include "ponte_feeder_host.h"  // A1: PonteHost::{Preparar, Iniciar, ObterQuadro, EntregarSaida, Parar}
 #include "fonte_ponte.h"        // A2: FontePonte::{Ligar, Puxar, ColherSaida, Devolver, Desligar}
-#include "ponte/injetor.h"      // B2: Injetor::{Bits64, Injetar} - Injetar roda o auxiliar bin\dlss5-integrar.exe (modo integrado)
+#include "ponte/injetor.h"      // 2.2.3: so Injetor::Bits64 (consulta de arquitetura). A injecao (modo Nativo) foi REMOVIDA do programa
 #include "ponte_gpu.h"       // duas placas: leva a imagem de uma placa a outra sem CPU e sem o compositor
 #include "politica_cabe.h" // AGENTE D (PLANO-FLUIDEZ item 4): "quando nao cabe" - limita o jogo (limitador vivo) ou avisa no painel
 #include "flip_prova.h"   // N6-FLIP: o DXGI diz se o quadro foi DIRETO para a tela (OVERLAY) ou COMPOSTO
@@ -212,7 +212,10 @@ static int ModoProcDeTexto(std::wstring mp) {
     for (auto& ch : mp) ch = (wchar_t)towlower(ch);
     // v2.0 (dono): o app NUNCA escolhe o modo sozinho. "auto", vazio ou desconhecido = Universal - so a mao
     // da pessoa (seletor/menu) liga Nativo ou Upstream. MODO_AUTO fica no enum so para ler ini antigo.
-    return (mp == L"nativo") ? MODO_NATIVO : (mp == L"upstream") ? MODO_UPSTREAM : MODO_UNIVERSAL;
+    // 2.2.3 (dono): o modo Nativo (e o Upstream, que roda por ele) foi REMOVIDO - a injecao da DLL no jogo fazia
+    // antivirus acusarem o programa. "nativo"/"upstream" gravado por versao antiga cai no Universal, sem erro.
+    (void)mp;
+    return MODO_UNIVERSAL;
 }
 // I7: as marcas por jogo do Upstream ([perfil:<exe>] upstream_ok / upstream_falhas), lidas no
 // arranque junto com nativo_falhas (ver VigiaNativo) e mantidas aqui para o painel e o laco.
@@ -4429,7 +4432,7 @@ static Atalho g_atalhos[AT_COUNT] = {
     { L"comparar",   L"Modo comparativo", L"Comparison mode" },
     // MODO INTEGRADO (15/09/2026, Fase 2): injeta a dll de 64 bits no jogo e passa a
     // receber o quadro pela ponte, sem captura de tela. Liga e desliga com a mesma tecla.
-    { L"integrar",   L"Trocar modo (Universal ↔ Nativo)", L"Switch mode (Universal ↔ Native)" },   // v2.0: o nome que o dono pediu
+    { L"integrar",   L"Modo Nativo (removido na 2.2.3)", L"Native mode (removed in 2.2.3)" },   // 2.2.3: sem tecla - o Nativo saiu
     // MGR-2309 item 6 (ideia observada no DLSS 5 Manager - codigo proprio): salva em PNG a imagem
     // PROCESSADA (o backbuffer da pelicula), que o print do Windows nao pega (a pelicula e excluida
     // da captura). SEM TECLA de fabrica; a pessoa escolhe na tela de atalhos, ou usa o painel End.
@@ -4592,7 +4595,7 @@ static void CarregarAtalhos() {
         // MODO INTEGRADO: F8 puro. Conferido antes de fixar - F8 sem modificador nao aparece
         // em nenhuma outra tabela deste arquivo; so existe Alt+F8 e Ctrl+Alt+F8 nas cascatas de
         // bypass do modo sobreposto (kBypass), que sao combinacoes diferentes e nao colidem.
-        { AT_INTEGRAR, 0, VK_F8 },
+        { AT_INTEGRAR, 0, 0 },   // 2.2.3: o modo Nativo saiu; o F8 fica livre para o jogo
         // F7 PURO: liberado de kCascataTudo nesta rodada (ver o comentario dela, logo
         // abaixo) - so existia ali e, agora, Alt+F7 no kBypass do modo sobreposto (combinacao
         // diferente, nao colide). Conferido com grep antes de fixar.
@@ -4608,6 +4611,8 @@ static void CarregarAtalhos() {
         if (v == L"sem tecla") { g_atalhos[i].mods = 0; g_atalhos[i].vk = 0; }
         else if (TeclaDeNome(v, &m, &k)) { g_atalhos[i].mods = m; g_atalhos[i].vk = k; }
     }
+    // 2.2.3: a tecla `integrar` gravada por versao antiga (F8) nao e mais registrada - o modo Nativo saiu.
+    g_atalhos[AT_INTEGRAR].mods = 0; g_atalhos[AT_INTEGRAR].vk = 0;
 }
 // apaga a secao inteira do ini (usada pelo "restaurar padroes")
 static void DeletePrivateProfileSection(const wchar_t* secao) {
@@ -19583,7 +19588,6 @@ static std::vector<Linha> Lista() {
     v.push_back(linha(AT_TUDO,        L"Liga e desliga o Neural Render (DLSS 5)", L"Turns Neural Render (DLSS 5) on and off"));
     v.push_back(linha(AT_FILTROSLIGA, L"Liga e desliga os filtros",              L"Turns the filters on and off"));
     v.push_back(linha(AT_PAINEL,      L"Abre o menu",                            L"Opens the menu"));
-    v.push_back(linha(AT_INTEGRAR,    L"Troca o modo (Universal ↔ Nativo)",      L"Switches mode (Universal ↔ Native)"));   // v2.0: pedido do dono, depois do End
     return v;
 }
 
@@ -29302,7 +29306,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // R1: a troca de modo e a vigia de saude do Nativo (ver VigiaNativo)
         else if (a == L"--modo" && i + 1 < argc) {
             argModo = argv[++i];
-            if (argModo == L"upstream") argModo = L"nativo";   // I6: o transporte do Upstream e o Nativo; a escolha vem do ini
+            // 2.2.3: Nativo e Upstream removidos - uma reabertura/atalho antigo com --modo nativo|upstream abre em Universal
+            if (argModo == L"upstream" || argModo == L"nativo") argModo = L"universal";
             g_modoAbertura = argModo;
         }
         else if (a == L"--nativo-tentativas" && i + 1 < argc) g_vn.tentativas = _wtoi(argv[++i]);
@@ -29635,6 +29640,33 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // ...e tambem nao aparece numa REABERTURA nossa: o app acabou de se reabrir sozinho
     // porque o alvo mudou de tamanho ou fechou, e a pessoa nao pediu nada disso. Propaganda
     // no meio de um conserto automatico e castigo, nao convite.
+    // 2.2.3: O AUXILIAR DO MODO NATIVO SAIU DO PACOTE. Quem atualizou por cima (o atualizar.cmd copia sem apagar
+    // o que sobrou) ainda tem o bin\dlss5-integrar.exe e a bin\dlss5-ponte64.dll da versao anterior - e e o
+    // auxiliar que os antivirus acusam. O programa nao usa mais nenhum dos dois: apaga, e so registra no log.
+    if (!g_camada2 && !g_ponteFeeder) {
+        for (const wchar_t* velho : { L"dlss5-integrar.exe", L"dlss5-ponte64.dll" }) {
+            const std::wstring c = g_exeDir + velho;
+            if (GetFileAttributesW(c.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+            const BOOL ok = DeleteFileW(c.c_str());
+            Log("2.2.3: arquivo do modo Nativo (removido) %s: %ls (erro %lu)", ok ? "apagado" : "nao apagado",
+                c.c_str(), ok ? 0ul : (unsigned long)GetLastError());
+        }
+    }
+    // 2.2.3: O AVISO DA REMOCAO DO MODO NATIVO, uma vez so para cada pessoa ([ultima] aviso_223_nativo=1).
+    // Para todos: o ini mora na pasta do programa, e quem baixa o zip novo comeca com um ini limpo - nao da
+    // para saber quem veio de uma versao anterior. Nao aparece numa reabertura automatica nem nas camadas.
+    if (!argReabrindo && !g_camada2 && !g_ponteFeeder && IniGet(L"aviso_223_nativo") != L"1") {
+        IniSet(L"aviso_223_nativo", L"1");   // antes da caixa: fechar o programa por ela tambem conta como visto
+        Log("2.2.3: aviso da remocao do modo Nativo mostrado (uma vez)");
+        MessageBoxW(nullptr,
+                    TS(L"O modo Nativo foi removido nesta versão.\n\n"
+                       L"Alguns antivírus estavam acusando o programa como vírus por causa dele. Era um alarme falso.\n\n"
+                       L"Agora o DLSS 5 roda sempre pelo modo Universal, que funciona em qualquer jogo. Você não precisa fazer nada.",
+                       L"Native mode was removed in this version.\n\n"
+                       L"Some antivirus programs were flagging the program as a virus because of it. It was a false alarm.\n\n"
+                       L"DLSS 5 now always runs in Universal mode, which works in any game. You don't need to do anything.").c_str(),
+                    L"DLSS5 For All " APP_VERSION, MB_ICONINFORMATION | MB_OK | MB_SETFOREGROUND | MB_TOPMOST);
+    }
     if (!fromCli && !argReabrindo && !OfertasNaAbertura(hi)) {
         Log("encerrado pelo atalho de sair, na tela do grupo");
         if (gdipTok) Gdiplus::GdiplusShutdown(gdipTok);
@@ -31695,7 +31727,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // MODO INTEGRADO (Fase 2): o card "Modo" e o atalho `integrar` so fazem sentido quando ha
     // um JOGO (fonte janela) em que da para injetar, e nao no host ja integrado do arranque
     // (g_ponteFeeder) nem numa camada de cima. Setado uma vez; o card le isto.
-    g_hud.podeIntegrar = (C.kind == SRC_WINDOW) && !g_camada2 && !g_ponteFeeder;
+    // 2.2.3: sem modo Nativo, nunca ha onde integrar - os cards da ponte somem e o modo e sempre o Universal.
+    g_hud.podeIntegrar = false;
     // A ESCOLHA DO MODO (C1): [ultima] modo_processamento = auto | nativo | universal (padrao auto).
     {
         g_modoEscolha = ModoProcDeTexto(IniGet(L"modo_processamento"));   // I6: auto | upstream | nativo | universal
@@ -32608,88 +32641,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // Devolve true quando o pedido ficou em andamento (integrarEstado = 1). O core NAO muda -
     // so o transporte (captura <-> ponte). Ver g_integrado.
     auto ligarNativo = [&](bool silencioso) -> bool {
-        // X-CODIGOS: cada veto tem o seu codigo (pre-identificado, nunca adivinhado); o detalhe
-        // tecnico vai literal para o log e o cartaz leva o codigo no rodape.
-        const auto falhou = [&](int veto, Msg::Codigo cod, const char* detalhe, const wchar_t* pt, const wchar_t* en) {
-            g_nativoVeto = veto;
-            const std::string ocorr = Codigos::Registrar(cod, detalhe, silencioso ? "acao=ficar-universal (automatico)" : "acao=ficar-universal");
-            Log("modo: Nativo indisponivel nesta fonte (veto %d) - segue em Universal", veto);
-            Hud::Refresh();
-            if (!silencioso) ShowToast(hi, C.mon, T(pt, en), 3500, Codigos::Rodape(cod, ocorr));
-        };
-        if (AntiCheatAtivo()) {
-            Log("integrar: falhou (modo anti-cheat ligado%s)", g_antiCheatAuto ? " sozinho: anti-cheat na pasta do jogo" : " no seletor");
-            falhou(g_antiCheatAuto ? 2 : 1, g_antiCheatAuto ? Msg::D5_NAT_102 : Msg::D5_NAT_101,
-                   g_antiCheatAuto ? "modo anti-cheat ligado sozinho: anti-cheat na pasta do jogo" : "modo anti-cheat ligado no seletor",
-                   L"Modo anti-cheat ligado: só Universal", L"Anti-cheat mode on: Universal only");
-            return false;
-        }
-        DWORD pidJogo = 0;
-        if (C.kind == SRC_WINDOW && C.win && IsWindow(C.win)) GetWindowThreadProcessId(C.win, &pidJogo);
-        if (!pidJogo) {
-            Log("integrar: falhou (sem janela de jogo - a fonte precisa ser uma janela)");
-            if (!silencioso) {
-                const std::string ocorr = Codigos::Registrar(Msg::D5_NAT_105, "sem janela de jogo - a fonte precisa ser uma janela");
-                ShowToast(hi, C.mon, T(L"MODO NATIVO só vale com fonte JANELA (um jogo)",
-                                       L"NATIVE MODE needs a WINDOW source (a game)"), 3500, Codigos::Rodape(Msg::D5_NAT_105, ocorr));
-            }
-            return false;
-        }
-        const std::wstring exeAlvo = CaminhoDoProcesso(pidJogo);
-        Log("integrar: pedido pid=%lu exe=%ls%s", (unsigned long)pidJogo,
-            exeAlvo.empty() ? L"(desconhecido)" : exeAlvo.c_str(), silencioso ? " (automatico)" : "");
-        // O relatorio de queda precisa saber QUE JOGO e se o app estava no meio da entrada
-        // do Nativo - as duas perguntas que o dono nao tem como responder depois do fato.
-        Queda::g_estado.integrando = 1;
-        Queda::Anotar("nativo", exeAlvo.empty() ? "(desconhecido)" : U8(exeAlvo).c_str(), nullptr, "entrando no Nativo");
-        // VETO 1: antitrapaca (a MESMA varredura por arquivo da abertura; aqui e rede de seguranca).
-        std::wstring evid, produto = exeAlvo.empty() ? L"" : AntitrapacaNaPasta(exeAlvo, &evid);
-        if (!produto.empty()) {
-            Log("integrar: falhou (anti-cheat: %ls, evidencia: %ls)", produto.c_str(), evid.c_str());
-            g_antiCheatAuto = true; g_antiCheatProduto = produto;
-            falhou(2, Msg::D5_NAT_102, ("anti-cheat: " + U8(produto)).c_str(), L"Anti-cheat detectado: só Universal", L"Anti-cheat detected: Universal only");
-            return false;
-        }
-        // VETO 2: 32 bits (so 64 nesta fase).
-        if (!Injetor::Bits64(pidJogo)) {
-            Log("integrar: falhou (32 bits)");
-            falhou(3, Msg::D5_NAT_103, "jogo de 32 bits", L"NATIVO indisponível (jogo de 32 bits) — seguindo em Universal",
-                      L"NATIVE unavailable (32-bit game) — staying on Universal");
-            return false;
-        }
-        std::wstring modo = IniGet(L"ponte_modo");
-        for (auto& c : modo) c = (wchar_t)towlower(c);
-        if (modo != L"sincrono") modo = L"pipelined";   // padrao
-        PonteHost::Sessao s{};
-        // sobe o pipe servidor ANTES de injetar (a dll conecta nele); nao bloqueia
-        if (!PonteHost::PrepararEmExecucao(pidJogo, &s, 5000)) {
-            Log("integrar: falhou (o pipe do host nao subiu)");
-            falhou(4, Msg::D5_NAT_201, "o pipe do host nao subiu", L"NATIVO indisponível — seguindo em Universal", L"NATIVE unavailable — staying on Universal");
-            return false;
-        }
-        EscreverModoPonte(pidJogo, modo);   // repassa o modo a dll (le no attach)
-        std::wstring dll = g_exeDir + L"bin\\dlss5-ponte64.dll";
-        if (!ArquivoExiste(dll)) dll = g_exeDir + L"dlss5-ponte64.dll";
-        // 07/10/2026: quem carrega a dll no jogo e o auxiliar bin\dlss5-integrar.exe (ponte\integrar.cpp), ao lado
-        // da dll; o app so o executa aqui, no modo Nativo, e repassa o resultado dele para o log e o cartaz de sempre.
-        std::wstring auxiliar = dll.substr(0, dll.find_last_of(L"\\/") + 1) + Injetor::kAuxiliar;
-        if (!ArquivoExiste(auxiliar)) auxiliar = g_exeDir + Injetor::kAuxiliar;
-        std::string erroInj;
-        const ULONGLONG t0 = GetTickCount64();
-        if (!Injetor::Injetar(auxiliar, pidJogo, dll.c_str(), &erroInj)) {
-            Log("integrar: falhou (injecao: %s)", erroInj.c_str());
-            PonteHost::Parar(); RemoverModoPonte(pidJogo);
-            falhou(4, Msg::D5_NAT_002, ("injecao: " + erroInj).c_str(), L"NATIVO indisponível — seguindo em Universal", L"NATIVE unavailable — staying on Universal");
-            return false;
-        }
-        Log("integrar: dll injetada em %llu ms", (unsigned long long)(GetTickCount64() - t0));
-        integrarEstado = 1; integrarPid = pidJogo; integrarModo = modo; integrarAuto = silencioso;
-        // A conexao (hello) a thread do host limita a 5 s (PrepararEmExecucao). O Build so sai
-        // depois do 1o Present do jogo (B1): por isso o prazo do laco e mais largo, 10 s.
-        integrarPrazo = GetTickCount64() + 10000;
-        g_hud.integrando = true; Hud::Refresh();
-        if (!silencioso) ShowToast(hi, C.mon, ToastModo(g_modoEscolha == MODO_UPSTREAM ? MODO_UPSTREAM : MODO_NATIVO), 2000);   // v2.0: "Modo: Nativo|Upstream"   // I6
-        return true;
+        // 2.2.3 (dono): o modo Nativo foi REMOVIDO do programa. Ele carregava a nossa DLL dentro do jogo
+        // (injecao), e alguns antivirus passaram a acusar o pacote como virus por isso (alarme falso).
+        // Nada e injetado: o pedido vira uma linha de log e, quando veio da mao da pessoa, o cartaz curto.
+        Log("modo: Nativo pedido (%s) - removido na 2.2.3, segue em Universal", silencioso ? "automatico" : "pedido");
+        if (!silencioso)
+            ShowToast(hi, C.mon, T(L"O modo Nativo foi removido nesta versão. O DLSS 5 roda sempre no modo Universal.",
+                                   L"Native mode was removed in this version. DLSS 5 always runs in Universal mode."), 3500);
+        return false;
     };
     // R1: A REACAO DA VIGIA DE SAUDE (ver VigiaNativo). Registra o erro, desliga a ponte e reabre o
     // app na mesma fonte: sinais 2/3/4 na 1a vez no Nativo ("Reiniciando o DLSS 5…"), senao no
@@ -33396,31 +33355,19 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
             cmd = 0;
         }
         if (cmd == CMD_INTEGRAR) {
-            // F8: alterna o transporte NA MAO (Nativo <-> Universal). Nao grava a escolha
-            // ([ultima] modo_processamento e do card). O core NAO muda - so o transporte.
-            // R1 (decisao do dono): a troca reabre o app na mesma fonte (reabrirPorTroca); o jeito
-            // antigo, na mesma copia, fica so para quando a reabertura nao da (fonte sem janela).
+            // 2.2.3: a tecla `integrar` (F8 de fabrica) era a troca Universal <-> Nativo. O Nativo foi removido:
+            // a tecla so explica, e nao tenta injetar nada. (Ponte viva aqui nao existe mais - so por seguranca.)
             if (g_integrado) {
-                if (reabrirPorTroca(L"universal", "F8")) { g_quit = true; break; }
-                sairIntegrado("pedido do usuario");
+                sairIntegrado("tecla integrar (Nativo removido na 2.2.3)");
                 Hud::Refresh();
-                ShowToast(hi, C.mon, ToastModo(MODO_UNIVERSAL), 2000);   // v2.0
-            } else if (integrarEstado == 1) {
-                // um pedido em andamento: cancela (a dll ja pode ter sido injetada - fechar o
-                // pipe faz ela sair sozinha se chegou a conectar)
-                PonteHost::Parar(); RemoverModoPonte(integrarPid);
-                integrarEstado = 0; g_hud.integrando = false; Hud::Refresh();
-                Log("integrar: pedido cancelado antes da ponte responder");
-                ShowToast(hi, C.mon, T(L"MODO NATIVO: cancelado", L"NATIVE MODE: cancelled"), 2000);
-            } else if (!AntiCheatAtivo() && (g_nativoVeto == 0 || g_nativoVeto >= 4) &&
-                       !Risco::Liberar(CMD_INTEGRAR, MODO_UNIVERSAL, MODO_NATIVO, AntiCheatAtivo(), g_perfilExe, true)) {
-                // v2.0: a janela dos modos abriu (1a troca da sessao); o OK devolve o F8 a fila
-            } else if (!AntiCheatAtivo() && (g_nativoVeto == 0 || g_nativoVeto >= 4) && reabrirPorTroca(L"nativo", "F8")) {
-                g_quit = true;
-                break;
-            } else {
-                ligarNativo(false);   // veto (anti-cheat, 32 bits) ou sem janela: o cartaz de sempre
             }
+            ligarNativo(false);
+            cmd = 0;
+        }
+        // 2.2.3: o card "Modo" so tem Universal. Qualquer outro valor (Nativo, Upstream, Automatico) nao faz nada.
+        if (cmd >= CMD_MODO_BASE && cmd < CMD_MODO_BASE + 4 && cmd - CMD_MODO_BASE != MODO_UNIVERSAL) {
+            Log("modo: card pediu %s - removido na 2.2.3, fica em Universal", NomeModoProc(cmd - CMD_MODO_BASE));
+            ligarNativo(false);
             cmd = 0;
         }
         // v2.0: o card "Modo" do menu para Nativo/Upstream passa pela janela dos modos (uma vez por sessao)

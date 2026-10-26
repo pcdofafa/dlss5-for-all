@@ -62,8 +62,7 @@ if ($versaoH -notmatch 'DLSS5_VERSAO\s+L"([0-9.]+)"') { throw "versao.h sem #def
 # 2. bin\ - programa e componentes (sempre atualizados)
 $programa = @(
     'DLSS5ForAll.exe', 'dlss5-bridge.addon64',
-    # 07/10/2026: o auxiliar do modo Nativo (carrega a dlss5-ponte64.dll no jogo; o app so o executa nesse modo)
-    'dlss5-integrar.exe',
+    # 2.2.3: o dlss5-integrar.exe (auxiliar do modo Nativo) saiu - o modo Nativo foi removido
     # terceiros, sem alteracao
     'dxgi.dll', 'dlss5-feed.addon64', 'nvngx_dlss.dll', 'nvngx_dlssnr.dll', 'renodx-dlss5.addon64',
     # material do usuario

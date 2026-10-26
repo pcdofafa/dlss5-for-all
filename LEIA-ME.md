@@ -74,7 +74,6 @@ e o menu do ícone traz os comandos e os atalhos.
 | **End** | abre e fecha o painel — tudo o mais (filtro, neural, fps, HDR, ReShade, sair) é feito nele, com o mouse |
 | **F6** | liga/desliga **tudo o que o painel configurou** (neural + a camada, no modo sobreposto) de uma vez — o antes/depois — e volta exatamente como estava; aviso na tela do estado real |
 | **Alt+Esc** | sai do app (duas vezes em 2 s, para não fechar sem querer) |
-| **F8** | troca o modo de processamento na mão: Nativo ↔ Universal (ver "Modos de processamento" abaixo) |
 
 Todas as teclas são configuráveis — no botão **Atalhos…** do seletor (antes de escolher a fonte) e na seção
 ATALHOS do painel, em "Mais opções": painel, neural, filtro, teclado pro ReShade e sair, cada uma com a tecla
@@ -299,31 +298,26 @@ meio da troca de quadro), não defasagem da cadeia. `[comparar] atraso` fica dis
 naquele quadro a cadeia inteira está suprimida — não existe "com" e "sem", existe um quadro desenhado por nós.
 Para gravar comparação, deixe o frame skipping em **Desligado**.
 
-### Modos de processamento: Automático, Nativo, Universal — e o Modo anti-cheat
+### Modos de processamento: sempre Universal — e o Modo anti-cheat
 
-O DLSS 5 For All é um só; o **modo** é só o caminho por onde a imagem chega até ele. Todas as funções do painel
-funcionam igual nos dois.
+O DLSS 5 For All é um só; o **modo** é só o caminho por onde a imagem chega até ele.
 
 - **Universal** — captura a imagem da tela e aplica o DLSS 5 sobre ela, como um filtro, numa camada nossa.
-  Compatível com praticamente qualquer aplicação exibida na tela; não interage com o jogo. Indicado para jogos com
-  anti-cheat.
-- **Nativo** — integra-se ao jogo: uma DLL nossa de 64 bits é carregada no jogo já em execução, o quadro é
-  processado na GPU antes da apresentação na tela e o próprio jogo mostra o resultado (a nossa camada some). Menor
-  custo de desempenho e menor latência. Disponível para jogos de 64 bits em DirectX 11 e 12, sem anti-cheat. Nada é
-  gravado na pasta do jogo e o jogo não reinicia; ao desligar o modo, a DLL se descarrega sozinha.
-  Quem carrega a DLL no jogo é o ajudante `bin\dlss5-integrar.exe`, que o app só executa neste modo (desde a 2.1.1).
-- **Automático** (padrão) — utiliza o modo Nativo quando disponível; caso contrário, o Universal. A captura sobe
-  primeiro (a imagem aparece) e uns 2 s depois do primeiro quadro o app tenta o Nativo por baixo. Se entrar, a
-  camada some; se não, a captura simplesmente continua e o motivo vai para o log
-  (`modo: Nativo indisponivel nesta fonte (...)`).
+  Funciona em qualquer jogo e em praticamente qualquer coisa na tela; não mexe no jogo. Desde a 2.2.3 é o único modo.
 
-A escolha fica no card **Modo** do painel (End), com as três posições; o selo ao lado diz qual transporte está em uso
-agora. A posição Nativo fica esmaecida quando não está disponível nesta fonte (jogo de 32 bits, anti-cheat
-detectado, a integração falhou); o motivo aparece como dica ao passar o mouse. **F8** troca Nativo ↔ Universal na mão
-a qualquer momento, sem mudar a escolha gravada.
+**O modo Nativo foi removido na versão 2.2.3.** Ele carregava uma DLL nossa dentro do jogo já aberto, e por causa
+disso alguns antivírus (o Windows Defender, o Google Drive e outros) passaram a acusar o programa como vírus. Era
+alarme falso, mas assustava. Agora o DLSS 5 roda sempre pelo modo Universal. Junto com o Nativo saíram o
+**Upstream** (que rodava por ele), o **Automático**, o card "DLSS do jogo" e a tecla **F8**. Quem tinha
+`modo_processamento=nativo` (ou `upstream`/`auto`) no `dlss5forall.ini` cai no Universal sozinho, sem erro. Na
+primeira abertura da 2.2.3 o programa mostra um aviso sobre isso, uma vez só. Se a pasta veio de uma versão anterior
+atualizada por cima, o programa apaga sozinho os arquivos que sobraram do Nativo (`bin\dlss5-integrar.exe` e
+`bin\dlss5-ponte64.dll`).
+
+O card **Modo** do painel (End) continua lá, só com o Universal, e explica a mudança.
 
 O **Modo anti-cheat** é um botão na tela de escolha da fonte (em OPÇÕES). Recomendado para jogos online: mantém
-apenas a captura de tela, sem qualquer interação com o jogo, como um gravador de gameplay — o Nativo fica desligado,
+apenas a captura de tela, sem qualquer interação com o jogo, como um gravador de gameplay —
 a peça do limitador de fps não é instalada na pasta do jogo (uma que já esteja lá é removida) e o mapeamento de mouse
 (F9) não entra. O caminho reserva das teclas (Raw Input, só leitura) fica. Aumenta a chance de não ser detectado por
 sistemas anti-cheat, mas não garante que isso não possa ocorrer. Quando o app encontra um anti-cheat conhecido na
@@ -348,9 +342,9 @@ e o log diz `anti-cheat: modo ligado sozinho para esta fonte`.
 | `recursos_experimentais` | `[ultima]` | ausente | `1` mostra o interruptor do motor, a régua do tamanho da rede e o orçamento de espera do mod AMD (experimental, volta na próxima versão) |
 | `LocalTone`, `LocalStructure`, `SkinStructure`, `UseAutoMask` | `[DlssNrOnAmd]` do `dlssnr_on_amd.ini` | do mod | **módulo AMD**: é para onde vão TOM LOCAL, ESTRUTURA, PELE E ROSTOS e a máscara |
 | `nr_escala` | `[ultima]` | `100` | o degrau aceso do TAMANHO DA REDE (65, 100, 125, 150, 200) |
-| `modo_processamento` | `[ultima]` | `auto` | o modo de processamento: `auto`, `nativo`, `universal` (o card Modo grava; o F8 não) |
+| `modo_processamento` | `[ultima]` | `universal` | desde a 2.2.3 é sempre `universal`; `nativo`, `upstream` e `auto` de versões antigas são lidos como `universal` |
+| `aviso_223_nativo` | `[ultima]` | ausente | `1` = o aviso da remoção do modo Nativo já foi mostrado (aparece uma vez) |
 | `anticheat` | `[ultima]` | `0` | `1` = Modo anti-cheat (o botão da tela de escolha da fonte grava) |
-| `ponte_modo` | `[ultima]` | `pipelined` | só no Nativo: `sincrono` espera o quadro processado no mesmo Present (menos latência, mais custo) |
 
 ## Idioma
 

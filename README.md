@@ -74,7 +74,6 @@ and the icon's menu carries the commands and the shortcuts.
 | **End** | opens and closes the panel — everything else (filter, neural, fps, HDR, ReShade, quit) is done there, with the mouse |
 | **F6** | toggles **everything the panel configured** (neural + the layer, in overlaid mode) at once — the before/after — and returns exactly as it was; on-screen notice of the real state |
 | **Alt+Esc** | quits the app (twice within 2 s, so it does not close by accident) |
-| **F8** | switches the processing mode by hand: Native ↔ Universal (see "Processing modes" below) |
 
 All keys are configurable — in the **Shortcuts…** button of the selector (before choosing the source) and in the
 SHORTCUTS section of the panel, under "More options": panel, neural, filter, keyboard for ReShade and quit, each with the key
@@ -300,30 +299,25 @@ middle of a frame swap), not chain lag. `[comparar] atraso` remains available, w
 on that frame the whole chain is suppressed — there is no "with" and "without", there is a frame drawn by us.
 To record a comparison, leave frame skipping **Off**.
 
-### Processing modes: Auto, Native, Universal — and Anti-cheat mode
+### Processing modes: always Universal — and Anti-cheat mode
 
-DLSS 5 For All is one thing; the **mode** is only how the image gets to it. Every function of the panel works the
-same in both.
+DLSS 5 For All is a single program; the **mode** is just the path the image takes to reach it.
 
-- **Universal** — captures the image from the screen and applies DLSS 5 on top of it, like a filter, in our own layer.
-  Compatible with virtually any application displayed on screen; does not interact with the game. Recommended for
-  games with anti-cheat.
-- **Native** — integrates with the game: a 64-bit DLL of ours is loaded into the running game, the frame is processed
-  on the GPU before it is presented, and the game itself shows the result (our layer disappears). Lower performance
-  cost and lower latency. Available for 64-bit games on DirectX 11 and 12, without anti-cheat. Nothing is written to
-  the game's folder and the game does not restart; when the mode is turned off the DLL unloads itself.
-  The DLL is loaded into the game by the helper `bin\dlss5-integrar.exe`, which the app runs only in this mode (since 2.1.1).
-- **Auto** (default) — uses Native when available; otherwise, Universal. Capture comes up first (the image appears),
-  and about 2 s after the first frame the app tries Native underneath. If it works, the layer disappears; if not,
-  capture simply continues and the reason goes to the log (`modo: Nativo indisponivel nesta fonte (...)`).
+- **Universal** — captures the image from the screen and applies DLSS 5 on top of it, like a filter, in a layer of
+  ours. Works in any game and with almost anything on screen; it does not touch the game. Since 2.2.3 it is the only mode.
 
-The choice lives in the **Mode** card of the panel (End), with the three positions; the badge next to it says which
-transport is in use right now. The Native position is dimmed when it is not available for this source (32-bit game,
-anti-cheat detected, the integration failed); the reason shows as a tooltip. **F8** switches Native ↔ Universal by
-hand at any time, without changing the saved choice.
+**Native mode was removed in version 2.2.3.** It loaded a DLL of ours into the running game, and because of that some
+antivirus programs (Windows Defender, Google Drive and others) started flagging the program as a virus. It was a false
+alarm, but it was scary. DLSS 5 now always runs in Universal mode. **Upstream** (which ran through Native), **Auto**,
+the "In-game DLSS" card and the **F8** key were removed with it. If `dlss5forall.ini` has `modo_processamento=nativo`
+(or `upstream`/`auto`), the program falls back to Universal by itself, with no error. The first time 2.2.3 opens it
+shows a notice about this, once. If the folder was updated in place from an older version, the program deletes the
+leftover Native files by itself (`bin\dlss5-integrar.exe` and `bin\dlss5-ponte64.dll`).
+
+The **Mode** card in the panel (End) is still there, with Universal only, and explains the change.
 
 **Anti-cheat mode** is a button on the source selection screen (under OPTIONS). Recommended for online games: it
-keeps only screen capture, with no interaction with the game, like a gameplay recorder — Native is off, the fps
+keeps only screen capture, with no interaction with the game, like a gameplay recorder — the fps
 limiter piece is not installed in the game's folder (one already there is removed), and the mouse pointer mapping
 (F9) is not entered. The keyboard fallback path (Raw Input, read-only) stays. It increases the likelihood of not
 being flagged by anti-cheat systems, but does not guarantee it. When the app finds a known anti-cheat in the
@@ -348,9 +342,9 @@ your choice, and the log says `anti-cheat: modo ligado sozinho para esta fonte`.
 | `recursos_experimentais` | `[ultima]` | absent | `1` shows the engine switch, the network size slider and the AMD mod's wait budget (experimental, returns in the next version) |
 | `LocalTone`, `LocalStructure`, `SkinStructure`, `UseAutoMask` | `[DlssNrOnAmd]` of `dlssnr_on_amd.ini` | from the mod | **AMD module**: it is where LOCAL TONE, STRUCTURE, SKIN AND FACES and the mask go |
 | `nr_escala` | `[ultima]` | `100` | the lit step of NETWORK SIZE (65, 100, 125, 150, 200) |
-| `modo_processamento` | `[ultima]` | `auto` | the processing mode: `auto`, `nativo`, `universal` (the Mode card writes it; F8 does not) |
+| `modo_processamento` | `[ultima]` | `universal` | since 2.2.3 always `universal`; `nativo`, `upstream` and `auto` from older versions are read as `universal` |
+| `aviso_223_nativo` | `[ultima]` | absent | `1` = the Native-mode removal notice was already shown (it appears once) |
 | `anticheat` | `[ultima]` | `0` | `1` = Anti-cheat mode (the button on the source selection screen writes it) |
-| `ponte_modo` | `[ultima]` | `pipelined` | Native mode only: `sincrono` waits for the processed frame in the same Present (less latency, more cost) |
 
 ## Language
 

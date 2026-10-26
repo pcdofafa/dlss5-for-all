@@ -512,7 +512,8 @@ static void LerEscolhas(Estado& s) {
         std::wstring mp = LerDoJogo(s, L"modo_processamento", true);
         for (auto& c : mp) c = (wchar_t)towlower(c);
         // v2.0 (dono): sem Automatico - sem perfil, ou perfil com "auto", abre em Universal; Nativo/Upstream so a mao
-        s.modo = (mp == L"nativo") ? MODO_NATIVO : (mp == L"upstream") ? MODO_UPSTREAM : MODO_UNIVERSAL;
+        // 2.2.3: Nativo e Upstream foram removidos - perfil antigo com "nativo"/"upstream" abre em Universal
+        s.modo = MODO_UNIVERSAL;
         // I7: quantas vezes o Upstream ja caiu neste jogo (so do perfil; sem perfil, zero)
         s.upstreamFalhas = _wtoi(LerDoJogo(s, L"upstream_falhas", true).c_str());
     }
@@ -724,7 +725,8 @@ static void MedirNativo(Estado& s) {
     }
 }
 // a escolha de modo so aparece para janela que pode usar o Nativo; Modo anti-cheat ligado forca o Universal
-static bool EscolhaDeModo(const Estado& s) { return s.fonte == SRC_WINDOW && s.podeNativo && !s.sw[SW_ANTICHEAT]; }
+// 2.2.3: o modo Nativo (injecao no jogo) foi removido - nao ha mais escolha de modo: sempre Universal.
+static bool EscolhaDeModo(const Estado& s) { (void)s; return false; }
 // true = a tela mostra os campos do Nativo. Automatico: com upscaler no jogo; sem, os do Universal.
 // I6: o Upstream e o Nativo com a rede antes do upscaling - mesmos campos.
 static bool CamposNativo(const Estado& s) {
@@ -2214,6 +2216,8 @@ static void Ativar(const It it) {
     case K_RECORTE: s.clientOnly = (it.val == 0); break;
     // E1: grava no perfil do jogo na hora (o g_perfilExe aponta para ele, ver MedirNativo)
     case K_MODOPROC:
+        // 2.2.3: Nativo e Upstream foram removidos - so o Universal vale (e nem a janela dos modos abre)
+        if (it.val != MODO_UNIVERSAL) { Log("seletor: modo %s pedido - removido na 2.2.3, fica em Universal", NomeModoProc(it.val)); break; }
         // v2.0 (dono): para Nativo/Upstream, a janela dos modos antes (uma vez por sessao; ver namespace Risco).
         // Cancelar = fica no que estava (o Universal, de fabrica).
         if (s.modo != it.val && !Risco::PerguntarModal(s.wnd, s.modo, it.val, s.antiCheatDetectado, s.perfilExe)) {

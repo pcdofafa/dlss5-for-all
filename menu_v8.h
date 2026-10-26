@@ -1196,7 +1196,7 @@ static int RenderV8(Graphics* g) {
                                  : upEsperando ? T(L"NATIVO · ESPERANDO", L"NATIVE · WAITING")
                                  : g_hud.modoIntegrado ? T(L"NATIVO", L"NATIVE") : L"UNIVERSAL";
             std::wstring dicaSelo = TS(L"Modo em uso\nO transporte que está valendo agora (os botões dizem a ESCOLHA).", L"Mode in use\nThe mode actually running right now (the buttons show your CHOICE).");
-            if (!pode) dicaSelo += TS(L"\nOs modos valem quando a fonte é a janela de um jogo; esta fonte usa sempre o Universal.", L"\nModes only apply when the source is a game window; this source always uses Universal.");
+            if (!pode) dicaSelo += TS(L"\nDesde a versão 2.2.3 o modo é sempre o Universal.", L"\nSince version 2.2.3 the mode is always Universal.");
             else if (!nativoOk) dicaSelo += L"\n" + MotivoNativo();
             else if (g_vn.dica > 0) dicaSelo += L"\n" + VnDica(g_vn.dica);
             if (g_upstreamPausado || upEsperando) dicaSelo += TS(L"\nAtive o DLSS, o FSR ou o XeSS nas opções de imagem do jogo para usar o Upstream.", L"\nTurn on DLSS, FSR or XeSS in the game's display options to use Upstream.");
@@ -1212,7 +1212,8 @@ static int RenderV8(Graphics* g) {
             cy += 34.f;
             // linha 2: o segmentado, largura inteira
             auto motivo = [&](int m) -> std::wstring {
-                if (!pode) return TS(L"Indisponível: a fonte não é a janela de um jogo.", L"Unavailable: the source is not a game window.");
+                if (m == MODO_UNIVERSAL) return std::wstring();
+                if (!pode) return TS(L"Removido na versão 2.2.3.", L"Removed in version 2.2.3.");
                 if (m == MODO_NATIVO && !nativoOk) return MotivoNativo();
                 if (m == MODO_UPSTREAM && !upstreamOk)
                     return !nativoOk ? MotivoNativo()
@@ -1221,32 +1222,37 @@ static int RenderV8(Graphics* g) {
                               L"Unavailable: this game has no DLSS, FSR or XeSS that DLSS 5 can hook into (or upscaling is off in the game).");
                 return std::wstring();
             };
-            static const int ordem[3] = { MODO_UPSTREAM, MODO_NATIVO, MODO_UNIVERSAL };   // v2.0: sem Automatico
+            // 2.2.3: Nativo e Upstream foram removidos (a injecao no jogo fazia antivirus acusarem o programa) - so o Universal
+            static const int ordem[1] = { MODO_UNIVERSAL };
             std::vector<Opc8> o;
-            for (int k = 0; k < 3; k++) {
+            for (int k = 0; k < 1; k++) {
                 const int m = ordem[k];
-                const bool vale = en && (m == MODO_NATIVO ? nativoOk : m == MODO_UPSTREAM ? upstreamOk : true);
+                const bool vale = (m == MODO_NATIVO ? en && nativoOk : m == MODO_UPSTREAM ? en && upstreamOk : true);
                 std::wstring tip = std::wstring(m == MODO_AUTO ? T(L"Automático", L"Auto") : m == MODO_NATIVO ? T(L"Nativo", L"Native") : m == MODO_UPSTREAM ? L"Upstream" : L"Universal")
                                    + L"\n" + ExplicaModo8(m);
                 const std::wstring mo = motivo(m);
                 if (!mo.empty()) tip += L"\n" + mo;
                 if (m == MODO_NATIVO && g_vn.falhasPerfil > 0 && g_vn.dica == 0) tip += TS(L"\nO modo Nativo teve problemas neste jogo da última vez.", L"\nNative mode had problems in this game last time.");
                 o.emplace_back(m == MODO_AUTO ? T(L"Automático", L"Auto") : m == MODO_NATIVO ? T(L"Nativo", L"Native") : m == MODO_UPSTREAM ? L"Upstream" : L"Universal",
-                               E_MODOPROC, m, g_modoEscolha == m, vale, tip);
+                               E_MODOPROC, m, true, vale, tip);
             }
             V8Seg(g, L, cy, IW, kCtrl8, o);
             cy += kCtrl8 + 6.f;
             // linha 3: a explicacao do modo escolhido (altura reservada pela mais longa: a aba nao pula)
             {
-                REAL hMax = 0.f;
-                for (int m = 0; m < 4; m++) { const REAL t = AlturaTexto(ExplicaModo8(m), f8Sub, IW); if (t > hMax) hMax = t; }
-                if (g) TxtWrap(g, ExplicaModo8(g_modoEscolha), f8Sub, K8_SEC, RectF(L, cy, IW, hMax + 2.f));
-                cy += hMax + 8.f;
+                const std::wstring ex = TS(L"O modo Nativo foi removido na versão 2.2.3: alguns antivírus acusavam o programa como vírus por causa dele (alarme falso). "
+                                           L"O DLSS 5 roda sempre pelo modo Universal, que funciona em qualquer jogo.",
+                                           L"Native mode was removed in version 2.2.3: some antivirus programs flagged the program as a virus because of it (a false alarm). "
+                                           L"DLSS 5 always runs in Universal mode, which works in any game.");
+                const REAL hEx = AlturaTexto(ex.c_str(), f8Sub, IW);
+                if (g) TxtWrap(g, ex.c_str(), f8Sub, K8_SEC, RectF(L, cy, IW, hEx + 2.f));
+                cy += hEx + 8.f;
             }
             V8Div(g, L, IW, cy);
         }
         // ---- DLSS do jogo: preset (chips Auto · A..L) e qualidade (chips) - pela DLL do modo Nativo
-        {
+        // 2.2.3: o Nativo foi removido (podeIntegrar e sempre false) - o card some em vez de ficar esmaecido
+        if (g_hud.podeIntegrar) {
             const bool ponte = nativo;
             const bool srApp = ponte && FonteUpstream::SessaoSr();
             const bool ativo = ponte && CardDlssJogoVisivel() && ((g_dlssJogo.lido && g_dlssJogo.ngx) || srApp);

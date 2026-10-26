@@ -109,8 +109,10 @@ if (-not $Versao) {
 if ($Versao -notmatch '^[0-9]+(\.[0-9]+)*$') { throw "versao invalida: $Versao (so numeros e pontos)" }
 if (-not (Test-Path (Join-Path $Origem 'DLSS5ForAll.exe'))) { throw "pacote nao montado em $Origem (rode montar-portable.ps1)" }
 if (-not (Test-Path (Join-Path $Origem 'bin\DLSS5ForAll.exe'))) { throw "$Origem\bin\DLSS5ForAll.exe nao existe" }
-# 07/10/2026: sem o auxiliar o modo Nativo nao integra (o app nao injeta mais sozinho - ver ponte\integrar.cpp)
-if (-not (Test-Path (Join-Path $Origem 'bin\dlss5-integrar.exe'))) { throw "$Origem\bin\dlss5-integrar.exe nao existe (compile com build-mingw.sh e remonte com montar-portable.ps1)" }
+# 2.2.3: o modo Nativo foi removido - o pacote NAO pode levar o auxiliar de injecao nem a DLL que ele injetava
+foreach ($velho in @('bin\dlss5-integrar.exe', 'bin\dlss5-ponte64.dll')) {
+    if (Test-Path (Join-Path $Origem $velho)) { throw "$Origem\$velho nao pode ir no pacote desde a 2.2.3 (modo Nativo removido) - apague e remonte" }
+}
 
 # O que NAO vai no zip: arquivos da pessoa (configuracao, logs, cache, camada 2, backup) e
 # terceiros que nao podemos redistribuir (DLSS/NR da NVIDIA, RenoDX, o mod DLSS-NR-on-AMD e
@@ -350,13 +352,13 @@ try {
     # exe, que sai do app.rc/launcher.rc na hora de compilar. Se eles ficarem para tras, quem
     # instalar a versao nova continua se dizendo a antiga - e recebe o mesmo aviso de
     # atualizacao para sempre. Por isso isto e um erro, e nao um aviso.
-    foreach ($exe in @('DLSS5ForAll.exe', 'bin\DLSS5ForAll.exe', 'bin\dlss5-integrar.exe')) {
+    foreach ($exe in @('DLSS5ForAll.exe', 'bin\DLSS5ForAll.exe')) {
         $p = Join-Path $tmp $exe
         if (-not (Test-Path $p)) { continue }
         $fv = (Get-Item $p).VersionInfo.FileVersion
         $curto = ($fv -replace '[, ]', '.') -replace '(\.0)+$', ''
         if ($curto -ne $Versao) {
-            throw "$exe declara versao $fv, mas o pacote anuncia $Versao. Suba versao.h, app.rc, launcher.rc e ponte\integrar.rc para $Versao, recompile e remonte antes de publicar - senao quem atualizar vai receber o mesmo aviso de versao nova para sempre."
+            throw "$exe declara versao $fv, mas o pacote anuncia $Versao. Suba versao.h, app.rc e launcher.rc para $Versao, recompile e remonte antes de publicar - senao quem atualizar vai receber o mesmo aviso de versao nova para sempre."
         }
     }
     # OS DEMAIS EXES do pacote (hoje so o bin-amd\) sao AVISO, e nao erro: quem compara a
