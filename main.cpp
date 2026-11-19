@@ -1235,6 +1235,13 @@ struct Capture {
     bool              fresh = false;
     std::atomic<UINT32> frames{ 0 };
     std::atomic<UINT32> errors{ 0 };
+    IMFMediaType*     tipoAtual = nullptr;   // 2.2.5: copia do tipo de saida (ver QueryFormat), sob mtx
+    // Devolve o tipo de saida atual com AddRef (quem chama da Release), SEM tocar no reader.
+    IMFMediaType* TipoAtual() {
+        std::lock_guard<std::mutex> lk(mtx);
+        if (tipoAtual) tipoAtual->AddRef();
+        return tipoAtual;
+    }
     // QUADRO REPETIDO POR CONTEUDO (J7, 18/09/2026). A placa de captura entrega 60 amostras por
     // segundo aconteca o que acontecer no console: um jogo de PS5 em modo "qualidade" (30 fps)
     // chega como pares iguais (A A B B C C...). Para o frame generation isso e veneno: entre A
@@ -1283,13 +1290,21 @@ struct Capture {
         HRESULT hr = reader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &cur);
         if (FAILED(hr)) { if (err) *err = TS(L"GetCurrentMediaType falhou ", L"GetCurrentMediaType failed ") + Hex(hr); return false; }
         UINT32 nw = 0, nh = 0; MFGetAttributeSize(cur, MF_MT_FRAME_SIZE, &nw, &nh);
+        UINT32 frN = 0, frD = 0; MFGetAttributeRatio(cur, MF_MT_FRAME_RATE, &frN, &frD);
         UINT32 st = 0; LONG s = 0;
         if (SUCCEEDED(cur->GetUINT32(MF_MT_DEFAULT_STRIDE, &st))) s = (LONG)(INT32)st;
         GUID sub{}; cur->GetGUID(MF_MT_SUBTYPE, &sub);
-        cur->Release();
         bool c; std::wstring sn = SubtypeName(sub, &c);
-        Log("Formato de saida: %ux%u %s stride=%ld", nw, nh, U8(sn).c_str(), (long)s);
+        Log("Formato de saida: %ux%u %s stride=%ld @ %.2f fps", nw, nh, U8(sn).c_str(), (long)s,
+            frD ? (double)frN / frD : 0.0);
         std::lock_guard<std::mutex> lk(mtx);
+        // 2.2.5: guarda o tipo atual. Com o reader SINCRONO, qualquer chamada nele de fora da
+        // thread de captura (GetCurrentMediaType) espera o ReadSample em andamento - e com a
+        // placa sem sinal esse ReadSample nunca volta: o app congelava antes do ShowWindow
+        // (janela criada e nunca mostrada, log parado em "neural na abertura"). Quem precisar
+        // do tipo fora da thread usa TipoAtual(), que nao toca no reader.
+        if (tipoAtual) tipoAtual->Release();
+        tipoAtual = cur;   // a referencia do GetCurrentMediaType passa a ser nossa
         w = nw; h = nh; stride = s;
         buf.assign((size_t)w * h * 4, 0);
         fresh = false;
@@ -1323,18 +1338,48 @@ struct Capture {
                     faixa.c_str(), v, (unsigned)hrF);
             }
         }
+        // 2.2.5: o tamanho e a taxa do modo ESCOLHIDO, lidos antes de soltar o `nat`.
+        UINT32 natW = 0, natH = 0, natFrN = 0, natFrD = 0;
+        if (SUCCEEDED(hr) && nat) {
+            MFGetAttributeSize(nat, MF_MT_FRAME_SIZE, &natW, &natH);
+            MFGetAttributeRatio(nat, MF_MT_FRAME_RATE, &natFrN, &natFrD);
+        }
         if (SUCCEEDED(hr)) { hr = reader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, nat); nat->Release(); }
         if (FAILED(hr)) Log("SetCurrentMediaType(nativo %u) hr=0x%08X (seguindo com o padrao do dispositivo)", nativeIndex, (unsigned)hr);
 
         // pede RGB32 (BGRA) -- o reader monta decoder + conversor sozinho
+        //
+        // 2.2.5: O MODO ESCOLHIDO ERA IGNORADO. Pedir so "RGB32", sem tamanho nem taxa, deixa o
+        // Source Reader livre para trocar o tipo NATIVO por um que ja saia em RGB32 - e a ezcap
+        // GAMEDOCK ULTRA tem um (1920x1080 @ 30 RGB32). Medido em 19/11/2026: modo 3840x2160@30
+        // escolhido -> "Formato de saida: 1920x1080"; modo 1920x1080@60 escolhido -> 30 quadros/s.
+        // Agora o pedido carrega o tamanho e a taxa do modo escolhido; se o conversor recusar,
+        // volta ao pedido antigo (so o formato) e diz no log.
         IMFMediaType* out = nullptr; MFCreateMediaType(&out);
         out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
         out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        const bool comModo = natW && natH;
+        if (comModo) {
+            MFSetAttributeSize(out, MF_MT_FRAME_SIZE, natW, natH);
+            if (natFrN && natFrD) MFSetAttributeRatio(out, MF_MT_FRAME_RATE, natFrN, natFrD);
+        }
         hr = reader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, out);
         if (FAILED(hr)) {
             Log("RGB32 recusado (0x%08X), tentando ARGB32", (unsigned)hr);
             out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_ARGB32);
             hr = reader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, out);
+        }
+        if (FAILED(hr) && comModo) {
+            Log("captura: saida com o tamanho/taxa do modo (%ux%u @ %.2f) recusada (0x%08X) - pedindo so o formato, como antes",
+                natW, natH, natFrD ? (double)natFrN / natFrD : 0.0, (unsigned)hr);
+            out->DeleteItem(MF_MT_FRAME_SIZE);
+            out->DeleteItem(MF_MT_FRAME_RATE);
+            out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+            hr = reader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, out);
+            if (FAILED(hr)) {
+                out->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_ARGB32);
+                hr = reader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, out);
+            }
         }
         out->Release();
         if (FAILED(hr)) { if (err) *err = TS(L"O dispositivo nao aceitou saida RGB32/ARGB32 (",
@@ -1358,6 +1403,14 @@ struct Capture {
             if (fl & MF_SOURCE_READERF_ENDOFSTREAM) { Log("Fim de stream"); break; }
             if (fl & MF_SOURCE_READERF_ERROR) { Log("MF_SOURCE_READERF_ERROR"); errors++; }
             if (fl & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED) { Log("Tipo de midia mudou (fonte trocou resolucao?)"); QueryFormat(nullptr); }
+#ifdef DLSS5_DEV
+            // SO NO BUILD DE DESENVOLVIMENTO: DLSS5_TESTE_SEM_IMAGEM=1 joga fora todo quadro, para
+            // testar o aviso de "placa sem imagem" sem desligar cabo nenhum.
+            static int semImgTeste = -1;
+            if (semImgTeste < 0) { wchar_t e[4]{}; semImgTeste = (GetEnvironmentVariableW(L"DLSS5_TESTE_SEM_IMAGEM", e, 4) && e[0] == L'1') ? 1 : 0;
+                                   if (semImgTeste) Log("DEV: DLSS5_TESTE_SEM_IMAGEM=1 - todo quadro da placa e descartado"); }
+            if (semImgTeste && s) { s->Release(); s = nullptr; }
+#endif
             if (!s) continue;
 
             IMFMediaBuffer* b = nullptr; bool copied = false;
@@ -4182,6 +4235,7 @@ static void MouseQuadro(HWND jogo, HWND pelicula) {
 // NAO VIVE NUMA THREAD SO DELA"). Com WS_EX_LAYERED o sistema nem pergunta pelo hit-test,
 // entao o custo do Present nao prende mais o mouse de quem esta embaixo da camada. Sem o
 // layered, isso volta a ser um problema serio: no modo monitor a camada e a tela inteira.
+static bool g_pintarRecado = false;   // 2.2.5: o WM_PAINT abaixo pinta o recado "preparando a imagem" (so janela separada)
 static LRESULT CALLBACK RenderWndProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     // O prazo do modo interativo e renovado aqui, e nao no laco principal: assim ele
     // continua certo independente de quem despacha as mensagens desta janela.
@@ -4316,6 +4370,38 @@ static LRESULT CALLBACK RenderWndProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     case WM_DESTROY: g_quit = true; PostQuitMessage(0); return 0;
     case WM_ENDSESSION: if (wp) { CursorSoRestaurarFinal("WM_ENDSESSION"); Desempenho::EmergenciaRestaurar("WM_ENDSESSION"); } return 0;   // desligar/logoff: o bloco final pode nao rodar (14/09)
     case WM_ERASEBKGND: return 1;
+    case WM_PAINT: {
+        // so a JANELA SEPARADA (g_pintarRecado, ligado no ShowWindow dela): a pelicula e transparente
+        // por cima do jogo/monitor e um fundo preto ali taparia a tela - para ela, o de sempre.
+        if (!g_pintarRecado) break;
+        // 2.2.5: A JANELA BRANCA. Sem WM_PAINT, a janela recem-mostrada ficava BRANCA ate o
+        // primeiro Present - e em 19/11/2026 o apresentador levou 43 s para subir (o driver ainda
+        // se ajeitando depois de religar o USB da placa): 43 s de janela branca e "travou?".
+        // Agora ela nasce preta com um recado. Os swapchains desta janela sao FLIP (o DISCARD so
+        // existe como reserva de Windows antigo): depois do primeiro Present o quadro cobre o
+        // GDI, entao isto so aparece enquanto nao ha imagem.
+        PAINTSTRUCT ps{}; HDC dc = BeginPaint(h, &ps);
+        RECT rc{}; GetClientRect(h, &rc);
+        FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+        const int alt = (rc.bottom - rc.top);
+        HFONT f = CreateFontW(-(alt > 400 ? alt / 30 : 14), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                              DEFAULT_PITCH, L"Segoe UI");
+        HGDIOBJ old = SelectObject(dc, f);
+        SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(200, 200, 200));
+        const std::wstring txt = T(L"DLSS 5 For All\npreparando a imagem…\n\n"
+                                   L"Se nada aparecer em alguns segundos, veja o aviso na tela.",
+                                   L"DLSS 5 For All\npreparing the picture…\n\n"
+                                   L"If nothing shows up in a few seconds, check the message on screen.");
+        RECT medida = rc;
+        DrawTextW(dc, txt.c_str(), -1, &medida, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
+        const int th = medida.bottom - medida.top;
+        RECT r2 = rc; r2.top = rc.top + (alt - th) / 2; r2.bottom = r2.top + th;
+        DrawTextW(dc, txt.c_str(), -1, &r2, DT_CENTER | DT_WORDBREAK);
+        SelectObject(dc, old); DeleteObject(f);
+        EndPaint(h, &ps);
+        return 0;
+    }
     }
     return DefWindowProcW(h, m, wp, lp);
 }
@@ -7075,6 +7161,58 @@ static bool ShowInCapture(HWND h) {
     HMODULE u = GetModuleHandleW(L"user32.dll");
     PFN f = u ? reinterpret_cast<PFN>(reinterpret_cast<void*>(GetProcAddress(u, "SetWindowDisplayAffinity"))) : nullptr;
     return f && f(h, 0 /* WDA_NONE */);
+}
+// =====================================================================================
+//  2.2.5 (19/11/2026): AS JANELAS DE CONTROLE APARECEM NA GRAVACAO.
+//
+//  Ate a 2.2.4 o painel, as dicas, o guia, os filtros, o perfil, o selo e os cartazes saiam
+//  de TODA captura (WDA_EXCLUDEFROMCAPTURE): quem gravava um video no OBS - o uso principal
+//  do programa - nao conseguia mostrar o painel nem na captura de monitor. Pedido do dono:
+//  manter o painel visivel na gravacao.
+//
+//  A exclusao existia por um motivo, e ele continua valendo so num caso: FONTE MONITOR. Ali a
+//  nossa captura filma o monitor inteiro, e um painel visivel entraria na propria imagem
+//  processada (duplicado, atrasado, filtrado). Entao:
+//    - fonte MONITOR  -> controles FORA da captura (como sempre foi);
+//    - placa de captura / janela -> controles VISIVEIS para OBS, prints, Discord.
+//  `[ultima] controles_na_gravacao=0` volta ao comportamento antigo (sempre fora).
+//  A pelicula/saida NAO passa por aqui: ela tem as regras dela (C.hideSelf).
+//  As janelas sao registradas aqui porque algumas nascem antes de a fonte ser escolhida
+//  (seletor, cartazes): quando a fonte abre, ControlesFonte() reaplica em todas.
+// =====================================================================================
+static std::mutex        g_controlesMtx;
+static std::vector<HWND> g_controles;
+static bool              g_controlesFonteMonitor = false;
+static bool ControlesForaDaCaptura() {
+    if (IniGet(L"controles_na_gravacao") == L"0") return true;
+    return g_controlesFonteMonitor;
+}
+static void ControleAplicar(HWND h, bool fora) {
+    if (!h || !IsWindow(h)) return;
+    if (fora) HideFromCapture(h); else ShowInCapture(h);
+}
+// Use no lugar do HideFromCapture para janela de CONTROLE (nao para pelicula/saida).
+static void ControleNaCaptura(HWND h) {
+    if (!h) return;
+    const bool fora = ControlesForaDaCaptura();
+    {
+        std::lock_guard<std::mutex> lk(g_controlesMtx);
+        g_controles.erase(std::remove_if(g_controles.begin(), g_controles.end(),
+                                         [](HWND w) { return !IsWindow(w); }), g_controles.end());
+        if (std::find(g_controles.begin(), g_controles.end(), h) == g_controles.end()) g_controles.push_back(h);
+    }
+    ControleAplicar(h, fora);
+}
+// Chamada quando a fonte abre: decide e reaplica em todas as janelas de controle vivas.
+static void ControlesFonte(bool fonteMonitor) {
+    g_controlesFonteMonitor = fonteMonitor;
+    const bool fora = ControlesForaDaCaptura();
+    std::vector<HWND> js;
+    { std::lock_guard<std::mutex> lk(g_controlesMtx); js = g_controles; }
+    int n = 0;
+    for (HWND h : js) if (IsWindow(h)) { ControleAplicar(h, fora); n++; }
+    Log("controles na gravacao: %s (fonte %s; %d janela(s) de controle ja abertas) - [ultima] controles_na_gravacao=0 tira sempre",
+        fora ? "FORA da captura" : "VISIVEIS para OBS/prints", fonteMonitor ? "monitor" : "placa/janela", n);
 }
 // =====================================================================================
 //  OCLUSAO-2309 §8 (23/09/2026): AUDITORIA DA AFINIDADE DE EXIBICAO DE TODAS AS NOSSAS
@@ -19278,7 +19416,7 @@ static void MostrarTip(int item) {
                                 wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10,
                                 g_hud.wnd, nullptr, g_hud.inst, nullptr);
         if (!g_tip) return;
-        HideFromCapture(g_tip);   // e controle, como o painel: fica fora do video
+        ControleNaCaptura(g_tip);   // e controle, como o painel: fica fora do video
     }
     const REAL esc = g_scaleDesenhado;
     const TipMedida m = MedirTip(g_items[item].tip);
@@ -19412,13 +19550,14 @@ static void Open() {
                                     wc.lpszClassName, L"", WS_POPUP,
                                     0, 0, 10, 10, nullptr, nullptr, g_hud.inst, nullptr);
         if (!g_hud.wnd) { Log("painel: CreateWindow falhou"); return; }
-        // o painel fica de fora de gravacoes e prints - senao entraria no proprio filtro.
-        // DLSS5_PANEL_NA_CAPTURA=1 desliga isso (util pra gravar um tutorial do painel).
+        // 2.2.5: o painel APARECE em gravacoes e prints (OBS), menos na fonte monitor, onde
+        // entraria no proprio filtro - ver ControlesFonte. DLSS5_PANEL_NA_CAPTURA=1 continua
+        // forcando visivel em qualquer fonte (gravar tutorial do painel no modo monitor).
         wchar_t env[8]{};
         if (GetEnvironmentVariableW(L"DLSS5_PANEL_NA_CAPTURA", env, 8) && env[0] == L'1')
             Log("painel: aparece nas capturas (DLSS5_PANEL_NA_CAPTURA=1)");
         else
-            HideFromCapture(g_hud.wnd);
+            ControleNaCaptura(g_hud.wnd);
     }
     // A posicao arrastada numa sessao anterior, lida uma vez so. Sem as duas chaves o
     // painel continua se posicionando sozinho, como sempre fez.
@@ -19824,7 +19963,7 @@ static void Open(int segundos) {
                                 wc.lpszClassName, L"", WS_POPUP,
                                 0, 0, 10, 10, nullptr, nullptr, g_hud.inst, nullptr);
         if (!g_wnd) { Log("guia: CreateWindow falhou"); return; }
-        HideFromCapture(g_wnd);   // e instrucao pra quem usa, nao conteudo pra gravar
+        ControleNaCaptura(g_wnd);   // e instrucao pra quem usa, nao conteudo pra gravar
     }
     g_hot = -1;
     g_open = true;
@@ -20298,7 +20437,7 @@ static bool CriarJanela() {
     g_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, wc.lpszClassName, L"", WS_POPUP,
                             0, 0, 10, 10, nullptr, nullptr, inst, nullptr);
     if (!g_wnd) { Log("modos: CreateWindow falhou"); return false; }
-    HideFromCapture(g_wnd);   // e conversa com quem usa, nao conteudo para gravar
+    ControleNaCaptura(g_wnd);   // e conversa com quem usa, nao conteudo para gravar
     return true;
 }
 static void Preparar(int de, int para, bool antiCheat, const std::wstring& exe) {
@@ -21247,7 +21386,7 @@ static void MostrarDica(int item) {
                                 wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10,
                                 g_wnd, nullptr, g_hud.inst, nullptr);
         if (!g_tip) return;
-        HideFromCapture(g_tip);
+        ControleNaCaptura(g_tip);
     }
     const Filtro& f = g_f[g_it[item].f];
     const std::wstring texto = std::wstring(T(f.nome, f.nomeEn)) + L"\n" + T(f.dica, f.dicaEn);
@@ -21475,7 +21614,7 @@ static void Open() {
                                 wc.lpszClassName, L"", WS_POPUP,
                                 0, 0, 10, 10, nullptr, nullptr, g_hud.inst, nullptr);
         if (!g_wnd) { Log("filtros: CreateWindow falhou"); return; }
-        HideFromCapture(g_wnd);   // e controle, nao conteudo: fica fora do video e do filtro
+        ControleNaCaptura(g_wnd);   // e controle, nao conteudo: fica fora do video e do filtro
     }
     // Quem recebe o foco de volta ao fechar: se viemos do painel, e quem o PAINEL guardou
     // (o jogo), nao o proprio painel, que esta indo embora.
@@ -22489,7 +22628,7 @@ static void MostrarDica(int item) {
                                 wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10,
                                 g_wnd, nullptr, g_hud.inst, nullptr);
         if (!g_tip) return;
-        HideFromCapture(g_tip);
+        ControleNaCaptura(g_tip);
     }
     const REAL esc = g_scale;
     const Hud::TipMedida m = Hud::MedirTip(g_it[item].tip);
@@ -22755,7 +22894,7 @@ static void Open() {
                                 wc.lpszClassName, L"", WS_POPUP,
                                 0, 0, 10, 10, nullptr, nullptr, g_hud.inst, nullptr);
         if (!g_wnd) { Log("perfil: CreateWindow falhou"); return; }
-        HideFromCapture(g_wnd);
+        ControleNaCaptura(g_wnd);
     }
     // O deslocamento gravado numa sessao anterior, lido uma vez. Sem as chaves, a janela
     // nasce um pouco abaixo e a direita do canto do painel - por cima dele, sem tapa-lo todo.
@@ -22934,7 +23073,7 @@ static void Tick(HINSTANCE hi, HWND janelaFiltro) {
         g_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED,
                                 wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
         if (!g_wnd) return;
-        HideFromCapture(g_wnd);
+        ControleNaCaptura(g_wnd);
     }
     Paint();   // reposiciona tambem: o alvo se move
     if (!g_visivel) { ShowWindow(g_wnd, SW_SHOWNOACTIVATE); g_visivel = true; Log("dlss 2x: selo na tela"); }
@@ -30728,7 +30867,26 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // dentro da area util para a barra de titulo continuar visivel e arrastavel. Sem
         // isso, centralizar uma janela maior que a tela jogaria a barra de titulo para
         // fora e a pessoa ficaria sem como mover o que sobrou.
-        const int ww = (int)(wr.right - wr.left), wh = (int)(wr.bottom - wr.top);
+        int ww = (int)(wr.right - wr.left), wh = (int)(wr.bottom - wr.top);
+        // 2.2.5: A EXCECAO - CAPTURA MUITO MAIOR QUE A TELA. O 1:1 acima e para a sobra de
+        // poucas dezenas de pixels (barra de titulo, barra de tarefas). Desde que o modo
+        // escolhido da placa passou a valer de verdade (ver Capture::Start), uma placa em
+        // 3840x2160 num monitor 1920x1080 pedia uma janela de 3856x2199: 3/4 da imagem fora da
+        // tela. Passou de 25% da area util em qualquer eixo, a janela nasce do tamanho da area
+        // util, na proporcao da captura - reduzir 2:1 nao borra, e a reducao do compositor e a
+        // mesma de quando a pessoa encolhe a janela no mouse. [ultima] janela_1para1=1 volta ao 1:1.
+        {
+            const int waW = (int)(wa.right - wa.left), waH = (int)(wa.bottom - wa.top);
+            if ((ww > waW * 5 / 4 || wh > waH * 5 / 4) && IniGet(L"janela_1para1") != L"1" && cw && ch) {
+                const int moldW = ww - (int)cw, moldH = wh - (int)ch;   // bordas + barra de titulo
+                const double esc = std::min((double)(waW - moldW) / cw, (double)(waH - moldH) / ch);
+                const int novoW = (int)(cw * esc + 0.5), novoH = (int)(ch * esc + 0.5);
+                Log("janela separada: captura %ux%u bem maior que a area util %dx%d - janela ajustada a tela "
+                    "(area cliente %dx%d, escala %.3f; [ultima] janela_1para1=1 mantem 1:1)",
+                    (unsigned)cw, (unsigned)ch, waW, waH, novoW, novoH, esc);
+                ww = novoW + moldW; wh = novoH + moldH;
+            }
+        }
         int px = wa.left + (wa.right - wa.left - ww) / 2;
         int py = wa.top  + (wa.bottom - wa.top - wh) / 2;
         if (px < wa.left) px = wa.left;
@@ -31739,6 +31897,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
                                                         : "desenhado por nos");
     }
 
+    // 2.2.5: painel/cartazes/dicas so saem da captura na fonte MONITOR (ver ControlesFonte)
+    if (!g_camada2 && !g_ponteFeeder) ControlesFonte(C.kind == SRC_MONITOR);
     if (C.kind != SRC_CAMERA && !usandoShared && !g_ponteFeeder) {   // (ponte: sem captura WGC - o quadro vem por textura compartilhada)
         if (C.hideSelf && !HideFromCapture(hwnd))
             Log("SetWindowDisplayAffinity(EXCLUDEFROMCAPTURE) falhou - Windows antigo? cuidado com o espelho");
@@ -32009,9 +32169,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     g_hdrTr.Init(IniPath());
     g_hdrTr.RecoverStale();          // desfaz o que uma sessao morta tenha deixado
     if (C.kind == SRC_CAMERA) {
-        IMFMediaType* cur = nullptr;
-        if (cap.reader && SUCCEEDED(cap.reader->GetCurrentMediaType(
-                (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &cur)) && cur) {
+        // 2.2.5: a copia guardada na abertura, e NAO cap.reader->GetCurrentMediaType - essa
+        // chamada esperava o ReadSample da thread de captura e, com a placa sem sinal, travava
+        // o app aqui para sempre, com a janela ainda escondida (ver Capture::QueryFormat).
+        IMFMediaType* cur = cap.TipoAtual();
+        if (cur) {
             g_hdrTr.SetSourceVideo(Hdr::VideoColorFromMediaType(cur));
             cur->Release();
         }
@@ -32157,6 +32319,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         // -32000 e o usuario nao via nada.
         ShowWindow(hwnd, SW_SHOWNORMAL);
         if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        g_pintarRecado = true;
+        UpdateWindow(hwnd);   // 2.2.5: pinta o recado ja (ver WM_PAINT do RenderWndProc), antes de qualquer espera
         // o mesmo cartaz-guia do modo sobreposto: as duas teclas e nada mais
     }
     // A BANDEJA VALE NOS DOIS MODOS. Ela so existia no sobreposto, e o cartaz-guia
@@ -38645,6 +38809,36 @@ L"Do you want to continue?");
                     (unsigned long long)dEsp, ponte ? PontePlacas::g_ponte.EsperaPiorMsReset() : 0.0,
                     ponte ? "" : " (sem ponte: tela = rede)", aviso.c_str());
                 Quadros5::g_msAcc = 0.0; Quadros5::g_msN = 0; Quadros5::g_msMax = 0.0;
+                // 2.2.5: PLACA SEM IMAGEM. Antes a pessoa ficava olhando uma janela parada (ou nenhuma)
+                // sem saber o que houve - caso real de 19/11/2026: a ezcap travou (o audio HDMI chegava, o
+                // video nao) e so desligar e religar o USB resolveu. Depois de 5 s sem NENHUM quadro da
+                // placa, o cartaz diz o que fazer; repete a cada 60 s enquanto continuar sem imagem, e
+                // avisa no log quando a imagem chega.
+                if (C.kind == SRC_CAMERA) {
+                    static ULONGLONG semImgDesde = 0, semImgUltimoAviso = 0;
+                    static bool semImgAvisou = false;
+                    const ULONGLONG agora = GetTickCount64();
+                    if (!semImgDesde) semImgDesde = agora;
+                    const UINT32 fr = cap.frames;
+                    if (fr == 0 && agora - semImgDesde >= 5000 &&
+                        (!semImgUltimoAviso || agora - semImgUltimoAviso >= 60000)) {
+                        semImgUltimoAviso = agora; semImgAvisou = true;
+                        Log("captura: a placa nao entregou NENHUM quadro em %.0f s (erros de leitura %u) - avisando a pessoa",
+                            (agora - semImgDesde) / 1000.0, (unsigned)cap.errors);
+                        ShowToast(hi, C.mon,   // ::T: aqui ha uma variavel local `T` (quadros na tela)
+                            ::T(L"A PLACA DE CAPTURA NÃO ESTÁ ENVIANDO IMAGEM\n"
+                              L"Confira se o console/PC está ligado e mandando sinal pelo HDMI.\n"
+                              L"Se estiver, desconecte o USB da placa, espere 10 s e conecte de novo.\n"
+                              L"Persistindo, feche o programa e escolha outro modo (ex.: 1920x1080 @ 60).",
+                              L"THE CAPTURE CARD IS NOT SENDING ANY PICTURE\n"
+                              L"Check that the console/PC is on and sending a signal over HDMI.\n"
+                              L"If it is, unplug the card's USB, wait 10 s and plug it back in.\n"
+                              L"If it persists, close the program and pick another mode (e.g. 1920x1080 @ 60)."), 20000);
+                    } else if (fr > 0 && semImgAvisou) {
+                        semImgAvisou = false;
+                        Log("captura: a imagem da placa chegou (%u quadros) - aviso de placa sem imagem encerrado", (unsigned)fr);
+                    }
+                }
             }
             Laco::Marca("monitor sobreposto");
             // ETAPAS MEDIDAS. Os quatro de cima saem do estado real (janela do jogo agora,

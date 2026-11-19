@@ -565,6 +565,15 @@ O ReShade aplica tudo **no Present** da nossa janela, então quem grava tem que 
   use dois monitores (jogo num, DLSS5 For All no outro) ou capture por janela.
 - Para o vídeo de **antes e depois**, ligue o **Modo comparativo** (Mais opções): as duas metades saem no mesmo
   quadro, já com os selos, e não é preciso cortar nada na edição. Deixe o DLSS FRAME SKIPPING desligado.
+- **O painel aparece na gravação** (desde a 2.2.5). Com a fonte **placa de captura** ou **janela**, o painel (End),
+  os avisos e as dicas aparecem no OBS e nos prints, inclusive na *Captura de monitor*. Só com a fonte **monitor**
+  eles continuam fora da captura, porque senão entrariam na própria imagem processada. Para tirar sempre, use
+  `controles_na_gravacao=0` em `[ultima]`.
+- **Som do programa no OBS.** O som da placa de captura sai pelo dispositivo de som **padrão** do Windows no momento
+  em que o programa abre. Se você trocar de saída com o OBS aberto (ex.: conectou um fone Bluetooth), o
+  *Áudio da área de trabalho* do OBS pode continuar preso na saída antiga e a gravação sai muda. O jeito à prova
+  disso: **Fontes → + → Captura de áudio de aplicativo (BETA) → Janela: [DLSS5ForAll.exe]**, e deixe o *Áudio da
+  área de trabalho* no mudo para o som não sair dobrado.
 
 Latencia: medida nesta maquina, do frame capturado ao pixel na tela, **18-21 ms com a GPU livre** (era ~121 ms
 antes do swapchain waitable com `SetMaximumFrameLatency(1)`). O Neural Rendering acrescenta +3 a 4,5 ms a 1080p e
@@ -599,6 +608,7 @@ poe o monitor real como principal) e confere a linha `LAT ritmo do WGC` no `dlss
 | Painel DLSS 5 em STANDBY | add-on perdeu o primeiro create | O Feeder recria sozinho depois de ~180 frames. Espera. |
 | "0.0 fps (alvo parado)" | a janela capturada não redesenhou nada | normal em janela estática; num jogo o número sobe |
 | Fatal: "dispositivo em uso" / nenhum modo (câmera) | outro app segurando a captura | Fecha OBS/Discord/navegador/app Câmera, clica em *Atualizar lista*. |
+| Aviso "A placa de captura não está enviando imagem" | a placa não entregou nenhum quadro em 5 s: console desligado/sem sinal, ou a placa travou (o som HDMI pode continuar chegando) | Confira o console e o HDMI; se estiver tudo ligado, **desconecte o USB da placa, espere 10 s e conecte de novo**. Persistindo, escolha outro modo. |
 | Nada abre, sem janela | olha `dlss5forall.log` | Ele diz onde parou (MFStartup, D3D11, shaders, WGC…). |
 
 ## Sobre os arquivos

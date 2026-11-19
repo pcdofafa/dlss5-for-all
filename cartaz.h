@@ -338,7 +338,7 @@ static ULONGLONG Mostrar(HINSTANCE hi, HMONITOR mon, const std::wstring& texto, 
     u.wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_LAYERED,
                             L"DLSS5ForAllCartaz", L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (!u.wnd) return 0;
-    HideFromCapture(u.wnd);   // o cartaz nao entra no video capturado
+    ControleNaCaptura(u.wnd);   // 2.2.5: controle - fora so na fonte monitor; o cartaz nao entra no video capturado
     u.texto = texto; u.rodape = rodape; u.mon = mon; u.id = ++g_serial; u.status = status;
     u.ate = GetTickCount64() + ms;
     Renderizar(u);

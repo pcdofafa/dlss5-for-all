@@ -564,6 +564,14 @@ ReShade applies everything **at the Present** of our window, so whoever records 
   use two monitors (game on one, DLSS5 For All on the other) or capture by window.
 - For the **before and after** video, turn on **Comparison mode** (More options): the two halves come out in the same
   frame, already with the badges, and nothing needs to be cut in editing. Leave DLSS FRAME SKIPPING off.
+- **The panel shows up in recordings** (since 2.2.5). With the **capture card** or **window** source, the panel (End),
+  the notices and the tips appear in OBS and in screenshots, *Display Capture* included. Only with the **monitor**
+  source do they stay out of the capture, because otherwise they would end up inside the processed image itself.
+  To always keep them out, set `controles_na_gravacao=0` in `[ultima]`.
+- **The program's sound in OBS.** The capture card's sound goes to the Windows **default** sound device as of when
+  the program opens. If you switch outputs with OBS open (e.g. a Bluetooth headset connected), OBS's *Desktop Audio*
+  may stay stuck on the old output and the recording comes out silent. The foolproof way: **Sources → + →
+  Application Audio Capture (BETA) → Window: [DLSS5ForAll.exe]**, and mute *Desktop Audio* so the sound is not doubled.
 
 Latency: measured on this machine, from the captured frame to the pixel on screen, **18-21 ms with the GPU free** (it was ~121 ms
 before the waitable swapchain with `SetMaximumFrameLatency(1)`). The Neural Rendering adds +3 to 4.5 ms at 1080p and
@@ -598,6 +606,7 @@ set the real monitor as primary) and check the `LAT ritmo do WGC` line in `dlss5
 | DLSS 5 panel in STANDBY | add-on missed the first create | The Feeder recreates it on its own after ~180 frames. Wait. |
 | "0.0 fps (alvo parado)" | the captured window did not redraw anything | normal on a static window; in a game the number goes up |
 | Fatal: "dispositivo em uso" / no mode (camera) | another app holding the capture | Close OBS/Discord/browser/Camera app, click *Refresh list*. |
+| Notice "The capture card is not sending any picture" | the card delivered no frame in 5 s: console off/no signal, or the card hung (HDMI sound may keep arriving) | Check the console and the HDMI; if everything is on, **unplug the card's USB, wait 10 s and plug it back in**. If it persists, pick another mode. |
 | Nothing opens, no window | look at `dlss5forall.log` | It says where it stopped (MFStartup, D3D11, shaders, WGC…). |
 
 ## About the files
