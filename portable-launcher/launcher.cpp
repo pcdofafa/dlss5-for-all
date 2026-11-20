@@ -227,11 +227,15 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
     STARTUPINFOW si{}; si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
     std::wstring buf = linha;   // CreateProcessW pode escrever no buffer
-    // v2.0: O APP SO ABRE POR ESTA TELA (lancamento.h). Ele nasce SUSPENSO para o bilhete
-    // existir, com o PID dele no nome, antes de a primeira linha do app rodar; depois a
-    // thread segue e este processo espera o "conferido" (ate 10 s) para sair - o app confere
-    // que o pai e este exe, entao o pai tem de estar vivo durante a conferencia.
-    if (!CreateProcessW(alvo.c_str(), &buf[0], nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr,
+    // v2.0: O APP SO ABRE POR ESTA TELA (lancamento.h). Este processo publica o bilhete com o
+    // PID do filho no nome e espera o "conferido" (ate 10 s) para sair - o app confere que o pai
+    // e este exe, entao o pai tem de estar vivo durante a conferencia.
+    // 19/11/2026 (alarme falso de antivirus): o app NAO nasce mais suspenso. Criar um exe SUSPENSO e
+    // depois soltar a thread (CREATE_SUSPENDED + ResumeThread) e o comeco do "process hollowing" que a
+    // heuristica dos antivirus vigia. O bilhete sai logo depois do CreateProcess, e o app, quando o pai e
+    // este launcher, espera o bilhete aparecer (ConferirLancamento, no main.cpp) em vez de exigir que ele
+    // ja exista na primeira linha.
+    if (!CreateProcessW(alvo.c_str(), &buf[0], nullptr, nullptr, FALSE, 0, nullptr,
                         pasta.c_str(), &si, &pi)) {
         const DWORD e = GetLastError();
         atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: app] CreateProcess de %ls falhou (erro do Windows %lu)", alvo.c_str(), (unsigned long)e);   // v2.1
@@ -248,7 +252,6 @@ static int Abrir(const std::wstring& pasta, const std::wstring& args) {
     if (!bilhete)
         atualizacao::Anotar(g_pastaDados + L"launcher.log", L"ERRO DE INICIALIZACAO [componente: bilhete do launcher] PublicarBilhete falhou em %hs (erro do Windows %lu)",
                             etapaBilhete, (unsigned long)erroBilhete);
-    ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     const ULONGLONG t0 = GetTickCount64();
     const bool conferiu = bilhete && Lancamento::EsperarConferido(pi.hProcess, pi.dwProcessId, 10000);

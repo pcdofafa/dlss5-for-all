@@ -28726,10 +28726,20 @@ static bool ConferirLancamento() {
 
     // (a) o bilhete do launcher
     {
-        HANDLE ev = OpenEventW(SYNCHRONIZE, FALSE, Lancamento::NomeEvento(GetCurrentProcessId()).c_str());
-        const DWORD erEv = ev ? 0 : GetLastError();      // v2.1: para o log (ACCESS_DENIED = niveis de elevacao diferentes)
-        HANDLE mapa = OpenFileMappingW(FILE_MAP_READ, FALSE, Lancamento::NomeBilhete(GetCurrentProcessId()).c_str());
-        const DWORD erMapa = mapa ? 0 : GetLastError();
+        // 19/11/2026: o launcher nao cria mais o app suspenso (CREATE_SUSPENDED + ResumeThread parecia
+        // "process hollowing" para os antivirus): ele publica o bilhete LOGO DEPOIS do CreateProcess. Entao,
+        // quando o pai vivo e o launcher da raiz e o bilhete ainda nao existe, esperamos ate 5 s por ele.
+        // Qualquer outro pai nao espera nada (segue igual a antes).
+        const bool paiEhLauncher = !paiExe.empty() && MesmoArquivo(paiExe, launcher);
+        HANDLE ev = nullptr, mapa = nullptr;
+        DWORD erEv = 0, erMapa = 0;
+        for (const ULONGLONG t0 = GetTickCount64();;) {
+            if (!ev)   { ev = OpenEventW(SYNCHRONIZE, FALSE, Lancamento::NomeEvento(GetCurrentProcessId()).c_str()); erEv = ev ? 0 : GetLastError(); }   // v2.1: para o log (ACCESS_DENIED = niveis de elevacao diferentes)
+            if (!mapa) { mapa = OpenFileMappingW(FILE_MAP_READ, FALSE, Lancamento::NomeBilhete(GetCurrentProcessId()).c_str()); erMapa = mapa ? 0 : GetLastError(); }
+            if ((ev && mapa) || !paiEhLauncher || GetTickCount64() - t0 >= 5000) break;
+            if ((!ev && erEv != ERROR_FILE_NOT_FOUND) || (!mapa && erMapa != ERROR_FILE_NOT_FOUND)) break;   // sem acesso etc.: esperar nao resolve
+            Sleep(5);
+        }
         g_lancErroEv = erEv; g_lancErroMapa = erMapa;
         bool valido = false;
         if (ev && mapa) {

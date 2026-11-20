@@ -513,6 +513,10 @@ inline bool LerManifesto(const std::string& json, Manifesto& m, std::wstring& er
     if (modoSite) { m.zipUrl.clear(); m.zipSha256.clear(); }
     if (aviso && !modoSite && !m.Direto() && (!zu.empty() || !zs.empty() || !au.empty() || !as.empty()))
         *aviso = L"zip incompleto (precisa de zip_url + zip_sha256 com 64 hexadecimais) - fica o modo site";
+#ifndef DLSS5_ATUALIZACAO_DIRETA
+    // 19/11/2026: sem o modo direto compilado (ver BaixarEAplicar), todo manifesto e modo site.
+    m.zipUrl.clear(); m.zipSha256.clear();
+#endif
     if (!m.minimaParaAuto.empty() && !VersaoValida(m.minimaParaAuto)) m.minimaParaAuto.clear();
     return true;
 }
@@ -1377,6 +1381,12 @@ inline bool ErroOferecerSite(const std::wstring& erro, const std::wstring& log, 
     return true;
 }
 
+// 19/11/2026 (alarme falso de antivirus): O MODO DIRETO SAIU DO BINARIO. Baixar um zip, extrair com tar.exe,
+// escrever um .cmd com robocopy por cima de executaveis e dispara-lo por cmd.exe /c e o retrato de um
+// "downloader/dropper" para a heuristica dos antivirus, e da 2.1 em diante o manifesto so publica o modo site.
+// Sem DLSS5_ATUALIZACAO_DIRETA (o build normal) LerManifesto descarta o zip (tudo vira modo site: a caixa abre a
+// pagina de download) e BaixarEAplicar e um stub que nunca e chamado. O codigo fica aqui para quem quiser religar.
+#ifdef DLSS5_ATUALIZACAO_DIRETA
 // ----------------------------------------------------------------- mescla do ofertas.ini
 // Acrescenta no ini da pessoa SO as chaves (por secao) que o ini novo tem e o dela nao.
 // Nao muda valor nenhum, nao apaga comentario. Devolve quantas chaves entraram (-1 = erro).
@@ -1837,5 +1847,13 @@ inline bool BaixarEAplicar(HINSTANCE hi, const std::wstring& raiz, const Manifes
     Anotar(W.log, L"atualizar.cmd em execucao; launcher saindo");
     return true;
 }
+
+#else  // !DLSS5_ATUALIZACAO_DIRETA: so o modo site existe neste binario
+inline bool BaixarEAplicar(HINSTANCE, const std::wstring&, const Manifesto&, bool,
+                           const std::wstring&, std::wstring& erro, std::wstring& logPath) {
+    erro.clear(); logPath.clear();   // erro vazio: quem chama nao mostra caixa nenhuma
+    return false;
+}
+#endif  // DLSS5_ATUALIZACAO_DIRETA
 
 } // namespace atualizacao

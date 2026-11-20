@@ -7,13 +7,14 @@
 //  dois (launcher.cpp com DLSS5_LAUNCHER, main.cpp sem).
 //
 //  O MECANISMO
-//    1. O launcher cria o app SUSPENSO (ja sabe o PID do filho antes de ele rodar uma
-//       linha) e publica, com o nome amarrado a esse PID:
+//    1. O launcher cria o app (19/11/2026: nao mais SUSPENSO - parecia "process hollowing"
+//       aos antivirus; o app espera ate 5 s o bilhete quando o pai e o launcher) e publica,
+//       com o nome amarrado ao PID dele:
 //         Local\DLSS5_Lancado_<pid>        evento manual, apagado: "o app conferiu"
 //         Local\DLSS5_Lancado_<pid>_b      memoria compartilhada com o Bilhete abaixo:
 //                                          marca, PID do launcher e 128 bits aleatorios
 //                                          (BCryptGenRandom)
-//       e so entao solta a thread. Espera ate 10 s o evento acender e sai - fica vivo
+//       (a memoria primeiro, o evento por ultimo). Espera ate 10 s o evento acender e sai - fica vivo
 //       durante a conferencia, entao o app sempre encontra o pai no ar.
 //    2. O app (ConferirLancamento, no topo do wWinMain) aceita o bilhete so se o PID do
 //       launcher escrito nele e o do PROPRIO pai e se o pai e o launcher da raiz
@@ -105,14 +106,12 @@ inline INT_PTR AbrirEEsperarConferido(const wchar_t* exe, const wchar_t* args, c
 }
 
 #ifdef DLSS5_LAUNCHER
-// O lado do launcher: publica evento + bilhete para o filho SUSPENSO `pidFilho`. Os dois
+// O lado do launcher: publica bilhete + evento para o filho `pidFilho` (recem-criado). Os dois
 // handles ficam com quem chamou ate o fim da espera (fechar antes apagaria os objetos).
 // `erro` (opcional) recebe o GetLastError() do primeiro passo que falhou, e `etapa` o nome dele, para o log.
 inline bool PublicarBilhete(DWORD pidFilho, HANDLE* ev, HANDLE* mapa, DWORD* erro = nullptr, const char** etapa = nullptr) {
     auto falha = [&](const char* e) { if (erro) *erro = GetLastError(); if (etapa) *etapa = e; return false; };
     AclAberta aclEv(SddlEvento()), aclMapa(SddlMemoria());
-    *ev = CreateEventW(aclEv.get(), TRUE, FALSE, NomeEvento(pidFilho).c_str());
-    if (!*ev) return falha("CreateEvent");
     *mapa = CreateFileMappingW(INVALID_HANDLE_VALUE, aclMapa.get(), PAGE_READWRITE, 0, sizeof(Bilhete), NomeBilhete(pidFilho).c_str());
     if (!*mapa) return falha("CreateFileMapping");
     Bilhete* b = (Bilhete*)MapViewOfFile(*mapa, FILE_MAP_WRITE, 0, 0, sizeof(Bilhete));
@@ -123,8 +122,12 @@ inline bool PublicarBilhete(DWORD pidFilho, HANDLE* ev, HANDLE* mapa, DWORD* err
     const bool ok = BCRYPT_SUCCESS(BCryptGenRandom(nullptr, n.token, sizeof(n.token), BCRYPT_USE_SYSTEM_PREFERRED_RNG));
     if (ok) *b = n;
     UnmapViewOfFile(b);
-    if (!ok) { if (erro) *erro = 0; if (etapa) *etapa = "BCryptGenRandom"; }
-    return ok;
+    if (!ok) { if (erro) *erro = 0; if (etapa) *etapa = "BCryptGenRandom"; return false; }
+    // 19/11/2026: o evento nasce POR ULTIMO. O filho ja esta rodando (nao nasce mais suspenso) e espera
+    // evento + memoria existirem; com o evento depois da escrita, quando ele ve os dois o bilhete ja esta escrito.
+    *ev = CreateEventW(aclEv.get(), TRUE, FALSE, NomeEvento(pidFilho).c_str());
+    if (!*ev) return falha("CreateEvent");
+    return true;
 }
 #endif
 

@@ -16,6 +16,16 @@
                         processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
     </dependentAssembly>
   </dependency>
+  <!-- 19/11/2026: nivel de execucao declarado (asInvoker = roda com o usuario, nunca pede
+       administrador). Sem isto o Windows aplica a "deteccao de instalador" pela heuristica do nome/
+       tamanho, e um exe baixado sem nivel declarado e um sinal a mais para os antivirus. -->
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/> <!-- Windows 10/11 -->
